@@ -3,14 +3,22 @@
 using CodecZlib
 #  add Rice, PLIO, Hcompress, and No compression algorithms
 
-struct ZImageField
-    #  Uncompressed image values
-    name::String
+"""
+Compressed image array element descriptor
+"""
+struct ZImageField <: AbstractField
+    "The name of the field"
+    name::AbstractString
+    "The type of the field"
     type::Type
-    comp::String
-    mask::String
-    quant::String
-    dithr::Int64
+    "The type of the compression"
+    comp::AbstractString
+    "The compression mask"
+    mask::AbstractString
+    "The compression quantization"
+    quant::AbstractString
+    "The compression dither"
+    dithr::Integer
 end
 
 function Base.read(io::IO, ::Type{ZImage}, cards::Vector{Card}; kwds...)
@@ -37,13 +45,13 @@ function verify!(::Type{ZImage}, type::Type, shape::Tuple, cards::Cards,
     cards
 end
 
-function DataFormat(::Type{ZImage}, data::Nothing, mankeys::Dict{S, V}) where
+function DataFormat(::Type{ZImage}, data::Missing, mankeys::Dict{S, V}) where
     {S<:AbstractString, V<:ValueType}
 
 end
 
 function FieldFormat(::Type{ZImage}, mankeys::DataFormat, reskeys::Dict{S, V},
-    data::Nothing) where {S<:AbstractString, V<:ValueType}
+    data::Missing) where {S<:AbstractString, V<:ValueType}
 
 end
 

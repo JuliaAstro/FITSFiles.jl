@@ -3,14 +3,24 @@
 using CodecZlib
 #  add Rice, PLIO, Hcompress, and No compression algorithms
 
-struct ZTableField
+"""
+Compressed table element descriptor
+"""
+struct ZTableField <: AbstractField
+    "The name of the field"
     name::String
+    "The type of the field"
     type::Type
-    slice::UnitRange{Int64}
-    leng::Int64
+    "The slice of the field bytes from start of record"
+    slice::UnitRange{Integer}
+    "The number of elements in the field"
+    leng::Integer
+    "The dimensions of the field"
     shape::Tuple
+    "The type of compression"
     comp::String
-    param::Int64
+    "The compression parameter"
+    param::Integer
 end
 
 function Base.read(io::IO, ::Type{ZTable}, cards::Vector{Card}; kwds...)
@@ -37,13 +47,13 @@ function verify!(::Type{ZTable}, type::Type, shape::Tuple, cards::Cards,
     cards
 end
 
-function DataFormat(::Type{ZTable}, data::Nothing, mankeys::Dict{S, V}) where
+function DataFormat(::Type{ZTable}, data::Missing, mankeys::Dict{S, V}) where
     {S<:AbstractString, V<:ValueType}
 
 end
 
 function FieldFormat(::Type{ZTable}, mankeys::DataFormat, reskeys::Dict{S, V},
-    data::Nothing) where {S<:AbstractString, V<:ValueType}
+    data::Missing) where {S<:AbstractString, V<:ValueType}
 
 end
 
