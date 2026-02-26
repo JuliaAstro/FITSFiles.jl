@@ -96,7 +96,7 @@ const VALUE_FSC  = Regex(
 const VALUE_FSC_2 = Regex(
 	"^ *" *
 	"(?:" *
-	"(?<strg>'(?:[ -~]|''|)*?(?<ampr>&)? *')(?=\$|/| )|" *
+	"(?<strg>'(?:[ -&(-~]|''|)*?(?<ampr>&)? *')(?=\$|/| )|" *
 	"(?<bool>[FT])|" *
 	"(?<numr>" * NUMBER_FSC_STR_2 * ")|" *
 	"(?<cplx>\\( *(?<real>" * NUMBER_FSC_STR_2 * ") *, *(?<imag>" * NUMBER_FSC_STR_2 * ") *\\))|" *
@@ -224,7 +224,7 @@ Value{T}.
 - `upad::Integer=1`: number of spaces after the units string
 - `truncate::Bool=true`: truncate comment at end of card
 """
-struct Card{T <: AbstractCardType}
+struct Card{T <: AbstractCardType}  # make value a parameter
 	key::AbstractString
 	value::ValueType
 	comment::AbstractString
@@ -369,7 +369,7 @@ function is_string(value::ValueType)
 end
 
 function is_fixed_key(key::AbstractString)
-	key in ["BITPIX", "END", "NAXIS", "SIMPLE"] || !isnothing(match(r"NAXIS\d{1,3}", key))
+	key in ("BITPIX", "END", "NAXIS", "SIMPLE") || !isnothing(match(r"NAXIS\d{1,3}", key))
 end
 
 function is_long_string(value::AbstractString, comment::AbstractString,
@@ -417,13 +417,13 @@ function split_card(key::K, value::S, comment::C, kwds) where
 		comlen == 0 ? 1 : div(length(comment), comlen, RoundUp))
 	#  Create arrays of card types, keywords, values, comments, and formatting keywords
 	#  for each card. Ensure ampersand is appended to each value string, except last.
-	types    = vcat([Value{String}], fill(Continue, ncard-1))
-	keys     = vcat([key], fill("CONTINUE", ncard-1))
-	values   = [value[j1:j2] for (j1, j2) in slices(value, vallen, ncard, true)]
-	comments = [comment[j1:j2] for (j1, j2) in slices(comment, comlen, ncard)]
-	formats  = vcat([formatcard(t, v, c; merge(kwds, (; append = true))...) for (t, v, c) in
-	zip(types[1:(ncard-1)], values[1:(ncard-1)], comments[1:(ncard-1)])],
-	[formatcard(types[ncard], values[ncard], comments[ncard]; kwds...)])
+	types    = (Value{String}, fill(Continue, ncard-1)...)
+	keys     = (key, fill("CONTINUE", ncard-1)...)
+	values   = Tuple(value[j1:j2] for (j1, j2) in slices(value, vallen, ncard, true))
+	comments = Tuple(comment[j1:j2] for (j1, j2) in slices(comment, comlen, ncard))
+	formats  = (Tuple(formatcard(t, v, c; merge(kwds, (; append = true))...) for (t, v, c) in
+		zip(types[1:(ncard-1)], values[1:(ncard-1)], comments[1:(ncard-1)]))...,
+		formatcard(types[ncard], values[ncard], comments[ncard]; kwds...))
 
 	zip(types, keys, values, comments, formats)
 end
@@ -434,8 +434,8 @@ end
 Join CONTINUE cards to initial long string card to create a long value and comment card
 """
 function join_cards(cards::AbstractArray{Card})
-	value = join([c.value for c in cards])
-	comment = join([c.comment for c in cards])
+	value = join((c.value for c in cards))
+	comment = join((c.comment for c in cards))
 	cards[1].format.ampr = 0
 	Card(typename(cards[1]), cards[1].key, value, comment, cards[1].format)
 end
@@ -576,7 +576,7 @@ end
 ####  Format Card Image  ####
 
 function Base.show(io::IO, cards::Vector{Card{<:Any}})
-	print(io, join([repr(card) for card in cards], "\n"))
+	print(io, join(Tuple(repr(card) for card in cards), "\n"))
 end
 
 function Base.show(io::IO, card::Card)
@@ -885,7 +885,7 @@ end
 function value_type(valus::RegexMatch)
 	types = (strg = String, bool = Bool, numr = Real, cplx = Complex, miss = Missing)
 	keys  = (:strg, :bool, :numr, :cplx, :miss)
-	basetype([types[k] for k in keys if valus[k] !== nothing][1])
+	basetype(Tuple(types[k] for k in keys if valus[k] !== nothing)[1])
 end
 
 function parse_value_comment(::Type{Value}, image::AbstractString)
@@ -1022,6 +1022,11 @@ function parse_comment!(format::F, values::R, offsets::N) where
 	(units, comment, format)
 end
 
+"""
+	parse_number(real::AbstractString)
+
+Determine the type of a number as a Float32, Float64, or Integer
+"""
 function parse_number(real::AbstractString)
 	if occursin('D', real) || (occursin('E', real) && overflow(real))
 		value = parse(Float64, replace(real, "E" => "e", "D" => "e"))
@@ -1036,6 +1041,24 @@ function parse_number(real::AbstractString)
 			parse(Int64, real)
 		catch _
 			parse(Int128, real)
+		end
+	end
+	value
+end
+
+"""
+	least_float_type(real::Union{Real, Nothing})
+
+Convert an integer the minimum float type of Float32, Float64, and BigFloat.
+"""
+function least_float_type(value::Union{Real, Nothing})
+	if typeof(value) <: Integer
+		if typemin(Int32) <= value <= typemax(Int32)
+			return convert(Float32, value)
+		elseif typemin(Int64) <= value <= typemax(Int64)
+			return convert(Float64, value)
+		else
+			return convert(BigFloat, value)
 		end
 	end
 	value
