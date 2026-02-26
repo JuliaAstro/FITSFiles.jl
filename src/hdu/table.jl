@@ -150,17 +150,15 @@ function FieldFormat(::Type{Table}, format::DataFormat, reskeys::Dict{S, V},
         unit  = get(reskeys, "TUNIT$j", "")
         form  = fmt.match
         disp  = get(reskeys, "TDISP$j", "")
-        tzero = get(reskeys, "TZERO$j", type <: String ? nothing : 0.0f0)
-        tscal = get(reskeys, "TSCAL$j", type <: String ? nothing : 1.0f0)
+        tzero = least_float_type(get(reskeys, "TZERO$j",
+            type <: String ? nothing : 0.0f0))
+        tscal = least_float_type(get(reskeys, "TSCAL$j",
+            type <: String ? nothing : 1.0f0))
         null  = get(reskeys, "TNULL$j", nothing)
         dmin  = parse_string(get(reskeys, "TDMIN$j", nothing))
-        dmin  = dmin !== nothing ? float(dmin) : dmin
         dmax  = parse_string(get(reskeys, "TDMAX$j", nothing))
-        dmax  = dmax !== nothing ? float(dmax) : dmax
         lmin  = parse_string(get(reskeys, "TLMIN$j", nothing))
-        lmin  = lmin !== nothing ? float(lmin) : lmin
         lmax  = parse_string(get(reskeys, "TLMAX$j", nothing))
-        lmax  = lmax !== nothing ? float(lmax) : lmax
 
         fields[j] = TableField(name, type, k:k+leng-1, unit, form, disp,
             tzero, tscal, null, dmin, dmax, lmin, lmax)
@@ -201,17 +199,15 @@ function FieldFormat(::Type{Table}, format::DataFormat, reskeys::Dict{S, V},
         unit  = get(reskeys, "TUNIT$j", "")
         form  = fmt.match
         disp  = get(reskeys, "TDISP$j", "")
-        tzero = get(reskeys, "TZERO$j", type <: String ? nothing : 0.0f0)
-        tscal = get(reskeys, "TSCAL$j", type <: String ? nothing : 1.0f0)
+        tzero = least_float_type(get(reskeys, "TZERO$j",
+            type <: String ? nothing : 0.0f0))
+        tscal = least_float_type(get(reskeys, "TSCAL$j",
+            type <: String ? nothing : 1.0f0))
         null  = get(reskeys, "TNULL$j", nothing)
-        dmin  = get(reskeys, "TDMIN$j", nothing)
-        dmin  = dmin !== nothing ? float(dmin) : dmin
-        dmax  = get(reskeys, "TDMAX$j", nothing)
-        dmax  = dmax !== nothing ? float(dmax) : dmax
-        lmin  = get(reskeys, "TLMIN$j", nothing)
-        lmin  = lmin !== nothing ? float(lmin) : lmin
-        lmax  = get(reskeys, "TLMAX$j", nothing)
-        lmax  = lmax !== nothing ? float(lmax) : lmax
+        dmin  = parse_string(get(reskeys, "TDMIN$j", nothing))
+        dmax  = parse_string(get(reskeys, "TDMAX$j", nothing))
+        lmin  = parse_string(get(reskeys, "TLMIN$j", nothing))
+        lmax  = parse_string(get(reskeys, "TLMAX$j", nothing))
 
         fields[j] = TableField(name, type, k:k+leng, unit, form, disp,
             tzero, tscal, null, dmin, dmax, lmin, lmax)
@@ -252,13 +248,15 @@ function FieldFormat(::Type{Table}, format::DataFormat, reskeys::Dict{S, V},
         unit  = get(reskeys, "TUNIT$j", "")
         form  = fmt.match
         disp  = get(reskeys, "TDISP$j", "")
-        tzero = get(reskeys, "TZERO$j", type <: String ? nothing : 0.0f0)
-        tscal = get(reskeys, "TSCAL$j", type <: String ? nothing : 1.0f0)
+        tzero = least_float_type(get(reskeys, "TZERO$j",
+            type <: String ? nothing : 0.0f0))
+        tscal = least_float_type(get(reskeys, "TSCAL$j",
+            type <: String ? nothing : 1.0f0))
         null  = get(reskeys, "TNULL$j", nothing)
-        dmin  = get(reskeys, "TDMIN$j", nothing)
-        dmax  = get(reskeys, "TDMAX$j", nothing)
-        lmin  = get(reskeys, "TLMIN$j", nothing)
-        lmax  = get(reskeys, "TLMAX$j", nothing)
+        dmin  = parse_string(get(reskeys, "TDMIN$j", nothing))
+        dmax  = parse_string(get(reskeys, "TDMAX$j", nothing))
+        lmin  = parse_string(get(reskeys, "TLMIN$j", nothing))
+        lmax  = parse_string(get(reskeys, "TLMAX$j", nothing))
 
         fields[j] = TableField(name, type, k:k+leng, unit, form, disp,
             tzero, tscal, null, dmin, dmax, lmin, lmax)

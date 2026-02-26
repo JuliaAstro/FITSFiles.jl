@@ -188,19 +188,15 @@ function FieldFormat(::Type{Bintable}, mankeys::DataFormat, reskeys::Dict{S, V},
         unit_ = get(reskeys, "TUNIT$j", "")
         disp  = get(reskeys, "TDISP$j", "")
         dims  = eval(Meta.parse(get(reskeys, "TDIM$j", "")))
-        zero_ = get(reskeys, "TZERO$j",
-            type <: Union{Bool, BitVector, String} ? nothing : 0.0f0)
-        scale = get(reskeys, "TSCAL$j",
-            type <: Union{Bool, BitVector, String} ? nothing : 1.0f0)
+        zero_ = least_float_type(get(reskeys, "TZERO$j",
+            type <: Union{Bool, BitVector, String} ? nothing : 0.0f0))
+        scale = least_float_type(get(reskeys, "TSCAL$j",
+            type <: Union{Bool, BitVector, String} ? nothing : 1.0f0))
         null  = get(reskeys, "TNULL$j", nothing)
         dmin  = parse_string(get(reskeys, "TDMIN$j", nothing))
-        dmin  = dmin !== nothing ? float(dmin) : dmin
         dmax  = parse_string(get(reskeys, "TDMAX$j", nothing))
-        dmax  = dmax !== nothing ? float(dmax) : dmax
         lmin  = parse_string(get(reskeys, "TLMIN$j", nothing))
-        lmin  = lmin !== nothing ? float(lmin) : lmin
         lmax  = parse_string(get(reskeys, "TLMAX$j", nothing))
-        lmax  = lmax !== nothing ? float(lmax) : lmax
 
         fields[j] = BinaryField(name, pntr, type, k+1:k+byts, leng, supp,
             unit_, disp, dims, zero_, scale, null, dmin, dmax, lmin, lmax)
@@ -239,19 +235,15 @@ function FieldFormat(::Type{Bintable}, mankey::DataFormat, reskeys::Dict{S, V},
         unit_ = get(reskeys, "TUNIT$j", "")
         disp  = get(reskeys, "TDISP$j", "")
         dims  = eval(Meta.parse(get(reskeys, "TDIM$j", "")))
-        zero_ = get(reskeys, "TZERO$j",
-            type <: Union{Bool, BitVector, String} ? nothing : 0.0f0)
-        scale = get(reskeys, "TSCAL$j",
-            type <: Union{Bool, BitVector, String} ? nothing : 1.0f0)
+        zero_ = least_float_type(get(reskeys, "TZERO$j",
+            type <: Union{Bool, BitVector, String} ? nothing : 0.0f0))
+        scale = least_float_type(get(reskeys, "TSCAL$j",
+            type <: Union{Bool, BitVector, String} ? nothing : 1.0f0))
         null  = get(reskeys, "TNULL$j", nothing)
         dmin  = get(reskeys, "TDMIN$j", nothing)
-        dmin  = dmin !== nothing ? float(dmin) : dmin
         dmax  = get(reskeys, "TDMAX$j", nothing)
-        dmax  = dmax !== nothing ? float(dmax) : dmax
         lmin  = get(reskeys, "TLMIN$j", nothing)
-        lmin  = lmin !== nothing ? float(lmin) : lmin
         lmax  = get(reskeys, "TLMAX$j", nothing)
-        lmax  = lmax !== nothing ? float(lmax) : lmax
 
         fields[j] = BinaryField(name, pntr, type, k+1:k+byts, leng, supp,
             unit_, disp, dims, zero_, scale, null, dmin, dmax, lmin, lmax)
@@ -292,19 +284,15 @@ function FieldFormat(::Type{Bintable}, mankey::DataFormat, reskeys::Dict{S, V},
         unit_ = get(reskeys, "TUNIT$j", "")
         disp  = get(reskeys, "TDISP$j", "")
         dims  = eval(Meta.parse(get(reskeys, "TDIM$j", "")))
-        zero_ = get(reskeys, "TZERO$j",
-            type <: Union{Bool, BitVector, String} ? nothing : 0.0f0)
-        scale = get(reskeys, "TSCAL$j",
-            type <: Union{Bool, BitVector, String} ? nothing : 1.0f0)
+        zero_ = least_float_type(get(reskeys, "TZERO$j",
+            type <: Union{Bool, BitVector, String} ? nothing : 0.0f0))
+        scale = least_float_type(get(reskeys, "TSCAL$j",
+            type <: Union{Bool, BitVector, String} ? nothing : 1.0f0))
         null  = get(reskeys, "TNULL$j", nothing)
         dmin  = get(reskeys, "TDMIN$j", nothing)
-        dmin  = dmin !== nothing ? float(dmin) : dmin
         dmax  = get(reskeys, "TDMAX$j", nothing)
-        dmax  = dmax !== nothing ? float(dmax) : dmax
         lmin  = get(reskeys, "TLMIN$j", nothing)
-        lmin  = lmin !== nothing ? float(lmin) : lmin
         lmax  = get(reskeys, "TLMAX$j", nothing)
-        lmax  = lmax !== nothing ? float(lmax) : lmax
 
         fields[j] = BinaryField(name, pntr, type, k+1:k+byts, leng, supp,
             unit_, disp, dims, zero_, scale, null, dmin, dmax, lmin, lmax)

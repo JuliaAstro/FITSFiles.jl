@@ -164,7 +164,7 @@ function Base.get(hdus::Vector{HDU}, names::K, defaults::D)::Vector where
 	values
 end
 
-function Base.findfirst(key::AbstractString, hdus::Vector{HDU})::Union(Integer, Nothing)
+function Base.findfirst(key::AbstractString, hdus::Vector{HDU})::Union{Integer, Nothing}
 	for (j, hdu) in enumerate(hdus)
 		if uppercase(rstrip(hdu.cards[key])) == uppercase(key)
 			return j

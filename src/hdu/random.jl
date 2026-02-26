@@ -158,8 +158,8 @@ function FieldFormat(::Type{Random}, format::DataFormat, reskeys::Dict{S, V},
         name  = rstrip(get(reskeys, "PTYPE$j", "param$j"))
         index = indices[name] = get!(indices, name, 0) + 1
         leng  = 1
-        scale = get(reskeys, "PSCAL$j", 1.0f0)
-        pzero = get(reskeys, "PZERO$j", 0.0f0)
+    scale = least_float_type(get(reskeys, "PSCAL$j", 1.0f0))
+        pzero = least_float_type(get(reskeys, "PZERO$j", 0.0f0))
         fields[j] = RandomField(name, index, type, k+1:k+bytes, leng, (leng,),
             pzero, scale)
         k += bytes
@@ -167,8 +167,8 @@ function FieldFormat(::Type{Random}, format::DataFormat, reskeys::Dict{S, V},
     name  = "data"
     index = 1
     leng  = prod(format.shape)
-    bzero = get(reskeys,  "BZERO", 0.0f0)
-    scale = get(reskeys, "BSCALE", 1.0f0)
+    bzero = least_float_type(get(reskeys,  "BZERO", 0.0f0))
+    scale = least_float_type(get(reskeys, "BSCALE", 1.0f0))
     fields[end] = RandomField(name, index, type, k+1:k+leng*bytes, leng,
         format.shape, bzero, scale)
     fields
@@ -200,8 +200,8 @@ function FieldFormat(::Type{Random}, format::DataFormat, reskeys::Dict{S, V},
             rstrip(get(reskeys, "PTYPE$j", "param$j"))
         index = indices[name] = get!(indices, name, 0) + 1
         leng = 1
-        pzero = get(reskeys, "PZERO$j", 0.0f0)
-        scale = get(reskeys, "PSCAL$j", 1.0f0)
+        pzero = least_float_type(get(reskeys, "PZERO$j", 0.0f0))
+        scale = least_float_type(get(reskeys, "PSCAL$j", 1.0f0))
         fields[j] = RandomField(name, index, type, k+1:k+bytes, leng, (leng,),
             pzero, scale)
         k += bytes
@@ -209,8 +209,8 @@ function FieldFormat(::Type{Random}, format::DataFormat, reskeys::Dict{S, V},
     name  = typeof(data[1]) <: NamedTuple ? String(keys(data[1])[end]) : "data"
     index = 1
     leng  = prod(format.shape)
-    bzero = get(reskeys,  "BZERO", 0.0f0)
-    scale = get(reskeys, "BSCALE", 1.0f0)
+    bzero = least_float_type(get(reskeys,  "BZERO", 0.0f0))
+    scale = least_float_type(get(reskeys, "BSCALE", 1.0f0))
     fields[end] = RandomField(name, index, type, k+1:k+leng*bytes, leng,
         format.shape, bzero, scale)
     fields
@@ -242,8 +242,8 @@ function FieldFormat(::Type{Random}, format::DataFormat, reskeys::Dict{S, V},
             rstrip(get(reskeys, "PTYPE$j", "param$j"))
         index = indices[name] = get!(indices, name, 0) + 1
         leng  = 1
-        pzero = get(reskeys, "PZERO$j", 0.0f0)
-        scale = get(reskeys, "PSCAL$j", 1.0f0)
+        pzero = least_float_type(get(reskeys, "PZERO$j", 0.0f0))
+        scale = least_float_type(get(reskeys, "PSCAL$j", 1.0f0))
         fields[j] = RandomField(name, index, type, k+1:k+bytes, leng, (leng,),
             pzero, scale)
         k += bytes
@@ -251,8 +251,8 @@ function FieldFormat(::Type{Random}, format::DataFormat, reskeys::Dict{S, V},
     name  = "data"
     index = 1
     leng  = prod(format.shape)
-    bzero = get(reskeys,  "BZERO", 0.0f0)
-    scale = get(reskeys, "BSCALE", 1.0f0)
+    bzero = least_float_type(get(reskeys,  "BZERO", 0.0f0))
+    scale = least_float_type(get(reskeys, "BSCALE", 1.0f0))
     fields[end] = RandomField(name, index, type, k+1:k+leng*bytes, leng,
         format.shape, bzero, scale)
     fields
