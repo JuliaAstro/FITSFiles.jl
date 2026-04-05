@@ -32,8 +32,8 @@ function fits(file::AbstractString; kwds...)
 end
 
 """
-   Base.write(io::IO, hdus::Vector{HDU})
-   Base.write(filename::AbstractString, hdus::Vector{HDU})
+    Base.write(io::IO, hdus::Vector{HDU})
+    Base.write(filename::AbstractString, hdus::Vector{HDU})
 
 Write a vector of header-data units (HDUs) to a file.
 """
