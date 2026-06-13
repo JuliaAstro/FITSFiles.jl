@@ -80,9 +80,9 @@ HDU types are: Primary, Random, Image, Table, Bintable, and Conform.
 
 # arguments
 
-- `data::U=missing`: the binary or ASCII data, where U<:Union{AbstractArray,
-	Tuple, NamedTuple, Missing}
-- `cards::U=missing`: the list of cards, where U<:Union{Card, Vector{Card}, Missing}
+- `data::U=missing`: the binary or ASCII data, where `U <: Union{AbstractArray,
+   Tuple, NamedTuple, Missing}`
+- `cards::U=missing`: the list of cards, where `U <: Union{Card, Vector{Card}, Missing}`
 
 # Keywords
 
