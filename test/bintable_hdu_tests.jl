@@ -3,921 +3,1567 @@
     #  test Bintable (specific HDU) type
     hdu = HDU(Bintable)
 
-    @test isequal(showfields.(hdu.cards),
-                  [("XTENSION", "BINTABLE", "",
-                    "XTENSION= 'BINTABLE'                                                            "),
-                   ("BITPIX", 8, "",
-                    "BITPIX  =                    8                                                  "),
-                   ("NAXIS", 2, "",
-                    "NAXIS   =                    2                                                  "),
-                   ("NAXIS1", 0, "",
-                    "NAXIS1  =                    0                                                  "),
-                   ("NAXIS2", 0, "",
-                    "NAXIS2  =                    0                                                  "),
-                   ("PCOUNT", 0, "",
-                    "PCOUNT  =                    0                                                  "),
-                   ("GCOUNT", 1, "",
-                    "GCOUNT  =                    1                                                  "),
-                   ("TFIELDS", 0, "",
-                    "TFIELDS =                    0                                                  ")])
+    @test isequal(
+        showfields.(hdu.cards),
+        [
+            (
+                "XTENSION", "BINTABLE", "",
+                "XTENSION= 'BINTABLE'                                                            ",
+            ),
+            (
+                "BITPIX", 8, "",
+                "BITPIX  =                    8                                                  ",
+            ),
+            (
+                "NAXIS", 2, "",
+                "NAXIS   =                    2                                                  ",
+            ),
+            (
+                "NAXIS1", 0, "",
+                "NAXIS1  =                    0                                                  ",
+            ),
+            (
+                "NAXIS2", 0, "",
+                "NAXIS2  =                    0                                                  ",
+            ),
+            (
+                "PCOUNT", 0, "",
+                "PCOUNT  =                    0                                                  ",
+            ),
+            (
+                "GCOUNT", 1, "",
+                "GCOUNT  =                    1                                                  ",
+            ),
+            (
+                "TFIELDS", 0, "",
+                "TFIELDS =                    0                                                  ",
+            ),
+        ]
+    )
 
     @test ismissing(hdu.data)
 
 
     #  test Bintable type with data being a tuple of arrays
 
-    data = (; par1=[1, 2, 3],
-        par2=[BitVector([1, 0, 0]), BitVector([0, 1, 0]), BitVector([1, 1, 0])],
-        par3=[1f0, 2f0, 3f0],
-        par4=[1.0, 2.0, 3.0],
-        par5=["1.0", "2.0", "3.0"])
+    data = (;
+        par1 = [1, 2, 3],
+        par2 = [BitVector([1, 0, 0]), BitVector([0, 1, 0]), BitVector([1, 1, 0])],
+        par3 = [1.0f0, 2.0f0, 3.0f0],
+        par4 = [1.0, 2.0, 3.0],
+        par5 = ["1.0", "2.0", "3.0"],
+    )
     hdu = HDU(data)
 
-    @test isequal(showfields.(hdu.cards),
-                  [("XTENSION", "BINTABLE", "",
-                    "XTENSION= 'BINTABLE'                                                            "),
-                   ("BITPIX", 8, "",
-                    "BITPIX  =                    8                                                  "),
-                   ("NAXIS", 2, "",
-                    "NAXIS   =                    2                                                  "),
-                   ("NAXIS1", 24, "",
-                    "NAXIS1  =                   24                                                  "),
-                   ("NAXIS2", 3, "",
-                    "NAXIS2  =                    3                                                  "),
-                   ("PCOUNT", 0, "",
-                    "PCOUNT  =                    0                                                  "),
-                   ("GCOUNT", 1, "",
-                    "GCOUNT  =                    1                                                  "),
-                   ("TFIELDS", 5, "",
-                    "TFIELDS =                    5                                                  "),
-                   ("TFORM1", "1K", "",
-                    "TFORM1  = '1K'                                                                  "),
-                   ("TTYPE1", "par1", "",
-                    "TTYPE1  = 'par1'                                                                "),
-                   ("TFORM2", "3X", "",
-                    "TFORM2  = '3X'                                                                  "),
-                   ("TTYPE2", "par2", "",
-                    "TTYPE2  = 'par2'                                                                "),
-                   ("TFORM3", "1E", "",
-                    "TFORM3  = '1E'                                                                  "),
-                   ("TTYPE3", "par3", "",
-                    "TTYPE3  = 'par3'                                                                "),
-                   ("TFORM4", "1D", "",
-                    "TFORM4  = '1D'                                                                  "),
-                   ("TTYPE4", "par4", "",
-                    "TTYPE4  = 'par4'                                                                "),
-                   ("TFORM5", "3A", "",
-                    "TFORM5  = '3A'                                                                  "),
-                   ("TTYPE5", "par5", "",
-                    "TTYPE5  = 'par5'                                                                ")])
+    @test isequal(
+        showfields.(hdu.cards),
+        [
+            (
+                "XTENSION", "BINTABLE", "",
+                "XTENSION= 'BINTABLE'                                                            ",
+            ),
+            (
+                "BITPIX", 8, "",
+                "BITPIX  =                    8                                                  ",
+            ),
+            (
+                "NAXIS", 2, "",
+                "NAXIS   =                    2                                                  ",
+            ),
+            (
+                "NAXIS1", 24, "",
+                "NAXIS1  =                   24                                                  ",
+            ),
+            (
+                "NAXIS2", 3, "",
+                "NAXIS2  =                    3                                                  ",
+            ),
+            (
+                "PCOUNT", 0, "",
+                "PCOUNT  =                    0                                                  ",
+            ),
+            (
+                "GCOUNT", 1, "",
+                "GCOUNT  =                    1                                                  ",
+            ),
+            (
+                "TFIELDS", 5, "",
+                "TFIELDS =                    5                                                  ",
+            ),
+            (
+                "TFORM1", "1K", "",
+                "TFORM1  = '1K'                                                                  ",
+            ),
+            (
+                "TTYPE1", "par1", "",
+                "TTYPE1  = 'par1'                                                                ",
+            ),
+            (
+                "TFORM2", "3X", "",
+                "TFORM2  = '3X'                                                                  ",
+            ),
+            (
+                "TTYPE2", "par2", "",
+                "TTYPE2  = 'par2'                                                                ",
+            ),
+            (
+                "TFORM3", "1E", "",
+                "TFORM3  = '1E'                                                                  ",
+            ),
+            (
+                "TTYPE3", "par3", "",
+                "TTYPE3  = 'par3'                                                                ",
+            ),
+            (
+                "TFORM4", "1D", "",
+                "TFORM4  = '1D'                                                                  ",
+            ),
+            (
+                "TTYPE4", "par4", "",
+                "TTYPE4  = 'par4'                                                                ",
+            ),
+            (
+                "TFORM5", "3A", "",
+                "TFORM5  = '3A'                                                                  ",
+            ),
+            (
+                "TTYPE5", "par5", "",
+                "TTYPE5  = 'par5'                                                                ",
+            ),
+        ]
+    )
 
     @test (length(data) == 5 && size(hdu.data[1]) == (3,))
 
     #  test Bintable type with data being a tuple of arrays and cards
-    data = (; par1=[1, 2, 3],
-        par2=[BitVector([1, 0, 0]), BitVector([0, 1, 0]), BitVector([1, 1, 0])],
-        par3=[1f0, 2f0, 3f0],
-        par4=[1.0, 2.0, 3.0],
-        par5=["1.0", "2.0", "3.0"])
-    cards = [Card("TTYPE1", "PARAM1"),
-             Card("TZERO1", 1.0),
-             Card("TSCAL1", 0.1),
-             Card("TTYPE2", "PARAM2"),
-             Card("TZERO2", 1.0),
-             Card("TSCAL2", 0.1),
-             Card("TTYPE3", "PARAM3"),
-             Card("TZERO3", 1.0),
-             Card("TSCAL3", 0.1),
-             Card("TTYPE4", "PARAM4"),
-             Card("TZERO4", 1.0),
-             Card("TSCAL4", 0.1),
-             Card("TTYPE5", "PARAM5"),
-             Card("TZERO5", 1.0),
-             Card("TSCAL5", 0.1)]
+    data = (;
+        par1 = [1, 2, 3],
+        par2 = [BitVector([1, 0, 0]), BitVector([0, 1, 0]), BitVector([1, 1, 0])],
+        par3 = [1.0f0, 2.0f0, 3.0f0],
+        par4 = [1.0, 2.0, 3.0],
+        par5 = ["1.0", "2.0", "3.0"],
+    )
+    cards = [
+        Card("TTYPE1", "PARAM1"),
+        Card("TZERO1", 1.0),
+        Card("TSCAL1", 0.1),
+        Card("TTYPE2", "PARAM2"),
+        Card("TZERO2", 1.0),
+        Card("TSCAL2", 0.1),
+        Card("TTYPE3", "PARAM3"),
+        Card("TZERO3", 1.0),
+        Card("TSCAL3", 0.1),
+        Card("TTYPE4", "PARAM4"),
+        Card("TZERO4", 1.0),
+        Card("TSCAL4", 0.1),
+        Card("TTYPE5", "PARAM5"),
+        Card("TZERO5", 1.0),
+        Card("TSCAL5", 0.1),
+    ]
     hdu = HDU(data, cards)
 
-    @test isequal(showfields.(hdu.cards),
-                  [("XTENSION", "BINTABLE", "",
-                    "XTENSION= 'BINTABLE'                                                            "),
-                   ("BITPIX", 8, "",
-                    "BITPIX  =                    8                                                  "),
-                   ("NAXIS", 2, "",
-                    "NAXIS   =                    2                                                  "),
-                   ("NAXIS1", 24, "",
-                    "NAXIS1  =                   24                                                  "),
-                   ("NAXIS2", 3, "",
-                    "NAXIS2  =                    3                                                  "),
-                   ("PCOUNT", 0, "",
-                    "PCOUNT  =                    0                                                  "),
-                   ("GCOUNT", 1, "",
-                    "GCOUNT  =                    1                                                  "),
-                   ("TFIELDS", 5, "",
-                    "TFIELDS =                    5                                                  "),
-                   ("TFORM1", "1K", "",
-                    "TFORM1  = '1K'                                                                  "),
-                   ("TTYPE1", "PARAM1", "",
-                    "TTYPE1  = 'PARAM1'                                                              "),
-                   ("TFORM2", "3X", "",
-                    "TFORM2  = '3X'                                                                  "),
-                   ("TTYPE2", "PARAM2", "",
-                    "TTYPE2  = 'PARAM2'                                                              "),
-                   ("TFORM3", "1E", "",
-                    "TFORM3  = '1E'                                                                  "),
-                   ("TTYPE3", "PARAM3", "",
-                    "TTYPE3  = 'PARAM3'                                                              "),
-                   ("TFORM4", "1D", "",
-                    "TFORM4  = '1D'                                                                  "),
-                   ("TTYPE4", "PARAM4", "",
-                    "TTYPE4  = 'PARAM4'                                                              "),
-                   ("TFORM5", "3A", "",
-                    "TFORM5  = '3A'                                                                  "),
-                   ("TTYPE5", "PARAM5", "",
-                    "TTYPE5  = 'PARAM5'                                                              "),
-                   ("TZERO1", 1.0, "",
-                    "TZERO1  =                  1.0                                                  "),
-                   ("TSCAL1", 0.1, "",
-                    "TSCAL1  =                  0.1                                                  "),
-                   ("TZERO2", 1.0, "",
-                    "TZERO2  =                  1.0                                                  "),
-                   ("TSCAL2", 0.1, "",
-                    "TSCAL2  =                  0.1                                                  "),
-                   ("TZERO3", 1.0, "",
-                    "TZERO3  =                  1.0                                                  "),
-                   ("TSCAL3", 0.1, "",
-                    "TSCAL3  =                  0.1                                                  "),
-                   ("TZERO4", 1.0, "",
-                    "TZERO4  =                  1.0                                                  "),
-                   ("TSCAL4", 0.1, "",
-                    "TSCAL4  =                  0.1                                                  "),
-                   ("TZERO5", 1.0, "",
-                    "TZERO5  =                  1.0                                                  "),
-                   ("TSCAL5", 0.1, "",
-                    "TSCAL5  =                  0.1                                                  ")])
+    @test isequal(
+        showfields.(hdu.cards),
+        [
+            (
+                "XTENSION", "BINTABLE", "",
+                "XTENSION= 'BINTABLE'                                                            ",
+            ),
+            (
+                "BITPIX", 8, "",
+                "BITPIX  =                    8                                                  ",
+            ),
+            (
+                "NAXIS", 2, "",
+                "NAXIS   =                    2                                                  ",
+            ),
+            (
+                "NAXIS1", 24, "",
+                "NAXIS1  =                   24                                                  ",
+            ),
+            (
+                "NAXIS2", 3, "",
+                "NAXIS2  =                    3                                                  ",
+            ),
+            (
+                "PCOUNT", 0, "",
+                "PCOUNT  =                    0                                                  ",
+            ),
+            (
+                "GCOUNT", 1, "",
+                "GCOUNT  =                    1                                                  ",
+            ),
+            (
+                "TFIELDS", 5, "",
+                "TFIELDS =                    5                                                  ",
+            ),
+            (
+                "TFORM1", "1K", "",
+                "TFORM1  = '1K'                                                                  ",
+            ),
+            (
+                "TTYPE1", "PARAM1", "",
+                "TTYPE1  = 'PARAM1'                                                              ",
+            ),
+            (
+                "TFORM2", "3X", "",
+                "TFORM2  = '3X'                                                                  ",
+            ),
+            (
+                "TTYPE2", "PARAM2", "",
+                "TTYPE2  = 'PARAM2'                                                              ",
+            ),
+            (
+                "TFORM3", "1E", "",
+                "TFORM3  = '1E'                                                                  ",
+            ),
+            (
+                "TTYPE3", "PARAM3", "",
+                "TTYPE3  = 'PARAM3'                                                              ",
+            ),
+            (
+                "TFORM4", "1D", "",
+                "TFORM4  = '1D'                                                                  ",
+            ),
+            (
+                "TTYPE4", "PARAM4", "",
+                "TTYPE4  = 'PARAM4'                                                              ",
+            ),
+            (
+                "TFORM5", "3A", "",
+                "TFORM5  = '3A'                                                                  ",
+            ),
+            (
+                "TTYPE5", "PARAM5", "",
+                "TTYPE5  = 'PARAM5'                                                              ",
+            ),
+            (
+                "TZERO1", 1.0, "",
+                "TZERO1  =                  1.0                                                  ",
+            ),
+            (
+                "TSCAL1", 0.1, "",
+                "TSCAL1  =                  0.1                                                  ",
+            ),
+            (
+                "TZERO2", 1.0, "",
+                "TZERO2  =                  1.0                                                  ",
+            ),
+            (
+                "TSCAL2", 0.1, "",
+                "TSCAL2  =                  0.1                                                  ",
+            ),
+            (
+                "TZERO3", 1.0, "",
+                "TZERO3  =                  1.0                                                  ",
+            ),
+            (
+                "TSCAL3", 0.1, "",
+                "TSCAL3  =                  0.1                                                  ",
+            ),
+            (
+                "TZERO4", 1.0, "",
+                "TZERO4  =                  1.0                                                  ",
+            ),
+            (
+                "TSCAL4", 0.1, "",
+                "TSCAL4  =                  0.1                                                  ",
+            ),
+            (
+                "TZERO5", 1.0, "",
+                "TZERO5  =                  1.0                                                  ",
+            ),
+            (
+                "TSCAL5", 0.1, "",
+                "TSCAL5  =                  0.1                                                  ",
+            ),
+        ]
+    )
 
     @test (length(data) == 5 && size(hdu.data[1]) == (3,))
 
     #  test Bintable type with data being a tuple of arrays and inconsistent cards
-    data = (; par1=[1, 2, 3],
-        par2=[BitVector([1, 0, 0]), BitVector([0, 1, 0]), BitVector([1, 1, 0])],
-        par3=[1f0, 2f0, 3f0],
-        par4=[1.0, 2.0, 3.0],
-        par5=["1.0", "2.0", "3.0"])
-    cards = [Card("BITPIX", 32),
-             Card("NAXIS" , 2),
-             Card("NAXIS1", 108),
-             Card("NAXIS2", 3),
-             Card("PCOUNT", 2),
-             Card("GCOUNT", 3),
-             Card("TTYPE1", "PARAM1"),
-             Card("TZERO1", 1.0),
-             Card("TSCAL1", 0.1),
-             Card("TTYPE2", "PARAM2"),
-             Card("TZERO2", 1.0),
-             Card("TSCAL2", 0.1),
-             Card("TTYPE3", "PARAM3"),
-             Card("TZERO3", 1.0),
-             Card("TSCAL3", 0.1),
-             Card("TTYPE4", "PARAM4"),
-             Card("TZERO4", 1.0),
-             Card("TSCAL4", 0.1),
-             Card("TTYPE5", "PARAM5"),
-             Card("TZERO5", 1.0),
-             Card("TSCAL5", 0.1)]
+    data = (;
+        par1 = [1, 2, 3],
+        par2 = [BitVector([1, 0, 0]), BitVector([0, 1, 0]), BitVector([1, 1, 0])],
+        par3 = [1.0f0, 2.0f0, 3.0f0],
+        par4 = [1.0, 2.0, 3.0],
+        par5 = ["1.0", "2.0", "3.0"],
+    )
+    cards = [
+        Card("BITPIX", 32),
+        Card("NAXIS", 2),
+        Card("NAXIS1", 108),
+        Card("NAXIS2", 3),
+        Card("PCOUNT", 2),
+        Card("GCOUNT", 3),
+        Card("TTYPE1", "PARAM1"),
+        Card("TZERO1", 1.0),
+        Card("TSCAL1", 0.1),
+        Card("TTYPE2", "PARAM2"),
+        Card("TZERO2", 1.0),
+        Card("TSCAL2", 0.1),
+        Card("TTYPE3", "PARAM3"),
+        Card("TZERO3", 1.0),
+        Card("TSCAL3", 0.1),
+        Card("TTYPE4", "PARAM4"),
+        Card("TZERO4", 1.0),
+        Card("TSCAL4", 0.1),
+        Card("TTYPE5", "PARAM5"),
+        Card("TZERO5", 1.0),
+        Card("TSCAL5", 0.1),
+    ]
     hdu = HDU(Bintable, data, cards)
 
-    @test isequal(showfields.(hdu.cards),
-                  [("XTENSION", "BINTABLE", "",
-                    "XTENSION= 'BINTABLE'                                                            "),
-                   ("BITPIX", 8, "",
-                    "BITPIX  =                    8                                                  "),
-                   ("NAXIS", 2, "",
-                    "NAXIS   =                    2                                                  "),
-                   ("NAXIS1", 24, "",
-                    "NAXIS1  =                   24                                                  "),
-                   ("NAXIS2", 3, "",
-                    "NAXIS2  =                    3                                                  "),
-                   ("PCOUNT", 0, "",
-                    "PCOUNT  =                    0                                                  "),
-                   ("GCOUNT", 1, "",
-                    "GCOUNT  =                    1                                                  "),
-                   ("TFIELDS", 5, "",
-                    "TFIELDS =                    5                                                  "),
-                   ("TFORM1", "1K", "",
-                    "TFORM1  = '1K'                                                                  "),
-                   ("TTYPE1", "PARAM1", "",
-                    "TTYPE1  = 'PARAM1'                                                              "),
-                   ("TFORM2", "3X", "",
-                    "TFORM2  = '3X'                                                                  "),
-                   ("TTYPE2", "PARAM2", "",
-                    "TTYPE2  = 'PARAM2'                                                              "),
-                   ("TFORM3", "1E", "",
-                    "TFORM3  = '1E'                                                                  "),
-                   ("TTYPE3", "PARAM3", "",
-                    "TTYPE3  = 'PARAM3'                                                              "),
-                   ("TFORM4", "1D", "",
-                    "TFORM4  = '1D'                                                                  "),
-                   ("TTYPE4", "PARAM4", "",
-                    "TTYPE4  = 'PARAM4'                                                              "),
-                   ("TFORM5", "3A", "",
-                    "TFORM5  = '3A'                                                                  "),
-                   ("TTYPE5", "PARAM5", "",
-                    "TTYPE5  = 'PARAM5'                                                              "),
-                   ("TZERO1", 1.0, "",
-                    "TZERO1  =                  1.0                                                  "),
-                   ("TSCAL1", 0.1, "",
-                    "TSCAL1  =                  0.1                                                  "),
-                   ("TZERO2", 1.0, "",
-                    "TZERO2  =                  1.0                                                  "),
-                   ("TSCAL2", 0.1, "",
-                    "TSCAL2  =                  0.1                                                  "),
-                   ("TZERO3", 1.0, "",
-                    "TZERO3  =                  1.0                                                  "),
-                   ("TSCAL3", 0.1, "",
-                    "TSCAL3  =                  0.1                                                  "),
-                   ("TZERO4", 1.0, "",
-                    "TZERO4  =                  1.0                                                  "),
-                   ("TSCAL4", 0.1, "",
-                    "TSCAL4  =                  0.1                                                  "),
-                   ("TZERO5", 1.0, "",
-                    "TZERO5  =                  1.0                                                  "),
-                   ("TSCAL5", 0.1, "",
-                    "TSCAL5  =                  0.1                                                  ")])
+    @test isequal(
+        showfields.(hdu.cards),
+        [
+            (
+                "XTENSION", "BINTABLE", "",
+                "XTENSION= 'BINTABLE'                                                            ",
+            ),
+            (
+                "BITPIX", 8, "",
+                "BITPIX  =                    8                                                  ",
+            ),
+            (
+                "NAXIS", 2, "",
+                "NAXIS   =                    2                                                  ",
+            ),
+            (
+                "NAXIS1", 24, "",
+                "NAXIS1  =                   24                                                  ",
+            ),
+            (
+                "NAXIS2", 3, "",
+                "NAXIS2  =                    3                                                  ",
+            ),
+            (
+                "PCOUNT", 0, "",
+                "PCOUNT  =                    0                                                  ",
+            ),
+            (
+                "GCOUNT", 1, "",
+                "GCOUNT  =                    1                                                  ",
+            ),
+            (
+                "TFIELDS", 5, "",
+                "TFIELDS =                    5                                                  ",
+            ),
+            (
+                "TFORM1", "1K", "",
+                "TFORM1  = '1K'                                                                  ",
+            ),
+            (
+                "TTYPE1", "PARAM1", "",
+                "TTYPE1  = 'PARAM1'                                                              ",
+            ),
+            (
+                "TFORM2", "3X", "",
+                "TFORM2  = '3X'                                                                  ",
+            ),
+            (
+                "TTYPE2", "PARAM2", "",
+                "TTYPE2  = 'PARAM2'                                                              ",
+            ),
+            (
+                "TFORM3", "1E", "",
+                "TFORM3  = '1E'                                                                  ",
+            ),
+            (
+                "TTYPE3", "PARAM3", "",
+                "TTYPE3  = 'PARAM3'                                                              ",
+            ),
+            (
+                "TFORM4", "1D", "",
+                "TFORM4  = '1D'                                                                  ",
+            ),
+            (
+                "TTYPE4", "PARAM4", "",
+                "TTYPE4  = 'PARAM4'                                                              ",
+            ),
+            (
+                "TFORM5", "3A", "",
+                "TFORM5  = '3A'                                                                  ",
+            ),
+            (
+                "TTYPE5", "PARAM5", "",
+                "TTYPE5  = 'PARAM5'                                                              ",
+            ),
+            (
+                "TZERO1", 1.0, "",
+                "TZERO1  =                  1.0                                                  ",
+            ),
+            (
+                "TSCAL1", 0.1, "",
+                "TSCAL1  =                  0.1                                                  ",
+            ),
+            (
+                "TZERO2", 1.0, "",
+                "TZERO2  =                  1.0                                                  ",
+            ),
+            (
+                "TSCAL2", 0.1, "",
+                "TSCAL2  =                  0.1                                                  ",
+            ),
+            (
+                "TZERO3", 1.0, "",
+                "TZERO3  =                  1.0                                                  ",
+            ),
+            (
+                "TSCAL3", 0.1, "",
+                "TSCAL3  =                  0.1                                                  ",
+            ),
+            (
+                "TZERO4", 1.0, "",
+                "TZERO4  =                  1.0                                                  ",
+            ),
+            (
+                "TSCAL4", 0.1, "",
+                "TSCAL4  =                  0.1                                                  ",
+            ),
+            (
+                "TZERO5", 1.0, "",
+                "TZERO5  =                  1.0                                                  ",
+            ),
+            (
+                "TSCAL5", 0.1, "",
+                "TSCAL5  =                  0.1                                                  ",
+            ),
+        ]
+    )
 
     @test (length(data) == 5 && size(hdu.data[1]) == (3,))
 
     #  test Bintable type with data being an array of records
     data = [
-       (par1=1, par2=BitVector([1, 0, 0]), par3=1.0f0, par4=1.0, par5="1.0"),
-       (par1=2, par2=BitVector([0, 1, 0]), par3=2.0f0, par4=2.0, par5="2.0"),
-       (par1=3, par2=BitVector([1, 1, 0]), par3=3.0f0, par4=3.0, par5="3.0")]
+        (par1 = 1, par2 = BitVector([1, 0, 0]), par3 = 1.0f0, par4 = 1.0, par5 = "1.0"),
+        (par1 = 2, par2 = BitVector([0, 1, 0]), par3 = 2.0f0, par4 = 2.0, par5 = "2.0"),
+        (par1 = 3, par2 = BitVector([1, 1, 0]), par3 = 3.0f0, par4 = 3.0, par5 = "3.0"),
+    ]
     hdu = HDU(data)
 
-    @test isequal(showfields.(hdu.cards),
-                  [("XTENSION", "BINTABLE", "",
-                    "XTENSION= 'BINTABLE'                                                            "),
-                   ("BITPIX", 8, "",
-                    "BITPIX  =                    8                                                  "),
-                   ("NAXIS", 2, "",
-                    "NAXIS   =                    2                                                  "),
-                   ("NAXIS1", 24, "",
-                    "NAXIS1  =                   24                                                  "),
-                   ("NAXIS2", 3, "",
-                    "NAXIS2  =                    3                                                  "),
-                   ("PCOUNT", 0, "",
-                    "PCOUNT  =                    0                                                  "),
-                   ("GCOUNT", 1, "",
-                    "GCOUNT  =                    1                                                  "),
-                   ("TFIELDS", 5, "",
-                    "TFIELDS =                    5                                                  "),
-                   ("TFORM1", "1K", "",
-                    "TFORM1  = '1K'                                                                  "),
-                   ("TTYPE1", "par1", "",
-                    "TTYPE1  = 'par1'                                                                "),
-                   ("TFORM2", "3X", "",
-                    "TFORM2  = '3X'                                                                  "),
-                   ("TTYPE2", "par2", "",
-                    "TTYPE2  = 'par2'                                                                "),
-                   ("TFORM3", "1E", "",
-                    "TFORM3  = '1E'                                                                  "),
-                   ("TTYPE3", "par3", "",
-                    "TTYPE3  = 'par3'                                                                "),
-                   ("TFORM4", "1D", "",
-                    "TFORM4  = '1D'                                                                  "),
-                   ("TTYPE4", "par4", "",
-                    "TTYPE4  = 'par4'                                                                "),
-                   ("TFORM5", "3A", "",
-                    "TFORM5  = '3A'                                                                  "),
-                   ("TTYPE5", "par5", "",
-                    "TTYPE5  = 'par5'                                                                ")])
+    @test isequal(
+        showfields.(hdu.cards),
+        [
+            (
+                "XTENSION", "BINTABLE", "",
+                "XTENSION= 'BINTABLE'                                                            ",
+            ),
+            (
+                "BITPIX", 8, "",
+                "BITPIX  =                    8                                                  ",
+            ),
+            (
+                "NAXIS", 2, "",
+                "NAXIS   =                    2                                                  ",
+            ),
+            (
+                "NAXIS1", 24, "",
+                "NAXIS1  =                   24                                                  ",
+            ),
+            (
+                "NAXIS2", 3, "",
+                "NAXIS2  =                    3                                                  ",
+            ),
+            (
+                "PCOUNT", 0, "",
+                "PCOUNT  =                    0                                                  ",
+            ),
+            (
+                "GCOUNT", 1, "",
+                "GCOUNT  =                    1                                                  ",
+            ),
+            (
+                "TFIELDS", 5, "",
+                "TFIELDS =                    5                                                  ",
+            ),
+            (
+                "TFORM1", "1K", "",
+                "TFORM1  = '1K'                                                                  ",
+            ),
+            (
+                "TTYPE1", "par1", "",
+                "TTYPE1  = 'par1'                                                                ",
+            ),
+            (
+                "TFORM2", "3X", "",
+                "TFORM2  = '3X'                                                                  ",
+            ),
+            (
+                "TTYPE2", "par2", "",
+                "TTYPE2  = 'par2'                                                                ",
+            ),
+            (
+                "TFORM3", "1E", "",
+                "TFORM3  = '1E'                                                                  ",
+            ),
+            (
+                "TTYPE3", "par3", "",
+                "TTYPE3  = 'par3'                                                                ",
+            ),
+            (
+                "TFORM4", "1D", "",
+                "TFORM4  = '1D'                                                                  ",
+            ),
+            (
+                "TTYPE4", "par4", "",
+                "TTYPE4  = 'par4'                                                                ",
+            ),
+            (
+                "TFORM5", "3A", "",
+                "TFORM5  = '3A'                                                                  ",
+            ),
+            (
+                "TTYPE5", "par5", "",
+                "TTYPE5  = 'par5'                                                                ",
+            ),
+        ]
+    )
 
     @test (length(data[1]) == 5 && size(hdu.data) == (3,))
 
     #  test Bintable type with cards
-    cards = [Card("XTENSION", "BINTABLE"),
-             Card("BITPIX", 8),
-             Card("NAXIS", 2),
-             Card("NAXIS1", 24),
-             Card("NAXIS2", 3),
-             Card("PCOUNT", 0),
-             Card("GCOUNT", 1),
-             Card("TFIELDS", 5),
-             Card("TFORM1", "1K"),
-             Card("TTYPE1", "par1"),
-             Card("TFORM2", "3X"),
-             Card("TTYPE2", "par2"),
-             Card("TFORM3", "1E"),
-             Card("TTYPE3", "par3"),
-             Card("TFORM4", "1D"),
-             Card("TTYPE4", "par4"),
-             Card("TFORM5", "3A"),
-             Card("TTYPE5", "par5")]
+    cards = [
+        Card("XTENSION", "BINTABLE"),
+        Card("BITPIX", 8),
+        Card("NAXIS", 2),
+        Card("NAXIS1", 24),
+        Card("NAXIS2", 3),
+        Card("PCOUNT", 0),
+        Card("GCOUNT", 1),
+        Card("TFIELDS", 5),
+        Card("TFORM1", "1K"),
+        Card("TTYPE1", "par1"),
+        Card("TFORM2", "3X"),
+        Card("TTYPE2", "par2"),
+        Card("TFORM3", "1E"),
+        Card("TTYPE3", "par3"),
+        Card("TFORM4", "1D"),
+        Card("TTYPE4", "par4"),
+        Card("TFORM5", "3A"),
+        Card("TTYPE5", "par5"),
+    ]
     hdu = HDU(cards)
 
-    @test isequal(showfields.(hdu.cards),
-                  [("XTENSION", "BINTABLE", "",
-                    "XTENSION= 'BINTABLE'                                                            "),
-                   ("BITPIX", 8, "",
-                    "BITPIX  =                    8                                                  "),
-                   ("NAXIS", 2, "",
-                    "NAXIS   =                    2                                                  "),
-                   ("NAXIS1", 24, "",
-                    "NAXIS1  =                   24                                                  "),
-                   ("NAXIS2", 3, "",
-                    "NAXIS2  =                    3                                                  "),
-                   ("PCOUNT", 0, "",
-                    "PCOUNT  =                    0                                                  "),
-                   ("GCOUNT", 1, "",
-                    "GCOUNT  =                    1                                                  "),
-                   ("TFIELDS", 5, "",
-                    "TFIELDS =                    5                                                  "),
-                   ("TFORM1", "1K", "",
-                    "TFORM1  = '1K'                                                                  "),
-                   ("TTYPE1", "par1", "",
-                    "TTYPE1  = 'par1'                                                                "),
-                   ("TFORM2", "3X", "",
-                    "TFORM2  = '3X'                                                                  "),
-                   ("TTYPE2", "par2", "",
-                    "TTYPE2  = 'par2'                                                                "),
-                   ("TFORM3", "1E", "",
-                    "TFORM3  = '1E'                                                                  "),
-                   ("TTYPE3", "par3", "",
-                    "TTYPE3  = 'par3'                                                                "),
-                   ("TFORM4", "1D", "",
-                    "TFORM4  = '1D'                                                                  "),
-                   ("TTYPE4", "par4", "",
-                    "TTYPE4  = 'par4'                                                                "),
-                   ("TFORM5", "3A", "",
-                    "TFORM5  = '3A'                                                                  "),
-                   ("TTYPE5", "par5", "",
-                    "TTYPE5  = 'par5'                                                                ")])
+    @test isequal(
+        showfields.(hdu.cards),
+        [
+            (
+                "XTENSION", "BINTABLE", "",
+                "XTENSION= 'BINTABLE'                                                            ",
+            ),
+            (
+                "BITPIX", 8, "",
+                "BITPIX  =                    8                                                  ",
+            ),
+            (
+                "NAXIS", 2, "",
+                "NAXIS   =                    2                                                  ",
+            ),
+            (
+                "NAXIS1", 24, "",
+                "NAXIS1  =                   24                                                  ",
+            ),
+            (
+                "NAXIS2", 3, "",
+                "NAXIS2  =                    3                                                  ",
+            ),
+            (
+                "PCOUNT", 0, "",
+                "PCOUNT  =                    0                                                  ",
+            ),
+            (
+                "GCOUNT", 1, "",
+                "GCOUNT  =                    1                                                  ",
+            ),
+            (
+                "TFIELDS", 5, "",
+                "TFIELDS =                    5                                                  ",
+            ),
+            (
+                "TFORM1", "1K", "",
+                "TFORM1  = '1K'                                                                  ",
+            ),
+            (
+                "TTYPE1", "par1", "",
+                "TTYPE1  = 'par1'                                                                ",
+            ),
+            (
+                "TFORM2", "3X", "",
+                "TFORM2  = '3X'                                                                  ",
+            ),
+            (
+                "TTYPE2", "par2", "",
+                "TTYPE2  = 'par2'                                                                ",
+            ),
+            (
+                "TFORM3", "1E", "",
+                "TFORM3  = '1E'                                                                  ",
+            ),
+            (
+                "TTYPE3", "par3", "",
+                "TTYPE3  = 'par3'                                                                ",
+            ),
+            (
+                "TFORM4", "1D", "",
+                "TFORM4  = '1D'                                                                  ",
+            ),
+            (
+                "TTYPE4", "par4", "",
+                "TTYPE4  = 'par4'                                                                ",
+            ),
+            (
+                "TFORM5", "3A", "",
+                "TFORM5  = '3A'                                                                  ",
+            ),
+            (
+                "TTYPE5", "par5", "",
+                "TTYPE5  = 'par5'                                                                ",
+            ),
+        ]
+    )
 
     @test (length(hdu.data) == 5 && length(hdu.data[1]) == 3)
 
     #  test Bintable type with data being an array of records and cards
     data = [
-       (par1=1, par2=BitVector([1, 0, 0]), par3=1.0f0, par4=1.0, par5="1.0"),
-       (par1=2, par2=BitVector([0, 1, 0]), par3=2.0f0, par4=2.0, par5="2.0"),
-       (par1=3, par2=BitVector([1, 1, 0]), par3=3.0f0, par4=3.0, par5="3.0")]
-    cards = [Card("XTENSION", "BINTABLE"),
-             Card("BITPIX", 8),
-             Card("NAXIS", 2),
-             Card("NAXIS1", 24),
-             Card("NAXIS2", 3),
-             Card("PCOUNT", 0),
-             Card("GCOUNT", 1),
-             Card("TFIELDS", 5),
-             Card("TFORM1", "1K"),
-             Card("TTYPE1", "par1"),
-             Card("TFORM2", "3X"),
-             Card("TTYPE2", "par2"),
-             Card("TFORM3", "1E"),
-             Card("TTYPE3", "par3"),
-             Card("TFORM4", "1D"),
-             Card("TTYPE4", "par4"),
-             Card("TFORM5", "3A"),
-             Card("TTYPE5", "par5")]
+        (par1 = 1, par2 = BitVector([1, 0, 0]), par3 = 1.0f0, par4 = 1.0, par5 = "1.0"),
+        (par1 = 2, par2 = BitVector([0, 1, 0]), par3 = 2.0f0, par4 = 2.0, par5 = "2.0"),
+        (par1 = 3, par2 = BitVector([1, 1, 0]), par3 = 3.0f0, par4 = 3.0, par5 = "3.0"),
+    ]
+    cards = [
+        Card("XTENSION", "BINTABLE"),
+        Card("BITPIX", 8),
+        Card("NAXIS", 2),
+        Card("NAXIS1", 24),
+        Card("NAXIS2", 3),
+        Card("PCOUNT", 0),
+        Card("GCOUNT", 1),
+        Card("TFIELDS", 5),
+        Card("TFORM1", "1K"),
+        Card("TTYPE1", "par1"),
+        Card("TFORM2", "3X"),
+        Card("TTYPE2", "par2"),
+        Card("TFORM3", "1E"),
+        Card("TTYPE3", "par3"),
+        Card("TFORM4", "1D"),
+        Card("TTYPE4", "par4"),
+        Card("TFORM5", "3A"),
+        Card("TTYPE5", "par5"),
+    ]
     hdu = HDU(data, cards)
 
-    @test isequal(showfields.(hdu.cards),
-                  [("XTENSION", "BINTABLE", "",
-                    "XTENSION= 'BINTABLE'                                                            "),
-                   ("BITPIX", 8, "",
-                    "BITPIX  =                    8                                                  "),
-                   ("NAXIS", 2, "",
-                    "NAXIS   =                    2                                                  "),
-                   ("NAXIS1", 24, "",
-                    "NAXIS1  =                   24                                                  "),
-                   ("NAXIS2", 3, "",
-                    "NAXIS2  =                    3                                                  "),
-                   ("PCOUNT", 0, "",
-                    "PCOUNT  =                    0                                                  "),
-                   ("GCOUNT", 1, "",
-                    "GCOUNT  =                    1                                                  "),
-                   ("TFIELDS", 5, "",
-                    "TFIELDS =                    5                                                  "),
-                   ("TFORM1", "1K", "",
-                    "TFORM1  = '1K'                                                                  "),
-                   ("TTYPE1", "par1", "",
-                    "TTYPE1  = 'par1'                                                                "),
-                   ("TFORM2", "3X", "",
-                    "TFORM2  = '3X'                                                                  "),
-                   ("TTYPE2", "par2", "",
-                    "TTYPE2  = 'par2'                                                                "),
-                   ("TFORM3", "1E", "",
-                    "TFORM3  = '1E'                                                                  "),
-                   ("TTYPE3", "par3", "",
-                    "TTYPE3  = 'par3'                                                                "),
-                   ("TFORM4", "1D", "",
-                    "TFORM4  = '1D'                                                                  "),
-                   ("TTYPE4", "par4", "",
-                    "TTYPE4  = 'par4'                                                                "),
-                   ("TFORM5", "3A", "",
-                    "TFORM5  = '3A'                                                                  "),
-                   ("TTYPE5", "par5", "",
-                    "TTYPE5  = 'par5'                                                                ")])
+    @test isequal(
+        showfields.(hdu.cards),
+        [
+            (
+                "XTENSION", "BINTABLE", "",
+                "XTENSION= 'BINTABLE'                                                            ",
+            ),
+            (
+                "BITPIX", 8, "",
+                "BITPIX  =                    8                                                  ",
+            ),
+            (
+                "NAXIS", 2, "",
+                "NAXIS   =                    2                                                  ",
+            ),
+            (
+                "NAXIS1", 24, "",
+                "NAXIS1  =                   24                                                  ",
+            ),
+            (
+                "NAXIS2", 3, "",
+                "NAXIS2  =                    3                                                  ",
+            ),
+            (
+                "PCOUNT", 0, "",
+                "PCOUNT  =                    0                                                  ",
+            ),
+            (
+                "GCOUNT", 1, "",
+                "GCOUNT  =                    1                                                  ",
+            ),
+            (
+                "TFIELDS", 5, "",
+                "TFIELDS =                    5                                                  ",
+            ),
+            (
+                "TFORM1", "1K", "",
+                "TFORM1  = '1K'                                                                  ",
+            ),
+            (
+                "TTYPE1", "par1", "",
+                "TTYPE1  = 'par1'                                                                ",
+            ),
+            (
+                "TFORM2", "3X", "",
+                "TFORM2  = '3X'                                                                  ",
+            ),
+            (
+                "TTYPE2", "par2", "",
+                "TTYPE2  = 'par2'                                                                ",
+            ),
+            (
+                "TFORM3", "1E", "",
+                "TFORM3  = '1E'                                                                  ",
+            ),
+            (
+                "TTYPE3", "par3", "",
+                "TTYPE3  = 'par3'                                                                ",
+            ),
+            (
+                "TFORM4", "1D", "",
+                "TFORM4  = '1D'                                                                  ",
+            ),
+            (
+                "TTYPE4", "par4", "",
+                "TTYPE4  = 'par4'                                                                ",
+            ),
+            (
+                "TFORM5", "3A", "",
+                "TFORM5  = '3A'                                                                  ",
+            ),
+            (
+                "TTYPE5", "par5", "",
+                "TTYPE5  = 'par5'                                                                ",
+            ),
+        ]
+    )
 
     @test (length(hdu.data[1]) == 5 && length(hdu.data) == 3)
 
     #  test Bintable type with data being an array of records and inconsistent cards
     data = [
-       (par1=1, par2=BitVector([1, 0, 0]), par3=1.0f0, par4=1.0, par5="1.0"),
-       (par1=2, par2=BitVector([0, 1, 0]), par3=2.0f0, par4=2.0, par5="2.0"),
-       (par1=3, par2=BitVector([1, 1, 0]), par3=3.0f0, par4=3.0, par5="3.0")]
-    cards = [Card("BITPIX", 32),
-             Card("NAXIS" , 2),
-             Card("NAXIS1", 108),
-             Card("NAXIS2", 3),
-             Card("PCOUNT", 2),
-             Card("GCOUNT", 3),
-             Card("TTYPE1", "PARAM1"),
-             Card("TZERO1", 1.0),
-             Card("TSCAL1", 0.1),
-             Card("TTYPE2", "PARAM2"),
-             Card("TZERO2", 1.0),
-             Card("TSCAL2", 0.1),
-             Card("TTYPE3", "PARAM3"),
-             Card("TZERO3", 1.0),
-             Card("TSCAL3", 0.1),
-             Card("TTYPE4", "PARAM4"),
-             Card("TZERO4", 1.0),
-             Card("TSCAL4", 0.1),
-             Card("TTYPE5", "PARAM5"),
-             Card("TZERO5", 1.0),
-             Card("TSCAL5", 0.1)]
+        (par1 = 1, par2 = BitVector([1, 0, 0]), par3 = 1.0f0, par4 = 1.0, par5 = "1.0"),
+        (par1 = 2, par2 = BitVector([0, 1, 0]), par3 = 2.0f0, par4 = 2.0, par5 = "2.0"),
+        (par1 = 3, par2 = BitVector([1, 1, 0]), par3 = 3.0f0, par4 = 3.0, par5 = "3.0"),
+    ]
+    cards = [
+        Card("BITPIX", 32),
+        Card("NAXIS", 2),
+        Card("NAXIS1", 108),
+        Card("NAXIS2", 3),
+        Card("PCOUNT", 2),
+        Card("GCOUNT", 3),
+        Card("TTYPE1", "PARAM1"),
+        Card("TZERO1", 1.0),
+        Card("TSCAL1", 0.1),
+        Card("TTYPE2", "PARAM2"),
+        Card("TZERO2", 1.0),
+        Card("TSCAL2", 0.1),
+        Card("TTYPE3", "PARAM3"),
+        Card("TZERO3", 1.0),
+        Card("TSCAL3", 0.1),
+        Card("TTYPE4", "PARAM4"),
+        Card("TZERO4", 1.0),
+        Card("TSCAL4", 0.1),
+        Card("TTYPE5", "PARAM5"),
+        Card("TZERO5", 1.0),
+        Card("TSCAL5", 0.1),
+    ]
     hdu = HDU(Bintable, data, cards)
 
-    @test isequal(showfields.(hdu.cards),
-                  [("XTENSION", "BINTABLE", "",
-                    "XTENSION= 'BINTABLE'                                                            "),
-                   ("BITPIX", 8, "",
-                    "BITPIX  =                    8                                                  "),
-                   ("NAXIS", 2, "",
-                    "NAXIS   =                    2                                                  "),
-                   ("NAXIS1", 24, "",
-                    "NAXIS1  =                   24                                                  "),
-                   ("NAXIS2", 3, "",
-                    "NAXIS2  =                    3                                                  "),
-                   ("PCOUNT", 0, "",
-                    "PCOUNT  =                    0                                                  "),
-                   ("GCOUNT", 1, "",
-                    "GCOUNT  =                    1                                                  "),
-                   ("TFIELDS", 5, "",
-                    "TFIELDS =                    5                                                  "),
-                   ("TFORM1", "1K", "",
-                    "TFORM1  = '1K'                                                                  "),
-                   ("TTYPE1", "PARAM1", "",
-                    "TTYPE1  = 'PARAM1'                                                              "),
-                   ("TFORM2", "3X", "",
-                    "TFORM2  = '3X'                                                                  "),
-                   ("TTYPE2", "PARAM2", "",
-                    "TTYPE2  = 'PARAM2'                                                              "),
-                   ("TFORM3", "1E", "",
-                    "TFORM3  = '1E'                                                                  "),
-                   ("TTYPE3", "PARAM3", "",
-                    "TTYPE3  = 'PARAM3'                                                              "),
-                   ("TFORM4", "1D", "",
-                    "TFORM4  = '1D'                                                                  "),
-                   ("TTYPE4", "PARAM4", "",
-                    "TTYPE4  = 'PARAM4'                                                              "),
-                   ("TFORM5", "3A", "",
-                    "TFORM5  = '3A'                                                                  "),
-                   ("TTYPE5", "PARAM5", "",
-                    "TTYPE5  = 'PARAM5'                                                              "),
-                   ("TZERO1", 1.0, "",
-                    "TZERO1  =                  1.0                                                  "),
-                   ("TSCAL1", 0.1, "",
-                    "TSCAL1  =                  0.1                                                  "),
-                   ("TZERO2", 1.0, "",
-                    "TZERO2  =                  1.0                                                  "),
-                   ("TSCAL2", 0.1, "",
-                    "TSCAL2  =                  0.1                                                  "),
-                   ("TZERO3", 1.0, "",
-                    "TZERO3  =                  1.0                                                  "),
-                   ("TSCAL3", 0.1, "",
-                    "TSCAL3  =                  0.1                                                  "),
-                   ("TZERO4", 1.0, "",
-                    "TZERO4  =                  1.0                                                  "),
-                   ("TSCAL4", 0.1, "",
-                    "TSCAL4  =                  0.1                                                  "),
-                   ("TZERO5", 1.0, "",
-                    "TZERO5  =                  1.0                                                  "),
-                   ("TSCAL5", 0.1, "",
-                    "TSCAL5  =                  0.1                                                  ")])
-    
-    @test (length(data[1]) == 5 && size(hdu.data) == (3,) &&
-        all([hdu.data[j][:par4] for j=1:3] .== [1.0, 2.0, 3.0]))
+    @test isequal(
+        showfields.(hdu.cards),
+        [
+            (
+                "XTENSION", "BINTABLE", "",
+                "XTENSION= 'BINTABLE'                                                            ",
+            ),
+            (
+                "BITPIX", 8, "",
+                "BITPIX  =                    8                                                  ",
+            ),
+            (
+                "NAXIS", 2, "",
+                "NAXIS   =                    2                                                  ",
+            ),
+            (
+                "NAXIS1", 24, "",
+                "NAXIS1  =                   24                                                  ",
+            ),
+            (
+                "NAXIS2", 3, "",
+                "NAXIS2  =                    3                                                  ",
+            ),
+            (
+                "PCOUNT", 0, "",
+                "PCOUNT  =                    0                                                  ",
+            ),
+            (
+                "GCOUNT", 1, "",
+                "GCOUNT  =                    1                                                  ",
+            ),
+            (
+                "TFIELDS", 5, "",
+                "TFIELDS =                    5                                                  ",
+            ),
+            (
+                "TFORM1", "1K", "",
+                "TFORM1  = '1K'                                                                  ",
+            ),
+            (
+                "TTYPE1", "PARAM1", "",
+                "TTYPE1  = 'PARAM1'                                                              ",
+            ),
+            (
+                "TFORM2", "3X", "",
+                "TFORM2  = '3X'                                                                  ",
+            ),
+            (
+                "TTYPE2", "PARAM2", "",
+                "TTYPE2  = 'PARAM2'                                                              ",
+            ),
+            (
+                "TFORM3", "1E", "",
+                "TFORM3  = '1E'                                                                  ",
+            ),
+            (
+                "TTYPE3", "PARAM3", "",
+                "TTYPE3  = 'PARAM3'                                                              ",
+            ),
+            (
+                "TFORM4", "1D", "",
+                "TFORM4  = '1D'                                                                  ",
+            ),
+            (
+                "TTYPE4", "PARAM4", "",
+                "TTYPE4  = 'PARAM4'                                                              ",
+            ),
+            (
+                "TFORM5", "3A", "",
+                "TFORM5  = '3A'                                                                  ",
+            ),
+            (
+                "TTYPE5", "PARAM5", "",
+                "TTYPE5  = 'PARAM5'                                                              ",
+            ),
+            (
+                "TZERO1", 1.0, "",
+                "TZERO1  =                  1.0                                                  ",
+            ),
+            (
+                "TSCAL1", 0.1, "",
+                "TSCAL1  =                  0.1                                                  ",
+            ),
+            (
+                "TZERO2", 1.0, "",
+                "TZERO2  =                  1.0                                                  ",
+            ),
+            (
+                "TSCAL2", 0.1, "",
+                "TSCAL2  =                  0.1                                                  ",
+            ),
+            (
+                "TZERO3", 1.0, "",
+                "TZERO3  =                  1.0                                                  ",
+            ),
+            (
+                "TSCAL3", 0.1, "",
+                "TSCAL3  =                  0.1                                                  ",
+            ),
+            (
+                "TZERO4", 1.0, "",
+                "TZERO4  =                  1.0                                                  ",
+            ),
+            (
+                "TSCAL4", 0.1, "",
+                "TSCAL4  =                  0.1                                                  ",
+            ),
+            (
+                "TZERO5", 1.0, "",
+                "TZERO5  =                  1.0                                                  ",
+            ),
+            (
+                "TSCAL5", 0.1, "",
+                "TSCAL5  =                  0.1                                                  ",
+            ),
+        ]
+    )
+
+    @test (
+        length(data[1]) == 5 && size(hdu.data) == (3,) &&
+            all([hdu.data[j][:par4] for j in 1:3] .== [1.0, 2.0, 3.0])
+    )
 
     #  test Bintable type with data being an array of records and scale == true
     data = [
-       (par1=1, par2=BitVector([1, 0, 0]), par3=1.0f0, par4=1.0, par5="1.0"),
-       (par1=2, par2=BitVector([0, 1, 0]), par3=2.0f0, par4=2.0, par5="2.0"),
-       (par1=3, par2=BitVector([1, 1, 0]), par3=3.0f0, par4=3.0, par5="3.0")]
-    cards = [Card("XTENSION", "BINTABLE"),
-             Card("BITPIX", 8),
-             Card("NAXIS", 2),
-             Card("NAXIS1", 24),
-             Card("NAXIS2", 3),
-             Card("PCOUNT", 0),
-             Card("GCOUNT", 1),
-             Card("TFIELDS", 5),
-             Card("TFORM1", "1K"),
-             Card("TTYPE1", "par1"),
-             Card("TFORM2", "3X"),
-             Card("TTYPE2", "par2"),
-             Card("TFORM3", "1E"),
-             Card("TTYPE3", "par3"),
-             Card("TFORM4", "1D"),
-             Card("TTYPE4", "par4"),
-             Card("TFORM5", "3A"),
-             Card("TTYPE5", "par5")]
+        (par1 = 1, par2 = BitVector([1, 0, 0]), par3 = 1.0f0, par4 = 1.0, par5 = "1.0"),
+        (par1 = 2, par2 = BitVector([0, 1, 0]), par3 = 2.0f0, par4 = 2.0, par5 = "2.0"),
+        (par1 = 3, par2 = BitVector([1, 1, 0]), par3 = 3.0f0, par4 = 3.0, par5 = "3.0"),
+    ]
+    cards = [
+        Card("XTENSION", "BINTABLE"),
+        Card("BITPIX", 8),
+        Card("NAXIS", 2),
+        Card("NAXIS1", 24),
+        Card("NAXIS2", 3),
+        Card("PCOUNT", 0),
+        Card("GCOUNT", 1),
+        Card("TFIELDS", 5),
+        Card("TFORM1", "1K"),
+        Card("TTYPE1", "par1"),
+        Card("TFORM2", "3X"),
+        Card("TTYPE2", "par2"),
+        Card("TFORM3", "1E"),
+        Card("TTYPE3", "par3"),
+        Card("TFORM4", "1D"),
+        Card("TTYPE4", "par4"),
+        Card("TFORM5", "3A"),
+        Card("TTYPE5", "par5"),
+    ]
     seek(io, 0)
     write(io, HDU(data, cards))
     seek(io, 0)
-    hdu = read(io, HDU; record=false, scale=true)
+    hdu = read(io, HDU; record = false, scale = true)
 
-    @test isequal(showfields.(hdu.cards),
-                  [("XTENSION", "BINTABLE", "",
-                    "XTENSION= 'BINTABLE'                                                            "),
-                   ("BITPIX", 8, "",
-                    "BITPIX  =                    8                                                  "),
-                   ("NAXIS", 2, "",
-                    "NAXIS   =                    2                                                  "),
-                   ("NAXIS1", 24, "",
-                    "NAXIS1  =                   24                                                  "),
-                   ("NAXIS2", 3, "",
-                    "NAXIS2  =                    3                                                  "),
-                   ("PCOUNT", 0, "",
-                    "PCOUNT  =                    0                                                  "),
-                   ("GCOUNT", 1, "",
-                    "GCOUNT  =                    1                                                  "),
-                   ("TFIELDS", 5, "",
-                    "TFIELDS =                    5                                                  "),
-                   ("TFORM1", "1K", "",
-                    "TFORM1  = '1K'                                                                  "),
-                   ("TTYPE1", "par1", "",
-                    "TTYPE1  = 'par1'                                                                "),
-                   ("TFORM2", "3X", "",
-                    "TFORM2  = '3X'                                                                  "),
-                   ("TTYPE2", "par2", "",
-                    "TTYPE2  = 'par2'                                                                "),
-                   ("TFORM3", "1E", "",
-                    "TFORM3  = '1E'                                                                  "),
-                   ("TTYPE3", "par3", "",
-                    "TTYPE3  = 'par3'                                                                "),
-                   ("TFORM4", "1D", "",
-                    "TFORM4  = '1D'                                                                  "),
-                   ("TTYPE4", "par4", "",
-                    "TTYPE4  = 'par4'                                                                "),
-                   ("TFORM5", "3A", "",
-                    "TFORM5  = '3A'                                                                  "),
-                   ("TTYPE5", "par5", "",
-                    "TTYPE5  = 'par5'                                                                ")])
+    @test isequal(
+        showfields.(hdu.cards),
+        [
+            (
+                "XTENSION", "BINTABLE", "",
+                "XTENSION= 'BINTABLE'                                                            ",
+            ),
+            (
+                "BITPIX", 8, "",
+                "BITPIX  =                    8                                                  ",
+            ),
+            (
+                "NAXIS", 2, "",
+                "NAXIS   =                    2                                                  ",
+            ),
+            (
+                "NAXIS1", 24, "",
+                "NAXIS1  =                   24                                                  ",
+            ),
+            (
+                "NAXIS2", 3, "",
+                "NAXIS2  =                    3                                                  ",
+            ),
+            (
+                "PCOUNT", 0, "",
+                "PCOUNT  =                    0                                                  ",
+            ),
+            (
+                "GCOUNT", 1, "",
+                "GCOUNT  =                    1                                                  ",
+            ),
+            (
+                "TFIELDS", 5, "",
+                "TFIELDS =                    5                                                  ",
+            ),
+            (
+                "TFORM1", "1K", "",
+                "TFORM1  = '1K'                                                                  ",
+            ),
+            (
+                "TTYPE1", "par1", "",
+                "TTYPE1  = 'par1'                                                                ",
+            ),
+            (
+                "TFORM2", "3X", "",
+                "TFORM2  = '3X'                                                                  ",
+            ),
+            (
+                "TTYPE2", "par2", "",
+                "TTYPE2  = 'par2'                                                                ",
+            ),
+            (
+                "TFORM3", "1E", "",
+                "TFORM3  = '1E'                                                                  ",
+            ),
+            (
+                "TTYPE3", "par3", "",
+                "TTYPE3  = 'par3'                                                                ",
+            ),
+            (
+                "TFORM4", "1D", "",
+                "TFORM4  = '1D'                                                                  ",
+            ),
+            (
+                "TTYPE4", "par4", "",
+                "TTYPE4  = 'par4'                                                                ",
+            ),
+            (
+                "TFORM5", "3A", "",
+                "TFORM5  = '3A'                                                                  ",
+            ),
+            (
+                "TTYPE5", "par5", "",
+                "TTYPE5  = 'par5'                                                                ",
+            ),
+        ]
+    )
 
-    @test (length(hdu.data) == 5 && length(hdu.data[:par1]) == 3 &&
-        all(hdu.data[:par4] .== [1.0, 2.0, 3.0]))
+    @test (
+        length(hdu.data) == 5 && length(hdu.data[:par1]) == 3 &&
+            all(hdu.data[:par4] .== [1.0, 2.0, 3.0])
+    )
 
     #  test Bintable type with data being an array of records and record == true
     data = [
-       (par1=1, par2=BitVector([1, 0, 0]), par3=1.0f0, par4=1.0, par5="1.0"),
-       (par1=2, par2=BitVector([0, 1, 0]), par3=2.0f0, par4=2.0, par5="2.0"),
-       (par1=3, par2=BitVector([1, 1, 0]), par3=3.0f0, par4=3.0, par5="3.0")]
-    cards = [Card("XTENSION", "BINTABLE"),
-             Card("BITPIX", 8),
-             Card("NAXIS", 2),
-             Card("NAXIS1", 24),
-             Card("NAXIS2", 3),
-             Card("PCOUNT", 0),
-             Card("GCOUNT", 1),
-             Card("TFIELDS", 5),
-             Card("TFORM1", "1K"),
-             Card("TTYPE1", "par1"),
-             Card("TFORM2", "3X"),
-             Card("TTYPE2", "par2"),
-             Card("TFORM3", "1E"),
-             Card("TTYPE3", "par3"),
-             Card("TFORM4", "1D"),
-             Card("TTYPE4", "par4"),
-             Card("TFORM5", "3A"),
-             Card("TTYPE5", "par5")]
+        (par1 = 1, par2 = BitVector([1, 0, 0]), par3 = 1.0f0, par4 = 1.0, par5 = "1.0"),
+        (par1 = 2, par2 = BitVector([0, 1, 0]), par3 = 2.0f0, par4 = 2.0, par5 = "2.0"),
+        (par1 = 3, par2 = BitVector([1, 1, 0]), par3 = 3.0f0, par4 = 3.0, par5 = "3.0"),
+    ]
+    cards = [
+        Card("XTENSION", "BINTABLE"),
+        Card("BITPIX", 8),
+        Card("NAXIS", 2),
+        Card("NAXIS1", 24),
+        Card("NAXIS2", 3),
+        Card("PCOUNT", 0),
+        Card("GCOUNT", 1),
+        Card("TFIELDS", 5),
+        Card("TFORM1", "1K"),
+        Card("TTYPE1", "par1"),
+        Card("TFORM2", "3X"),
+        Card("TTYPE2", "par2"),
+        Card("TFORM3", "1E"),
+        Card("TTYPE3", "par3"),
+        Card("TFORM4", "1D"),
+        Card("TTYPE4", "par4"),
+        Card("TFORM5", "3A"),
+        Card("TTYPE5", "par5"),
+    ]
     seek(io, 0)
     write(io, HDU(data, cards))
     seek(io, 0)
-    hdu = read(io, HDU; record=true, scale=true)
+    hdu = read(io, HDU; record = true, scale = true)
 
-    @test isequal(showfields.(hdu.cards),
-                  [("XTENSION", "BINTABLE", "",
-                    "XTENSION= 'BINTABLE'                                                            "),
-                   ("BITPIX", 8, "",
-                    "BITPIX  =                    8                                                  "),
-                   ("NAXIS", 2, "",
-                    "NAXIS   =                    2                                                  "),
-                   ("NAXIS1", 24, "",
-                    "NAXIS1  =                   24                                                  "),
-                   ("NAXIS2", 3, "",
-                    "NAXIS2  =                    3                                                  "),
-                   ("PCOUNT", 0, "",
-                    "PCOUNT  =                    0                                                  "),
-                   ("GCOUNT", 1, "",
-                    "GCOUNT  =                    1                                                  "),
-                   ("TFIELDS", 5, "",
-                    "TFIELDS =                    5                                                  "),
-                   ("TFORM1", "1K", "",
-                    "TFORM1  = '1K'                                                                  "),
-                   ("TTYPE1", "par1", "",
-                    "TTYPE1  = 'par1'                                                                "),
-                   ("TFORM2", "3X", "",
-                    "TFORM2  = '3X'                                                                  "),
-                   ("TTYPE2", "par2", "",
-                    "TTYPE2  = 'par2'                                                                "),
-                   ("TFORM3", "1E", "",
-                    "TFORM3  = '1E'                                                                  "),
-                   ("TTYPE3", "par3", "",
-                    "TTYPE3  = 'par3'                                                                "),
-                   ("TFORM4", "1D", "",
-                    "TFORM4  = '1D'                                                                  "),
-                   ("TTYPE4", "par4", "",
-                    "TTYPE4  = 'par4'                                                                "),
-                   ("TFORM5", "3A", "",
-                    "TFORM5  = '3A'                                                                  "),
-                   ("TTYPE5", "par5", "",
-                    "TTYPE5  = 'par5'                                                                ")])
+    @test isequal(
+        showfields.(hdu.cards),
+        [
+            (
+                "XTENSION", "BINTABLE", "",
+                "XTENSION= 'BINTABLE'                                                            ",
+            ),
+            (
+                "BITPIX", 8, "",
+                "BITPIX  =                    8                                                  ",
+            ),
+            (
+                "NAXIS", 2, "",
+                "NAXIS   =                    2                                                  ",
+            ),
+            (
+                "NAXIS1", 24, "",
+                "NAXIS1  =                   24                                                  ",
+            ),
+            (
+                "NAXIS2", 3, "",
+                "NAXIS2  =                    3                                                  ",
+            ),
+            (
+                "PCOUNT", 0, "",
+                "PCOUNT  =                    0                                                  ",
+            ),
+            (
+                "GCOUNT", 1, "",
+                "GCOUNT  =                    1                                                  ",
+            ),
+            (
+                "TFIELDS", 5, "",
+                "TFIELDS =                    5                                                  ",
+            ),
+            (
+                "TFORM1", "1K", "",
+                "TFORM1  = '1K'                                                                  ",
+            ),
+            (
+                "TTYPE1", "par1", "",
+                "TTYPE1  = 'par1'                                                                ",
+            ),
+            (
+                "TFORM2", "3X", "",
+                "TFORM2  = '3X'                                                                  ",
+            ),
+            (
+                "TTYPE2", "par2", "",
+                "TTYPE2  = 'par2'                                                                ",
+            ),
+            (
+                "TFORM3", "1E", "",
+                "TFORM3  = '1E'                                                                  ",
+            ),
+            (
+                "TTYPE3", "par3", "",
+                "TTYPE3  = 'par3'                                                                ",
+            ),
+            (
+                "TFORM4", "1D", "",
+                "TFORM4  = '1D'                                                                  ",
+            ),
+            (
+                "TTYPE4", "par4", "",
+                "TTYPE4  = 'par4'                                                                ",
+            ),
+            (
+                "TFORM5", "3A", "",
+                "TFORM5  = '3A'                                                                  ",
+            ),
+            (
+                "TTYPE5", "par5", "",
+                "TTYPE5  = 'par5'                                                                ",
+            ),
+        ]
+    )
 
-    @test (length(hdu.data[1]) == 5 && length(hdu.data) == 3 &&
-        all([hdu.data[j][:par4] for j=1:3] .== [1.0, 2.0, 3.0]))
+    @test (
+        length(hdu.data[1]) == 5 && length(hdu.data) == 3 &&
+            all([hdu.data[j][:par4] for j in 1:3] .== [1.0, 2.0, 3.0])
+    )
 
     #  test Bintable type with data being an array of records and scale == false
     data = [
-       (par1=1, par2=BitVector([1, 0, 0]), par3=1.0f0, par4=1.0, par5="1.0"),
-       (par1=2, par2=BitVector([0, 1, 0]), par3=2.0f0, par4=2.0, par5="2.0"),
-       (par1=3, par2=BitVector([1, 1, 0]), par3=3.0f0, par4=3.0, par5="3.0")]
-    cards = [Card("XTENSION", "BINTABLE"),
-             Card("BITPIX", 8),
-             Card("NAXIS", 2),
-             Card("NAXIS1", 24),
-             Card("NAXIS2", 3),
-             Card("PCOUNT", 0),
-             Card("GCOUNT", 1),
-             Card("TFIELDS", 5),
-             Card("TFORM1", "1K"),
-             Card("TTYPE1", "par1"),
-             Card("TZERO1", 1.0),
-             Card("TSCAL1", 0.5),
-             Card("TFORM2", "3X"),
-             Card("TTYPE2", "par2"),
-             Card("TZERO2", 1.0),
-             Card("TSCAL2", 0.5),
-             Card("TFORM3", "1E"),
-             Card("TTYPE3", "par3"),
-             Card("TZERO3", 1.0),
-             Card("TSCAL3", 0.5),
-             Card("TFORM4", "1D"),
-             Card("TTYPE4", "par4"),
-             Card("TZERO4", 1.0),
-             Card("TSCAL4", 0.5),
-             Card("TFORM5", "3A"),
-             Card("TTYPE5", "par5"),
-             Card("TZERO5", 1.0),
-             Card("TSCAL5", 0.5)]
+        (par1 = 1, par2 = BitVector([1, 0, 0]), par3 = 1.0f0, par4 = 1.0, par5 = "1.0"),
+        (par1 = 2, par2 = BitVector([0, 1, 0]), par3 = 2.0f0, par4 = 2.0, par5 = "2.0"),
+        (par1 = 3, par2 = BitVector([1, 1, 0]), par3 = 3.0f0, par4 = 3.0, par5 = "3.0"),
+    ]
+    cards = [
+        Card("XTENSION", "BINTABLE"),
+        Card("BITPIX", 8),
+        Card("NAXIS", 2),
+        Card("NAXIS1", 24),
+        Card("NAXIS2", 3),
+        Card("PCOUNT", 0),
+        Card("GCOUNT", 1),
+        Card("TFIELDS", 5),
+        Card("TFORM1", "1K"),
+        Card("TTYPE1", "par1"),
+        Card("TZERO1", 1.0),
+        Card("TSCAL1", 0.5),
+        Card("TFORM2", "3X"),
+        Card("TTYPE2", "par2"),
+        Card("TZERO2", 1.0),
+        Card("TSCAL2", 0.5),
+        Card("TFORM3", "1E"),
+        Card("TTYPE3", "par3"),
+        Card("TZERO3", 1.0),
+        Card("TSCAL3", 0.5),
+        Card("TFORM4", "1D"),
+        Card("TTYPE4", "par4"),
+        Card("TZERO4", 1.0),
+        Card("TSCAL4", 0.5),
+        Card("TFORM5", "3A"),
+        Card("TTYPE5", "par5"),
+        Card("TZERO5", 1.0),
+        Card("TSCAL5", 0.5),
+    ]
 
     seek(io, 0)
     write(io, HDU(data, cards))
     seek(io, 0)
-    hdu = read(io, HDU; record=false, scale=true)
+    hdu = read(io, HDU; record = false, scale = true)
 
-    @test isequal(showfields.(hdu.cards),
-                  [("XTENSION", "BINTABLE", "",
-                    "XTENSION= 'BINTABLE'                                                            "),
-                   ("BITPIX", 8, "",
-                    "BITPIX  =                    8                                                  "),
-                   ("NAXIS", 2, "",
-                    "NAXIS   =                    2                                                  "),
-                   ("NAXIS1", 24, "",
-                    "NAXIS1  =                   24                                                  "),
-                   ("NAXIS2", 3, "",
-                    "NAXIS2  =                    3                                                  "),
-                   ("PCOUNT", 0, "",
-                    "PCOUNT  =                    0                                                  "),
-                   ("GCOUNT", 1, "",
-                    "GCOUNT  =                    1                                                  "),
-                   ("TFIELDS", 5, "",
-                    "TFIELDS =                    5                                                  "),
-                   ("TFORM1", "1K", "",
-                    "TFORM1  = '1K'                                                                  "),
-                   ("TTYPE1", "par1", "",
-                    "TTYPE1  = 'par1'                                                                "),
-                   ("TFORM2", "3X", "",
-                    "TFORM2  = '3X'                                                                  "),
-                   ("TTYPE2", "par2", "",
-                    "TTYPE2  = 'par2'                                                                "),
-                   ("TFORM3", "1E", "",
-                    "TFORM3  = '1E'                                                                  "),
-                   ("TTYPE3", "par3", "",
-                    "TTYPE3  = 'par3'                                                                "),
-                   ("TFORM4", "1D", "",
-                    "TFORM4  = '1D'                                                                  "),
-                   ("TTYPE4", "par4", "",
-                    "TTYPE4  = 'par4'                                                                "),
-                   ("TFORM5", "3A", "",
-                    "TFORM5  = '3A'                                                                  "),
-                   ("TTYPE5", "par5", "",
-                    "TTYPE5  = 'par5'                                                                "),
-                   ("TZERO1", 1.0f0, "",
-                    "TZERO1  =                  1.0                                                  "),
-                   ("TSCAL1", 0.5f0, "",
-                    "TSCAL1  =                  0.5                                                  "),
-                   ("TZERO2", 1.0f0, "",
-                    "TZERO2  =                  1.0                                                  "),
-                   ("TSCAL2", 0.5f0, "",
-                    "TSCAL2  =                  0.5                                                  "),
-                   ("TZERO3", 1.0f0, "",
-                    "TZERO3  =                  1.0                                                  "),
-                   ("TSCAL3", 0.5f0, "",
-                    "TSCAL3  =                  0.5                                                  "),
-                   ("TZERO4", 1.0f0, "",
-                    "TZERO4  =                  1.0                                                  "),
-                   ("TSCAL4", 0.5f0, "",
-                    "TSCAL4  =                  0.5                                                  "),
-                   ("TZERO5", 1.0f0, "",
-                    "TZERO5  =                  1.0                                                  "),
-                   ("TSCAL5", 0.5f0, "",
-                    "TSCAL5  =                  0.5                                                  ")])
+    @test isequal(
+        showfields.(hdu.cards),
+        [
+            (
+                "XTENSION", "BINTABLE", "",
+                "XTENSION= 'BINTABLE'                                                            ",
+            ),
+            (
+                "BITPIX", 8, "",
+                "BITPIX  =                    8                                                  ",
+            ),
+            (
+                "NAXIS", 2, "",
+                "NAXIS   =                    2                                                  ",
+            ),
+            (
+                "NAXIS1", 24, "",
+                "NAXIS1  =                   24                                                  ",
+            ),
+            (
+                "NAXIS2", 3, "",
+                "NAXIS2  =                    3                                                  ",
+            ),
+            (
+                "PCOUNT", 0, "",
+                "PCOUNT  =                    0                                                  ",
+            ),
+            (
+                "GCOUNT", 1, "",
+                "GCOUNT  =                    1                                                  ",
+            ),
+            (
+                "TFIELDS", 5, "",
+                "TFIELDS =                    5                                                  ",
+            ),
+            (
+                "TFORM1", "1K", "",
+                "TFORM1  = '1K'                                                                  ",
+            ),
+            (
+                "TTYPE1", "par1", "",
+                "TTYPE1  = 'par1'                                                                ",
+            ),
+            (
+                "TFORM2", "3X", "",
+                "TFORM2  = '3X'                                                                  ",
+            ),
+            (
+                "TTYPE2", "par2", "",
+                "TTYPE2  = 'par2'                                                                ",
+            ),
+            (
+                "TFORM3", "1E", "",
+                "TFORM3  = '1E'                                                                  ",
+            ),
+            (
+                "TTYPE3", "par3", "",
+                "TTYPE3  = 'par3'                                                                ",
+            ),
+            (
+                "TFORM4", "1D", "",
+                "TFORM4  = '1D'                                                                  ",
+            ),
+            (
+                "TTYPE4", "par4", "",
+                "TTYPE4  = 'par4'                                                                ",
+            ),
+            (
+                "TFORM5", "3A", "",
+                "TFORM5  = '3A'                                                                  ",
+            ),
+            (
+                "TTYPE5", "par5", "",
+                "TTYPE5  = 'par5'                                                                ",
+            ),
+            (
+                "TZERO1", 1.0f0, "",
+                "TZERO1  =                  1.0                                                  ",
+            ),
+            (
+                "TSCAL1", 0.5f0, "",
+                "TSCAL1  =                  0.5                                                  ",
+            ),
+            (
+                "TZERO2", 1.0f0, "",
+                "TZERO2  =                  1.0                                                  ",
+            ),
+            (
+                "TSCAL2", 0.5f0, "",
+                "TSCAL2  =                  0.5                                                  ",
+            ),
+            (
+                "TZERO3", 1.0f0, "",
+                "TZERO3  =                  1.0                                                  ",
+            ),
+            (
+                "TSCAL3", 0.5f0, "",
+                "TSCAL3  =                  0.5                                                  ",
+            ),
+            (
+                "TZERO4", 1.0f0, "",
+                "TZERO4  =                  1.0                                                  ",
+            ),
+            (
+                "TSCAL4", 0.5f0, "",
+                "TSCAL4  =                  0.5                                                  ",
+            ),
+            (
+                "TZERO5", 1.0f0, "",
+                "TZERO5  =                  1.0                                                  ",
+            ),
+            (
+                "TSCAL5", 0.5f0, "",
+                "TSCAL5  =                  0.5                                                  ",
+            ),
+        ]
+    )
 
     #  This test is temporary fix
-    @test (length(hdu.data) == 5 && length(hdu.data[:par1]) == 3 &&
-        all(hdu.data[:par4] .== [1.5, 2.0, 2.5]))
+    @test (
+        length(hdu.data) == 5 && length(hdu.data[:par1]) == 3 &&
+            all(hdu.data[:par4] .== [1.5, 2.0, 2.5])
+    )
 
     #  test Bintable type with data being an array of records and scale == false
     data = [
-       (par1=1, par2=BitVector([1, 0, 0]), par3=1.0f0, par4=1.0, par5="1.0"),
-       (par1=2, par2=BitVector([0, 1, 0]), par3=2.0f0, par4=2.0, par5="2.0"),
-       (par1=3, par2=BitVector([1, 1, 0]), par3=3.0f0, par4=3.0, par5="3.0")]
-    cards = [Card("XTENSION", "BINTABLE"),
-             Card("BITPIX", 8),
-             Card("NAXIS", 2),
-             Card("NAXIS1", 24),
-             Card("NAXIS2", 3),
-             Card("PCOUNT", 0),
-             Card("GCOUNT", 1),
-             Card("TFIELDS", 5),
-             Card("TFORM1", "1K"),
-             Card("TTYPE1", "par1"),
-             Card("TZERO1", 1.0),
-             Card("TSCAL1", 0.1),
-             Card("TFORM2", "3X"),
-             Card("TTYPE2", "par2"),
-             Card("TZERO2", 1.0),
-             Card("TSCAL2", 0.1),
-             Card("TFORM3", "1E"),
-             Card("TTYPE3", "par3"),
-             Card("TZERO3", 1.0),
-             Card("TSCAL3", 0.1),
-             Card("TFORM4", "1D"),
-             Card("TTYPE4", "par4"),
-             Card("TZERO4", 1.0),
-             Card("TSCAL4", 0.1),
-             Card("TFORM5", "3A"),
-             Card("TTYPE5", "par5"),
-             Card("TZERO5", 1.0),
-             Card("TSCAL5", 0.1)]
+        (par1 = 1, par2 = BitVector([1, 0, 0]), par3 = 1.0f0, par4 = 1.0, par5 = "1.0"),
+        (par1 = 2, par2 = BitVector([0, 1, 0]), par3 = 2.0f0, par4 = 2.0, par5 = "2.0"),
+        (par1 = 3, par2 = BitVector([1, 1, 0]), par3 = 3.0f0, par4 = 3.0, par5 = "3.0"),
+    ]
+    cards = [
+        Card("XTENSION", "BINTABLE"),
+        Card("BITPIX", 8),
+        Card("NAXIS", 2),
+        Card("NAXIS1", 24),
+        Card("NAXIS2", 3),
+        Card("PCOUNT", 0),
+        Card("GCOUNT", 1),
+        Card("TFIELDS", 5),
+        Card("TFORM1", "1K"),
+        Card("TTYPE1", "par1"),
+        Card("TZERO1", 1.0),
+        Card("TSCAL1", 0.1),
+        Card("TFORM2", "3X"),
+        Card("TTYPE2", "par2"),
+        Card("TZERO2", 1.0),
+        Card("TSCAL2", 0.1),
+        Card("TFORM3", "1E"),
+        Card("TTYPE3", "par3"),
+        Card("TZERO3", 1.0),
+        Card("TSCAL3", 0.1),
+        Card("TFORM4", "1D"),
+        Card("TTYPE4", "par4"),
+        Card("TZERO4", 1.0),
+        Card("TSCAL4", 0.1),
+        Card("TFORM5", "3A"),
+        Card("TTYPE5", "par5"),
+        Card("TZERO5", 1.0),
+        Card("TSCAL5", 0.1),
+    ]
 
     seek(io, 0)
     write(io, HDU(data, cards))
     seek(io, 0)
-    hdu = read(io, HDU; record=false, scale=false)
+    hdu = read(io, HDU; record = false, scale = false)
 
-    @test isequal(showfields.(hdu.cards),
-                  [("XTENSION", "BINTABLE", "",
-                    "XTENSION= 'BINTABLE'                                                            "),
-                   ("BITPIX", 8, "",
-                    "BITPIX  =                    8                                                  "),
-                   ("NAXIS", 2, "",
-                    "NAXIS   =                    2                                                  "),
-                   ("NAXIS1", 24, "",
-                    "NAXIS1  =                   24                                                  "),
-                   ("NAXIS2", 3, "",
-                    "NAXIS2  =                    3                                                  "),
-                   ("PCOUNT", 0, "",
-                    "PCOUNT  =                    0                                                  "),
-                   ("GCOUNT", 1, "",
-                    "GCOUNT  =                    1                                                  "),
-                   ("TFIELDS", 5, "",
-                    "TFIELDS =                    5                                                  "),
-                   ("TFORM1", "1K", "",
-                    "TFORM1  = '1K'                                                                  "),
-                   ("TTYPE1", "par1", "",
-                    "TTYPE1  = 'par1'                                                                "),
-                   ("TFORM2", "3X", "",
-                    "TFORM2  = '3X'                                                                  "),
-                   ("TTYPE2", "par2", "",
-                    "TTYPE2  = 'par2'                                                                "),
-                   ("TFORM3", "1E", "",
-                    "TFORM3  = '1E'                                                                  "),
-                   ("TTYPE3", "par3", "",
-                    "TTYPE3  = 'par3'                                                                "),
-                   ("TFORM4", "1D", "",
-                    "TFORM4  = '1D'                                                                  "),
-                   ("TTYPE4", "par4", "",
-                    "TTYPE4  = 'par4'                                                                "),
-                   ("TFORM5", "3A", "",
-                    "TFORM5  = '3A'                                                                  "),
-                   ("TTYPE5", "par5", "",
-                    "TTYPE5  = 'par5'                                                                "),
-                   ("TZERO1", 1.0f0, "",
-                    "TZERO1  =                  1.0                                                  "),
-                   ("TSCAL1", 0.1f0, "",
-                    "TSCAL1  =                  0.1                                                  "),
-                   ("TZERO2", 1.0f0, "",
-                    "TZERO2  =                  1.0                                                  "),
-                   ("TSCAL2", 0.1f0, "",
-                    "TSCAL2  =                  0.1                                                  "),
-                   ("TZERO3", 1.0f0, "",
-                    "TZERO3  =                  1.0                                                  "),
-                   ("TSCAL3", 0.1f0, "",
-                    "TSCAL3  =                  0.1                                                  "),
-                   ("TZERO4", 1.0f0, "",
-                    "TZERO4  =                  1.0                                                  "),
-                   ("TSCAL4", 0.1f0, "",
-                    "TSCAL4  =                  0.1                                                  "),
-                   ("TZERO5", 1.0f0, "",
-                    "TZERO5  =                  1.0                                                  "),
-                   ("TSCAL5", 0.1f0, "",
-                    "TSCAL5  =                  0.1                                                  ")])
+    @test isequal(
+        showfields.(hdu.cards),
+        [
+            (
+                "XTENSION", "BINTABLE", "",
+                "XTENSION= 'BINTABLE'                                                            ",
+            ),
+            (
+                "BITPIX", 8, "",
+                "BITPIX  =                    8                                                  ",
+            ),
+            (
+                "NAXIS", 2, "",
+                "NAXIS   =                    2                                                  ",
+            ),
+            (
+                "NAXIS1", 24, "",
+                "NAXIS1  =                   24                                                  ",
+            ),
+            (
+                "NAXIS2", 3, "",
+                "NAXIS2  =                    3                                                  ",
+            ),
+            (
+                "PCOUNT", 0, "",
+                "PCOUNT  =                    0                                                  ",
+            ),
+            (
+                "GCOUNT", 1, "",
+                "GCOUNT  =                    1                                                  ",
+            ),
+            (
+                "TFIELDS", 5, "",
+                "TFIELDS =                    5                                                  ",
+            ),
+            (
+                "TFORM1", "1K", "",
+                "TFORM1  = '1K'                                                                  ",
+            ),
+            (
+                "TTYPE1", "par1", "",
+                "TTYPE1  = 'par1'                                                                ",
+            ),
+            (
+                "TFORM2", "3X", "",
+                "TFORM2  = '3X'                                                                  ",
+            ),
+            (
+                "TTYPE2", "par2", "",
+                "TTYPE2  = 'par2'                                                                ",
+            ),
+            (
+                "TFORM3", "1E", "",
+                "TFORM3  = '1E'                                                                  ",
+            ),
+            (
+                "TTYPE3", "par3", "",
+                "TTYPE3  = 'par3'                                                                ",
+            ),
+            (
+                "TFORM4", "1D", "",
+                "TFORM4  = '1D'                                                                  ",
+            ),
+            (
+                "TTYPE4", "par4", "",
+                "TTYPE4  = 'par4'                                                                ",
+            ),
+            (
+                "TFORM5", "3A", "",
+                "TFORM5  = '3A'                                                                  ",
+            ),
+            (
+                "TTYPE5", "par5", "",
+                "TTYPE5  = 'par5'                                                                ",
+            ),
+            (
+                "TZERO1", 1.0f0, "",
+                "TZERO1  =                  1.0                                                  ",
+            ),
+            (
+                "TSCAL1", 0.1f0, "",
+                "TSCAL1  =                  0.1                                                  ",
+            ),
+            (
+                "TZERO2", 1.0f0, "",
+                "TZERO2  =                  1.0                                                  ",
+            ),
+            (
+                "TSCAL2", 0.1f0, "",
+                "TSCAL2  =                  0.1                                                  ",
+            ),
+            (
+                "TZERO3", 1.0f0, "",
+                "TZERO3  =                  1.0                                                  ",
+            ),
+            (
+                "TSCAL3", 0.1f0, "",
+                "TSCAL3  =                  0.1                                                  ",
+            ),
+            (
+                "TZERO4", 1.0f0, "",
+                "TZERO4  =                  1.0                                                  ",
+            ),
+            (
+                "TSCAL4", 0.1f0, "",
+                "TSCAL4  =                  0.1                                                  ",
+            ),
+            (
+                "TZERO5", 1.0f0, "",
+                "TZERO5  =                  1.0                                                  ",
+            ),
+            (
+                "TSCAL5", 0.1f0, "",
+                "TSCAL5  =                  0.1                                                  ",
+            ),
+        ]
+    )
 
-    @test (length(hdu.data) == 5 && length(hdu.data[:par1]) == 3 &&
-        all(hdu.data[:par4] .== [1.0, 2.0, 3.0]))
+    @test (
+        length(hdu.data) == 5 && length(hdu.data[:par1]) == 3 &&
+            all(hdu.data[:par4] .== [1.0, 2.0, 3.0])
+    )
 
     #  test Bintable type with data being an array of records, record == true, and lazy array
     data = [
-       (par1=1, par2=BitVector([1, 0, 0]), par3=1.0f0, par4=1.0, par5="1.0"),
-       (par1=2, par2=BitVector([0, 1, 0]), par3=2.0f0, par4=2.0, par5="2.0"),
-       (par1=3, par2=BitVector([1, 1, 0]), par3=3.0f0, par4=3.0, par5="3.0")]
-    cards = [Card("XTENSION", "BINTABLE"),
-             Card("BITPIX", 8),
-             Card("NAXIS", 2),
-             Card("NAXIS1", 24),
-             Card("NAXIS2", 3),
-             Card("PCOUNT", 0),
-             Card("GCOUNT", 1),
-             Card("TFIELDS", 5),
-             Card("TFORM1", "1K"),
-             Card("TTYPE1", "par1"),
-             Card("TFORM2", "3X"),
-             Card("TTYPE2", "par2"),
-             Card("TFORM3", "1E"),
-             Card("TTYPE3", "par3"),
-             Card("TFORM4", "1D"),
-             Card("TTYPE4", "par4"),
-             Card("TFORM5", "3A"),
-             Card("TTYPE5", "par5")]
+        (par1 = 1, par2 = BitVector([1, 0, 0]), par3 = 1.0f0, par4 = 1.0, par5 = "1.0"),
+        (par1 = 2, par2 = BitVector([0, 1, 0]), par3 = 2.0f0, par4 = 2.0, par5 = "2.0"),
+        (par1 = 3, par2 = BitVector([1, 1, 0]), par3 = 3.0f0, par4 = 3.0, par5 = "3.0"),
+    ]
+    cards = [
+        Card("XTENSION", "BINTABLE"),
+        Card("BITPIX", 8),
+        Card("NAXIS", 2),
+        Card("NAXIS1", 24),
+        Card("NAXIS2", 3),
+        Card("PCOUNT", 0),
+        Card("GCOUNT", 1),
+        Card("TFIELDS", 5),
+        Card("TFORM1", "1K"),
+        Card("TTYPE1", "par1"),
+        Card("TFORM2", "3X"),
+        Card("TTYPE2", "par2"),
+        Card("TFORM3", "1E"),
+        Card("TTYPE3", "par3"),
+        Card("TFORM4", "1D"),
+        Card("TTYPE4", "par4"),
+        Card("TFORM5", "3A"),
+        Card("TTYPE5", "par5"),
+    ]
 
     temppath = joinpath(tempdir(), "bintable_hdu.fits")
     fileio = open(temppath, "w+")
     write(fileio, HDU(data, cards))
     close(fileio)
     fileio = open(temppath)
-    hdu = read(fileio, HDU; type=Bintable, record=true, scale=true)
+    hdu = read(fileio, HDU; type = Bintable, record = true, scale = true)
     close(fileio)
 
-    @test isequal(showfields.(hdu.cards),
-                  [("XTENSION", "BINTABLE", "",
-                    "XTENSION= 'BINTABLE'                                                            "),
-                   ("BITPIX", 8, "",
-                    "BITPIX  =                    8                                                  "),
-                   ("NAXIS", 2, "",
-                    "NAXIS   =                    2                                                  "),
-                   ("NAXIS1", 24, "",
-                    "NAXIS1  =                   24                                                  "),
-                   ("NAXIS2", 3, "",
-                    "NAXIS2  =                    3                                                  "),
-                   ("PCOUNT", 0, "",
-                    "PCOUNT  =                    0                                                  "),
-                   ("GCOUNT", 1, "",
-                    "GCOUNT  =                    1                                                  "),
-                   ("TFIELDS", 5, "",
-                    "TFIELDS =                    5                                                  "),
-                   ("TFORM1", "1K", "",
-                    "TFORM1  = '1K'                                                                  "),
-                   ("TTYPE1", "par1", "",
-                    "TTYPE1  = 'par1'                                                                "),
-                   ("TFORM2", "3X", "",
-                    "TFORM2  = '3X'                                                                  "),
-                   ("TTYPE2", "par2", "",
-                    "TTYPE2  = 'par2'                                                                "),
-                   ("TFORM3", "1E", "",
-                    "TFORM3  = '1E'                                                                  "),
-                   ("TTYPE3", "par3", "",
-                    "TTYPE3  = 'par3'                                                                "),
-                   ("TFORM4", "1D", "",
-                    "TFORM4  = '1D'                                                                  "),
-                   ("TTYPE4", "par4", "",
-                    "TTYPE4  = 'par4'                                                                "),
-                   ("TFORM5", "3A", "",
-                    "TFORM5  = '3A'                                                                  "),
-                   ("TTYPE5", "par5", "",
-                    "TTYPE5  = 'par5'                                                                ")])
+    @test isequal(
+        showfields.(hdu.cards),
+        [
+            (
+                "XTENSION", "BINTABLE", "",
+                "XTENSION= 'BINTABLE'                                                            ",
+            ),
+            (
+                "BITPIX", 8, "",
+                "BITPIX  =                    8                                                  ",
+            ),
+            (
+                "NAXIS", 2, "",
+                "NAXIS   =                    2                                                  ",
+            ),
+            (
+                "NAXIS1", 24, "",
+                "NAXIS1  =                   24                                                  ",
+            ),
+            (
+                "NAXIS2", 3, "",
+                "NAXIS2  =                    3                                                  ",
+            ),
+            (
+                "PCOUNT", 0, "",
+                "PCOUNT  =                    0                                                  ",
+            ),
+            (
+                "GCOUNT", 1, "",
+                "GCOUNT  =                    1                                                  ",
+            ),
+            (
+                "TFIELDS", 5, "",
+                "TFIELDS =                    5                                                  ",
+            ),
+            (
+                "TFORM1", "1K", "",
+                "TFORM1  = '1K'                                                                  ",
+            ),
+            (
+                "TTYPE1", "par1", "",
+                "TTYPE1  = 'par1'                                                                ",
+            ),
+            (
+                "TFORM2", "3X", "",
+                "TFORM2  = '3X'                                                                  ",
+            ),
+            (
+                "TTYPE2", "par2", "",
+                "TTYPE2  = 'par2'                                                                ",
+            ),
+            (
+                "TFORM3", "1E", "",
+                "TFORM3  = '1E'                                                                  ",
+            ),
+            (
+                "TTYPE3", "par3", "",
+                "TTYPE3  = 'par3'                                                                ",
+            ),
+            (
+                "TFORM4", "1D", "",
+                "TFORM4  = '1D'                                                                  ",
+            ),
+            (
+                "TTYPE4", "par4", "",
+                "TTYPE4  = 'par4'                                                                ",
+            ),
+            (
+                "TFORM5", "3A", "",
+                "TFORM5  = '3A'                                                                  ",
+            ),
+            (
+                "TTYPE5", "par5", "",
+                "TTYPE5  = 'par5'                                                                ",
+            ),
+        ]
+    )
 
-    @test (length(hdu.data[1]) == 5 && length(hdu.data) == 3 &&
-        all([hdu.data[j][:par4] for j=1:3] .== [1.0, 2.0, 3.0]))
+    @test (
+        length(hdu.data[1]) == 5 && length(hdu.data) == 3 &&
+            all([hdu.data[j][:par4] for j in 1:3] .== [1.0, 2.0, 3.0])
+    )
 
     rm(temppath)
 
