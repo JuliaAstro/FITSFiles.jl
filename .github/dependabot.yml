@@ -4,4 +4,13 @@ updates:
   - package-ecosystem: "github-actions"
     directory: "/" # Location of package manifests
     schedule:
+      interval: "monthly"
+  - package-ecosystem: "julia"
+    directories: ["/", "/docs"] # Location of Julia projects
+    schedule:
       interval: "weekly"
+    ignore:
+      - dependency-name: "FITSFiles" # Ignore package itself
+    groups:
+      per-dependency:
+        group-by: dependency-name
