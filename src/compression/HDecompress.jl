@@ -5,13 +5,13 @@ These routines apply the H-compress decompression algorithm to a 2-D image.
 Original C implementation by R. White at the STScI.
 
 Original source files:
- - hinv.c 
- - hsmooth.c 
- - undigitize.c 
- - decode.c 
- - dodecode.c 
- - qtree_decode.c 
- - qread.c 
+ - hinv.c
+ - hsmooth.c
+ - undigitize.c
+ - decode.c
+ - dodecode.c
+ - qtree_decode.c
+ - qread.c
  - bit_input.c
 """
 
@@ -42,18 +42,18 @@ const code_magic = UInt8[0xDD, 0x99]
 Decompress data using the H-compress algorithm and return a status code together with the decoded array.
 """
 function decode(::Type{HComp}, input::AbstractVector{<:UInt8}, smooth::Integer)
-    
+
     # Decode the input array and initialize the bitstream state.
     GLOBALS[:nextchar] = 0
     stat, decoded, nrows, ncols, scale = initial_decode(input)
-    
+
     if stat != 0
         return stat
     end
-    
+
     # Undo the digitization and apply the inverse H-transform.
     undigitize!(decoded, scale[])
-    
+
     # Inverse H-transform
     stat = hinv!(decoded, nrows[], ncols[], smooth, scale[])
 
@@ -63,58 +63,61 @@ end
 """
     initial_decode(infile::AbstractVector{<:UInt8}) -> Int, AbstractArray, Ref{Int}, Ref{Int}, Ref{Int}
 
-Decode the H-compress header and bit-plane metadata, then initialize the decoded array and return its status, contents, dimensions, and scale.
+Decode the H-compress header and bit-plane metadata, then initialize the decoded
+array and return its status, contents, dimensions, and scale.
 """
 function initial_decode(infile::AbstractVector{<:UInt8})
-    
+
     GLOBALS[:nextchar] = 0
-    
+
     # Read and validate the H-compress header.
     tmagic = qread!(infile, 2)
     if tmagic != code_magic
         throw(HCompressError("Bad file format — magic bytes do not match H-compress signature"))
     end
-    
+
     nrows = Ref{Int}(readint!(infile))
     ncols = Ref{Int}(readint!(infile))
     scale = Ref{Int}(readint!(infile))
     decoded = zeros(Int32, nrows[], ncols[])
-    
+
     sumall = readint!(infile, nbytes = 8)
 
     nbitplanes = qread!(infile, 3)
 
     stat = dodecode!(infile, decoded, nrows[], ncols[], nbitplanes)
-    
+
     # Restore the original sum into the first pixel.
     decoded[1] = Int(sumall)
-    
+
     return stat, decoded, nrows, ncols, scale
 end
 
 """
     hinv!(a::AbstractArray{<:Integer}, nrows::Integer, ncols::Integer, smooth::Integer, scale::Integer;
-               log2n = Int(floor(log2(max(nrows, ncols)))), shift = 1, bit0 = 1 << (log2n - 1), bit1 = bit0 << 1, bit2 = bit0 << 2,
-               mask0 = -bit0, mask1 = mask0 << 1, mask2 = mask0 << 2,
-               prnd0 = bit0 >> 1, prnd1 = bit1 >> 1, prnd2 = bit2 >> 1,
-               nrnd0 = prnd0 - 1, nrnd1 = prnd1 - 1, nrnd2 = prnd2 - 1) -> Int
+          log2n = Int(floor(log2(max(nrows, ncols)))), shift = 1,
+          bit0 = 1 << (log2n - 1), bit1 = bit0 << 1, bit2 = bit0 << 2,
+          mask0 = -bit0, mask1 = mask0 << 1, mask2 = mask0 << 2,
+          prnd0 = bit0 >> 1, prnd1 = bit1 >> 1, prnd2 = bit2 >> 1,
+          nrnd0 = prnd0 - 1, nrnd1 = prnd1 - 1, nrnd2 = prnd2 - 1) -> Int
 
 Perform inverse H-transform.
 """
 function hinv!(a::AbstractArray{<:Integer}, nrows::Integer, ncols::Integer, smooth::Integer, scale::Integer;
-               log2n = Int(floor(log2(max(nrows, ncols)))), shift = 1, bit0 = 1 << (log2n - 1), bit1 = bit0 << 1, bit2 = bit0 << 2,
+               log2n = Int(floor(log2(max(nrows, ncols)))), shift = 1,
+               bit0 = 1 << (log2n - 1), bit1 = bit0 << 1, bit2 = bit0 << 2,
                mask0 = -bit0, mask1 = mask0 << 1, mask2 = mask0 << 2,
                prnd0 = bit0 >> 1, prnd1 = bit1 >> 1, prnd2 = bit2 >> 1,
                nrnd0 = prnd0 - 1, nrnd1 = prnd1 - 1, nrnd2 = prnd2 - 1)
-    
+
     roundrows = div(nrows + 1, 2)
     roundcols = div(ncols + 1, 2)
     halfrows = div(nrows, 2)
     halfcols = div(ncols, 2)
     h0 = a[1:roundrows,1:roundcols]
-    
+
     if max(roundrows, roundcols) > 1
-        hinv!(h0, roundrows, roundcols, smooth, scale, 
+        hinv!(h0, roundrows, roundcols, smooth, scale,
         bit2 = bit1, bit1 = bit0, bit0 = bit0 >> 1, mask1 = mask0, mask0 = mask0 >> 1,
         prnd1 = prnd0, prnd0 = prnd0 >> 1, nrnd1 = nrnd0, nrnd0 = prnd0 - 1)
     end
@@ -128,11 +131,11 @@ function hinv!(a::AbstractArray{<:Integer}, nrows::Integer, ncols::Integer, smoo
         hx[i] = (hx[i] + (hx[i] >= 0 ? prnd1 : nrnd1)) & mask1
         hy[i] = (hy[i] + (hy[i] >= 0 ? prnd1 : nrnd1)) & mask1
         hc[i] = (hc[i] + (hc[i] >= 0 ? prnd0 : nrnd0)) & mask0
-        
+
         lowbit0 = hc[i] & bit0
         hx[i] = hx[i] >= 0 ? (hx[i] - lowbit0) : (hx[i] + lowbit0)
         hy[i] = hy[i] >= 0 ? (hy[i] - lowbit0) : (hy[i] + lowbit0)
-        
+
         lowbit1 = (hc[i] ⊻ hx[i] ⊻ hy[i]) & bit1
         h0[i] = h0[i] >= 0 ? (h0[i] + lowbit0 - lowbit1) : (h0[i] + (lowbit0 == 0 ? lowbit1 : (lowbit0 - lowbit1)))
     end
@@ -172,7 +175,7 @@ function hinv!(a::AbstractArray{<:Integer}, nrows::Integer, ncols::Integer, smoo
     if smooth > 0
         hsmooth!(a, scale)
     end
-    
+
     return 0
 end
 
@@ -246,20 +249,20 @@ function undigitize!(a::AbstractArray{<:Integer}, scale::Integer)
 end
 
 """
-    dodecode!(infile::AbstractVector{UInt8}, decoded::AbstractArray{<:Integer}, nrows::Integer, ncols::Integer,
-              nbitplanes::AbstractVector{UInt8})
+    dodecode!(infile::AbstractVector{UInt8}, decoded::AbstractArray{<:Integer},
+              nrows::Integer, ncols::Integer, nbitplanes::AbstractVector{UInt8})
 
 Decode packed bit-plane data into the output array and restore the sign bits.
 """
-function dodecode!(infile::AbstractVector{UInt8}, decoded::AbstractArray{<:Integer}, nrows::Integer, ncols::Integer,
-                   nbitplanes::AbstractVector{UInt8})
-    
+function dodecode!(infile::AbstractVector{UInt8}, decoded::AbstractArray{<:Integer},
+                   nrows::Integer, ncols::Integer, nbitplanes::AbstractVector{UInt8})
+
     nel = nrows * ncols
     roundrows = div(nrows, 2, RoundUp)
     roundcols = div(ncols, 2, RoundUp)
     halfrows = div(nrows, 2)
     halfcols = div(ncols, 2)
-    
+
     # Initialize array to zero
     decoded .= 0
 
@@ -267,10 +270,10 @@ function dodecode!(infile::AbstractVector{UInt8}, decoded::AbstractArray{<:Integ
     bl = decoded[roundrows+1:nrows,1:roundcols]
     tr = decoded[1:roundrows,roundcols+1:ncols]
     br = decoded[roundrows+1:nrows,roundcols+1:ncols]
-    
+
     # Initialize the bit input state and decode each quadrant.
     start_inputing_bits()
-    
+
     # Quadrant 1: rows 1:ny2, cols 1:nx2
     stat = qtree_decode!(infile, tl, roundrows, roundcols, nbitplanes[1])
     if stat != 0
@@ -306,7 +309,7 @@ function dodecode!(infile::AbstractVector{UInt8}, decoded::AbstractArray{<:Integ
     if input_nybble!(infile) != 0
         throw(HCompressError("Bad bit plane values or unexpected EOF in bitplane data"))
     end
-    
+
     # Get sign bits
     start_inputing_bits()
     for i = 1:nrows
@@ -328,13 +331,13 @@ Decode bit planes using quadtree coding.
 """
 function qtree_decode!(infile::AbstractVector{UInt8}, outfile::AbstractArray{<:Integer},
                        nrows::Integer, ncols::Integer, nbitplanes::UInt8)
-    
+
     nqmax = max(ncols, nrows)
     log2n = Int(floor(log2(nqmax)))
     if nqmax > (1 << log2n)
         log2n += 1
     end
-    
+
     roundrows = div(nrows, 2, RoundUp)
     roundcols = div(ncols, 2, RoundUp)
     encoded_bitmap = zeros(UInt8, roundrows, roundcols)
@@ -343,43 +346,43 @@ function qtree_decode!(infile::AbstractVector{UInt8}, outfile::AbstractArray{<:I
     for bit = Int(nbitplanes)-1:-1:0
         # Align to the next byte boundary before reading the next bit plane.
         skip_to_byte_boundary()
-        
+
         b = input_nybble!(infile)
-        
+
         if b == 0
             # Bitmap written directly
             read_bdirect!(infile, outfile, nrows, ncols, encoded_bitmap, bit)
         elseif b == 0xf
             # Bitmap was quadtree-coded
             encoded_bitmap[1, 1] = input_huffman!(infile)
-            
+
             nx = 1
             ny = 1
             nfx = nrows
             nfy = ncols
             c = 1 << log2n
-            
+
             for k = 1:log2n-1
                 c = c >> 1
                 nx = nx << 1
                 ny = ny << 1
-                
+
                 if nfx <= c
                     nx -= 1
                 else
                     nfx -= c
                 end
-                
+
                 if nfy <= c
                     ny -= 1
                 else
                     nfy -= c
                 end
-                
+
                 decoded_bitmap = qtree_expand!(infile, encoded_bitmap, nx, ny)
                 encoded_bitmap = decoded_bitmap
             end
-            
+
             qtree_bitins!(decoded_bitmap, nrows, ncols, outfile, bit)
         else
             throw(HCompressError("Bad quadtree format code while decoding bitplane (nibble=$b)"))
@@ -394,9 +397,9 @@ end
 Do one quadtree expansion step.
 """
 function qtree_expand!(infile::AbstractVector{UInt8}, encoded_bitmap::AbstractArray{UInt8}, nrows::Integer, ncols::Integer)
-    
+
     decoded_bitmap = qtree_copy!(encoded_bitmap, nrows, ncols)
-    
+
     for i = nrows*ncols:-1:1
         if decoded_bitmap[i] != 0
             decoded_bitmap[i] = input_huffman!(infile)
@@ -453,14 +456,14 @@ function qtree_bitins!(bitmap::AbstractArray{UInt8}, nrows::Integer, ncols::Inte
 end
 
 """
-    read_bdirect!(infile::AbstractVector{UInt8}, outfile::AbstractArray{<:Integer}, 
+    read_bdirect!(infile::AbstractVector{UInt8}, outfile::AbstractArray{<:Integer},
                        nrows::Integer, ncols::Integer, encoded_bitmap::AbstractArray{UInt8}, bit::Integer)
 
 Read direct bitmap and insert into bitplane.
 """
-function read_bdirect!(infile::AbstractVector{UInt8}, outfile::AbstractArray{<:Integer}, 
+function read_bdirect!(infile::AbstractVector{UInt8}, outfile::AbstractArray{<:Integer},
                        nrows::Integer, ncols::Integer, encoded_bitmap::AbstractArray{UInt8}, bit::Integer)
-    
+
     input_nnybble!(infile, div(nrows + 1, 2), div(ncols + 1, 2), encoded_bitmap)
     # decoded_bitmap = qtree_copy!(encoded_bitmap, nrows, ncols)
     qtree_bitins!(encoded_bitmap, nrows, ncols, outfile, bit)
@@ -497,13 +500,13 @@ end
 Input a single bit.
 """
 function input_bit!(infile::AbstractVector{UInt8})
-    
+
     if GLOBALS[:bits_to_go] == 0
         GLOBALS[:buffer2] = UInt64(infile[GLOBALS[:nextchar] + 1])
         GLOBALS[:nextchar] += 1
         GLOBALS[:bits_to_go] = 8
     end
-    
+
     GLOBALS[:bits_to_go] -= 1
     return (GLOBALS[:buffer2] >> GLOBALS[:bits_to_go]) & 1
 end
@@ -514,20 +517,20 @@ end
 Input n bits.
 """
 function input_nbits!(infile::AbstractVector{UInt8}, n::Integer)
-    
+
     mask = [0, 1, 3, 7, 15, 31, 63, 127, 255]
-    
+
     if GLOBALS[:bits_to_go] < n
         # GLOBALS[:buffer2] = (GLOBALS[:buffer2] << 8) | UInt64(infile[GLOBALS[:nextchar] + 1])
         # Only keep the valid bits (the ones we haven't read yet)
         valid_bits = GLOBALS[:buffer2] & ((UInt64(1) << GLOBALS[:bits_to_go]) - 1)
         new_byte = UInt64(infile[GLOBALS[:nextchar] + 1])
-        
+
         GLOBALS[:buffer2] = (valid_bits << 8) | new_byte
         GLOBALS[:nextchar] += 1
         GLOBALS[:bits_to_go] += 8
     end
-    
+
     GLOBALS[:bits_to_go] -= n
     val = (GLOBALS[:buffer2] >> GLOBALS[:bits_to_go]) & mask[n + 1]
     return val
@@ -539,19 +542,19 @@ end
 Input 4 bits.
 """
 function input_nybble!(infile::AbstractVector{UInt8})
-    
+
     if GLOBALS[:bits_to_go] < 4
         # GLOBALS[:buffer2] = (GLOBALS[:buffer2] << 8) | UInt64(infile[GLOBALS[:nextchar] + 1])
         # Only keep the valid bits (the ones we haven't read yet)
         # bits_to_go tells us how many valid bits are left
         valid_bits = GLOBALS[:buffer2] & ((UInt64(1) << GLOBALS[:bits_to_go]) - 1)
         new_byte = UInt64(infile[GLOBALS[:nextchar] + 1])
-        
+
         GLOBALS[:buffer2] = (valid_bits << 8) | new_byte
         GLOBALS[:nextchar] += 1
         GLOBALS[:bits_to_go] += 8
     end
-    
+
     GLOBALS[:bits_to_go] -= 4
     val = (GLOBALS[:buffer2] >> GLOBALS[:bits_to_go]) & 15
     if val != 0 && val != 15
@@ -580,18 +583,18 @@ end
 Huffman decode fixed codes.
 """
 function input_huffman!(infile::AbstractVector{UInt8})
-    
+
     # Get first 3 bits
     c = input_nbits!(infile, 3)
-    
+
     if c < 4
         # This is all we need
         return 1 << c
     end
-    
+
     # Get next bit
     c = input_bit!(infile) | (c << 1)
-    
+
     if c < 13
         switch_val = c
         if switch_val == 8
@@ -606,10 +609,10 @@ function input_huffman!(infile::AbstractVector{UInt8})
             return 15
         end
     end
-    
+
     # Get another bit
     c = input_bit!(infile) | (c << 1)
-    
+
     if c < 31
         switch_val = c
         if switch_val == 26
@@ -624,10 +627,10 @@ function input_huffman!(infile::AbstractVector{UInt8})
             return 13
         end
     end
-    
+
     # Need 6th bit
     c = input_bit!(infile) | (c << 1)
-    
+
     if c == 62
         return 0
     else
@@ -641,7 +644,7 @@ end
 Read n-byte integer from file.
 """
 function readint!(infile::AbstractVector{UInt8}; nbytes::Integer=4)
-    
+
     b = qread!(infile, nbytes)
     a::Int = b[1]
     for i = 2:nbytes
@@ -656,7 +659,7 @@ end
 Read n bytes from file.
 """
 function qread!(file::AbstractVector{UInt8}, n::Integer)
-    
+
     buffer = file[GLOBALS[:nextchar]+1:GLOBALS[:nextchar]+n]
     GLOBALS[:nextchar] += n
     return buffer

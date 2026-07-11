@@ -503,7 +503,7 @@
                     "TZERO5  =                  1.0                                                  "),
                    ("TSCAL5", 0.1, "",
                     "TSCAL5  =                  0.1                                                  ")])
-    
+
     @test (length(data[1]) == 5 && size(hdu.data) == (3,) &&
         all([hdu.data[j][:par4] for j=1:3] .== [1.0, 2.0, 3.0]))
 
