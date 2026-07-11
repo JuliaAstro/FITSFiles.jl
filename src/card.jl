@@ -271,13 +271,12 @@ function Card(key::S = "", value::V = missing, comment::S = ""; fixed::B = true,
 	elseif is_continue_key(upkey) && is_string(value)
 		#  Create CONTINUE card
 		type = Continue
-		format = formatcard(type, value, comment; append = append, fixed = fixed,
-			slash = slash, lpad = lpad, rpad = rpad, upad = upad)
+		format = formatcard(type, value, comment; append, fixed,
+			slash, lpad, rpad, upad)
 	elseif is_comment_key(upkey)
 		#  Create COMMENT card
 		if typeof(value) <: Union{AbstractString, Missing}
 			type = COMMENTKEY[upkey]
-			value = value
 			format = CardFormat(fixed, (!ismissing(value) ?
 										(1, length(value)) : (0, 0))...)
 		else
@@ -286,21 +285,21 @@ function Card(key::S = "", value::V = missing, comment::S = ""; fixed::B = true,
 	elseif is_valid_key(upkey) && !(typeof(value) <: AbstractString)
 		#  Create Value card
 		type = Value{typeof(value)}
-		format = formatcard(type, value, comment; fixed = fixed, append = append,
-			slash = slash, lpad = lpad, rpad = rpad, upad = upad, truncate = truncate)
+		format = formatcard(type, value, comment; fixed, append,
+			slash, lpad, rpad, upad, truncate)
 	elseif is_valid_key(upkey) && is_long_string(String(value), comment, slash, lpad,
 		rpad, truncate)
 		#  Create a list of cards from from a long string.
 		type = Value{typeof(value)}
-		cards = split_card(upkey, value, comment, (; fixed = fixed,
-			slash = slash, lpad = lpad, rpad = rpad, upad = upad, append = append))
+		cards = split_card(upkey, value, comment,
+			(; fixed, slash, lpad, rpad, upad, append))
 		cards = [Card(t, k, v, c, f) for (t, k, v, c, f) in cards]
 	elseif is_valid_key(upkey)
 		#  Create Value card that is not a long string.
 		type = Value{typeof(value)}
 		value = format_xtension_value(upkey, value)
-		format = formatcard(type, value, comment; fixed = fixed, append = append,
-			slash = slash, lpad = lpad, rpad = rpad, upad = upad, truncate = truncate)
+		format = formatcard(type, value, comment; fixed, append,
+			slash, lpad, rpad, upad, truncate)
 	else
 		error("Invalid card")
 	end
@@ -336,8 +335,7 @@ function Card(key::S, tokens::S, value::V, comment::S;
 
 	if is_hierarch(upkey) && is_valid_key(upkey)
 		type = Hierarch{typeof(value)}
-		format = formatcard(type, uptoken, value, comment; fixed = fixed, slash = slash,
-			lpad = lpad, rpad = rpad, upad = upad)
+		format = formatcard(type, uptoken, value, comment; fixed, slash, lpad, rpad, upad)
 	else
 		error("Invalid card")
 	end
@@ -354,7 +352,7 @@ function setvalue!(card::Card, value::ValueType)
 	end
 	Card(type, card.key, value, card.comment,
 		formatcard(type, value, card.comment;
-			fixed = f.fixd, slash = f.slsh, lpad = lpad, rpad = rpad, upad = upad))
+			fixed = f.fixd, slash = f.slsh, lpad, rpad, upad))
 end
 
 #  check key type
@@ -471,7 +469,7 @@ function formatcard(::Type{Value{V}}, value::V, comment::C; kwds...) where
 	format.vbeg, format.vend = Int8(max(1, FIXEDINDEX-vlen+1)), Int8(vend)
 	# format.frmt = fmt
 	#   Format comment, if necessary
-	formatcomment!(comment, vend, format; units = units, kwds...)
+	formatcomment!(comment, vend, format; units, kwds...)
 end
 
 function formatcard(::Type{Value{V}}, value::V, comment::C; kwds...) where
@@ -485,7 +483,7 @@ function formatcard(::Type{Value{V}}, value::V, comment::C; kwds...) where
 	format.vbeg, format.vend = Int8.((2, 2+rlen+2)), Int8.((1+rlen+2, vend))
 	# format.frmt = fmt
 	#   Format comment, if necessary
-	formatcomment!(comment, vend, format; units = units, kwds...)
+	formatcomment!(comment, vend, format; units, kwds...)
 end
 
 function formatcard(::Type{Continue}, value::S, comment::C; kwds...) where
