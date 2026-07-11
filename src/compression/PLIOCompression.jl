@@ -94,16 +94,14 @@ Convert an integer vector to a PLIO line list.
 
 """
     encode(::Type{PLIO}, input::AbstractVector{<:Int16};
-                            xstart::Int = 1,
-                            npix::Int = length(input))
+           xstart::Int = 1, npix::Int = length(input))
 
 Encodes the input vector using the PLIO algorithm.
 xstart: index of input vector to begin encoding at. Defaults to the first index.
 npix: Number of pixels to encode. Defaults to the full vector.
 """
 function encode(::Type{PLIO}, input::AbstractVector{<:Int16};
-                            xstart::Int = 1,
-                            npix::Int = length(input))
+                xstart::Int = 1, npix::Int = length(input))
     xend = min(xstart + npix - 1, length(input))
     if npix <= 0 || xstart > xend
         return
@@ -127,31 +125,34 @@ end
 
 """
     decode(::Type{PLIO}, list::AbstractVector, npix::Int;
-                            xstart = 1,
-                            output = zeros(Int16,xstart + npix -1))
+           xstart = 1, output = zeros(Int16,xstart + npix -1))
 
 Decodes the PLIO encoded vector.
-npix: Number of pixels to decode. Typically the length of the original vector. If shorter, will only decode that many pixels. If longer, will decode all encoded pixels and fill remaining spots with zeros.
-xstart: index of output vector to begin writing decoded values. Defaults to first index.
-output: Optional output array to write values to. Will otherwise create an array of zeros to write to.
+
+### Arguments
+
+- `npix`: Number of pixels to decode. Typically the length of the original vector.
+  If shorter, will only decode that many pixels. If longer, will decode all
+  encoded pixels and fill remaining spots with zeros.
+- `xstart`: index of output vector to begin writing decoded values. Defaults to first index.
+- `output`: Optional output array to write values to. Will otherwise create an array of zeros to write to.
 """
 function decode(::Type{PLIO}, list::AbstractVector, npix::Int;
-                            xstart = 1,
-                            output = zeros(Int16,xstart + npix -1))
+                xstart = 1, output = zeros(Int16,xstart + npix -1))
     if list[3] > 0
         len, firstpix = list[3], 4
-    else 
+    else
         len, firstpix = (list[5] << 15) + list[4], list[2] + 1
     end
 
-    if npix <= 0 || len <= 0 
+    if npix <= 0 || len <= 0
         return output
     end
 
     op, x1, hi = xstart, xstart, 1
     xend = min(xstart + npix - 1, length(output))
     skip = false
-    
+
     for i in firstpix:len
         if skip
             skip = false

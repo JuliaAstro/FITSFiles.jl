@@ -12,12 +12,12 @@
     @test isequal(showfields(Card("END")),
                   ("END", missing, "",
                    "END                                                                             "))
-    
+
     #  lowercase END keyword
     @test isequal(showfields(Card("end")),
                   ("END", missing, "",
                    "END                                                                             "))
-    
+
     #  Invalid END card with value
     @test_throws ArgumentError Card("END", "a value")
 
@@ -110,7 +110,7 @@
 
     #  create COMMENT keyword with non-string value
     @test_throws ArgumentError Card("COMMENT", 123)
-    
+
     ###  parse COMMENT keyword
 
     #  parse blank keyword without comment
@@ -138,11 +138,11 @@
                    "COMMENT card has no comments. / text after slash is still part of the value.    "))
 
     ###  test History Card Constructor
-    
+
     #  create HISTORY keyword with no history
     @test isequal(showfields(Card("HISTORY")),
                   ("HISTORY", missing, "", "HISTORY                                                                         "))
-    
+
     #  create lowercase HISTORY keyword with empty history in comment argument
     @test isequal(showfields(Card("history")),
                   ("HISTORY", missing, "", "HISTORY                                                                         "))
@@ -164,7 +164,7 @@
 
     #  create HISTORY keyword with non-string value
     @test_throws ArgumentError Card("HISTORY", 123)
-    
+
     ###  parse HISTORY keyword
 
     #  parse blank keyword without comment
@@ -190,7 +190,7 @@
                    "HISTORY  (1, 2)                                                                 ")),
                   ("HISTORY", " (1, 2)", "",
                    "HISTORY  (1, 2)                                                                 "))
-    
+
     #  parse History Card  with equal sign (=) in column >=9
     @test isequal(showfields(parse(Card,
                    "HISTORY =   (1, 2)                                                              ")),
@@ -201,7 +201,7 @@
 
     #  create Value Card and get its type with boolean value
     @test typeof(Card("BOOL", true)) <: Card{Value{Bool}}
-    
+
     #  create Value card with boolean value, fixed-format
     @test isequal(showfields(Card("BOOL", false)),
                   ("BOOL", false, "",
@@ -242,7 +242,7 @@
     @test isequal(showfields(Card("BOOL", true, "a comment string")),
                   ("BOOL", true, "a comment string",
                    "BOOL    =                    T / a comment string                               "))
- 
+
     #  parse Value card with boolean value and comment, fixed format
     @test isequal(showfields(parse(Card,
                    "BOOL    =                    T / a comment string                               ")),
@@ -262,7 +262,7 @@
 
     #  get type of Value Card with integer value
     @test typeof(Card("INTEGER", 12345)) <: Card{Value{Int64}}
-    
+
     #  create Value card with integer value, fixed-format
     @test isequal(showfields(Card("INTEGER", 12345)),
                   ("INTEGER", 12345, "",
@@ -318,7 +318,7 @@
 
     #  test type of Value Card with long integer value
     @test typeof(Card("LONG_INT", -467374636747637647347374734737437)) <: Card{Value{Int128}}
-    
+
     #  creat Value Card with long integer value, fixed-format
     @test isequal(showfields(Card("LONG_INT", -467374636747637647347374734737437)),
                   ("LONG_INT", -467374636747637647347374734737437, "",
@@ -346,7 +346,7 @@
 
     #  type of Value Card with 32-bit float value
     @test typeof(Card("FLOAT_32", 1.2345f0)) <: Card{Value{Float32}}
-    
+
     #  create Value Card with 32-bit float value, fixed-format
     @test isequal(showfields(Card("FLOAT_32", 1.2345f0)),
                   ("FLOAT_32", 1.2345f0, "",
@@ -385,7 +385,7 @@
 
     #  test typeof Value Card with 64-bit float value
     @test typeof(Card("FLOAT_64", 1.2345)) <: Card{Value{Float64}}
-    
+
     #  create Value Card with 64-bit float value, fixed-format
     @test isequal(showfields(Card("FLOAT_64", 1.2345)),
                   ("FLOAT_64", 1.2345, "",
@@ -410,7 +410,7 @@
     #  test Value Card with 64-bit floating point value
     @test parse(Card, "FLOAT_64= 1.2345                                                                "
                     ).format.fixd == false
-           
+
     #  parse Value Card with 64-bit float value, free-format
     @test isequal(showfields(parse(Card,
                    "FLOAT_64= 1.2345678901                                                          ")),
@@ -610,7 +610,7 @@
 
     #  type of Value Card with string value
     @test typeof(Card("STRING", "a value string")) <: Card{Value{String}}
-    
+
     #  create Value Card with a null string
     @test isequal(showfields(Card("STRING", "")),
                   ("STRING", "", "",
@@ -725,18 +725,18 @@
 #    @test isequal(showfields(Card("longcom", "character string", "a comment string", lpad=4, rpad=4)),
 #                  ("LONGCOM", "character string", "a comment string",
 #                   "LONGCOM = 'character string'    /    a comment string                           "))
-    
+
     #  parse Value card with 4 spaces each for left and right padding for comment separator
     @test isequal(showfields(parse(Card,
                    "LONGCOM = 'character string'    /    a comment string                           ")),
                   ("LONGCOM", "character string", "a comment string",
                    "LONGCOM = 'character string'    /    a comment string                           "))
-    
+
     ###  test Continue Card constructor
 
     #  CONTINUE keyword without value and comment arguments
     @test_throws "Value is not a string." Card("CONTINUE")
-    
+
     #  CONTINUE keyword without comment argument
     @test isequal(showfields(Card("continue", "part of a long string")),
                   ("CONTINUE", "part of a long string", "",
@@ -791,7 +791,7 @@
     @test isequal(showfields(card[4]),
                   ("CONTINUE", "", "mment long comment ",
                    "CONTINUE  ''                             / mment long comment                   "))
-    
+
     #  Value Card with long string creates CONTINUE cards
     card = Card("abc", repeat("long string value ", 10), repeat("long comment ", 10), slash=51)
     @test isequal(showfields(card[1]),
@@ -840,7 +840,7 @@
     @test isequal(showfields(card[5]),
                   ("CONTINUE", "", "ment long comment ",
                    "CONTINUE  ''                                      / ment long comment           "))
-    
+
     ###  test Mandatory keywords
 
     #   create Value Card having Bintable XTENSION
@@ -852,7 +852,7 @@
     @test isequal(showfields(Card("XTENSION", "bintable", "a comment string")),
                   ("XTENSION", "BINTABLE", "a comment string",
                    "XTENSION= 'BINTABLE'           / a comment string                               "))
- 
+
      #   parse Value Card having Bintable XTENSION
     @test isequal(showfields(parse(Card,
                    "XTENSION= 'BINTABLE'           / a comment string                               ")),
@@ -877,7 +877,7 @@
     @test isequal(showfields(Card("HIERARCH", "abc def gh ijklmn", -99.9, "")),
                   ("ABC DEF GH IJKLMN", -99.9, "",
                    "HIERARCH ABC DEF GH IJKLMN = -99.9                                              "))
-    
+
     #  parse HIERARCH keyword and value
     #=
     @test isequal(showfields(parse(Card,
@@ -885,20 +885,20 @@
                    ("ABC DEF GH IJKLMN", -99.9, "",
                    "HIERARCH ABC DEF GH IJKLMN = -99.9                                              "))
     =#
-    
+
     #  create HIERARCH keyword and value with comment
     @test isequal(showfields(Card("HIERARCH", "abc def gh ijklmn_-", -99.9, "[m] abcdef ghijklm nopqrstu vw xyzab")),
                   ("ABC DEF GH IJKLMN_-", -99.9, "[m] abcdef ghijklm nopqrstu vw xyzab",
                    "HIERARCH ABC DEF GH IJKLMN_- = -99.9 / [m] abcdef ghijklm nopqrstu vw xyzab     "))
-    
+
     #  parse HIERARCH keyword and value with comment
-    
+
     @test isequal(showfields(parse(Card,
                    "HIERARCH ABC DEF GH IJKLM_- = -99.9 / [m] abcdef ghijklm nopqrstu vw xyzab      ")),
                   ("ABC DEF GH IJKLM_-", -99.9f0, "[m] abcdef ghijklm nopqrstu vw xyzab",
                    "HIERARCH ABC DEF GH IJKLM_- = -99.9 / [m] abcdef ghijklm nopqrstu vw xyzab      "))
-    
-    
+
+
     #  test HIERARCH Card with abbreviated value indicator.
 
     #  test HIERARCH Card with whitespace keyword.
@@ -916,7 +916,7 @@
 
     #  test Card constructor allowing illegal characters in the keyword, but creates a HIERARCH keyword.
     # @test show(Card("abc+", 9)) == rpad_card("HIERARCH abc+ =                    9")
-    
+
     #  test fixable non-standard FITS card will keep the original format
     # card = fromstring(Card(), "abc     = +  2.1   e + 12")
     # @test card.value == 2100000000000.0
@@ -926,12 +926,12 @@
     #  to be a string and everything after the first slash will be a comment.
     # card = fromstring(Card(), "no_quote=  this card's value has no quotes / let's also try the comment")
     # @test show(card) == "NO_QUOTE= 'this card''s value has no quotes' / let's also try the comment       "
-    
+
     #  test undefined value using string input.
     # show(fromstring(Card(), "ABC     =    ")) == rpad_card("ABC     =")
 
     #  test that leading zeros are not removed from floats.
-    
+
     #  test mis-located equal sign.
 
     #  test equal up to column 10.

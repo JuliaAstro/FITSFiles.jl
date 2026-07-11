@@ -5,12 +5,12 @@ These routines apply the H-compress compression algorithm to a 2-D image.
 Original C implementation by R. White at the STScI.
 
 Original source files:
- - htrans.c 
- - digitize.c 
- - encode.c 
- - qwrite.c 
- - doencode.c 
- - bit_output.c 
+ - htrans.c
+ - digitize.c
+ - encode.c
+ - qwrite.c
+ - doencode.c
+ - bit_output.c
  - qtree_encode.c
 """
 
@@ -50,13 +50,14 @@ const code_magic = UInt8[0xDD, 0x99]
 
 Encode an image using the H-compress algorithm and return a status code together with the encoded byte buffer.
 """
-function encode(::Type{HComp},input::AbstractArray{<:Integer}, scale::Integer; 
-                    output::AbstractVector{<:UInt8} = Vector{UInt8}(undef, length(input) * 4 * 5), nbytes::Ref{Integer} = Ref{Integer}(length(output)))
-    
+function encode(::Type{HComp},input::AbstractArray{<:Integer}, scale::Integer;
+                output::AbstractVector{<:UInt8} = Vector{UInt8}(undef, length(input) * 4 * 5),
+                nbytes::Ref{Integer} = Ref{Integer}(length(output)))
+
     if nbytes[] <= 0
         return 1  # Error status
     end
-    
+
     nrows, ncols = size(input)
 
     # Apply the H-transform before digitizing the coefficients.
@@ -68,14 +69,14 @@ function encode(::Type{HComp},input::AbstractArray{<:Integer}, scale::Integer;
 
     # Quantize the transformed values using the requested scale.
     digitize!(input_copy, scale)
-    
+
     # encode and write to output array
     GLOBALS[:noutmax] = nbytes[]
     nbytes[] = 0
-    
+
     # Encode the transformed values into the output buffer.
     stat = encode_data!(output, nbytes, input_copy, nrows, ncols, scale)
-    
+
     return stat, output
 end
 
@@ -122,7 +123,7 @@ function htrans!(shuffled::AbstractArray{<:Integer}, nrows::Integer, ncols::Inte
         # Recursive call on the top-left quadrant
         htrans!(view(shuffled, 1:roundrows, 1:roundcols), roundrows, roundcols, mask = mask2, prnd = prnd2, mask2 = mask2 << 1, nrnd2 = (prnd2 << 1) - 1, prnd2 = prnd2 << 1)
     end
-    
+
     return 0
 end
 
@@ -145,30 +146,30 @@ function digitize!(shuffled::AbstractArray{<:Integer}, scale::Integer)
 end
 
 """
-    encode_data!(outfile::AbstractVector{<:UInt8}, nlength::Ref{Integer}, shuffled::AbstractArray{<:Integer}, 
+    encode_data!(outfile::AbstractVector{<:UInt8}, nlength::Ref{Integer}, shuffled::AbstractArray{<:Integer},
                  nrows::Integer, ncols::Integer, scale::Integer) -> int
 
 Encode H-transform and write to output array.
 """
-function encode_data!(outfile::AbstractVector{<:UInt8}, nlength::Ref{Integer}, shuffled::AbstractArray{<:Integer}, 
-                 nrows::Integer, ncols::Integer, scale::Integer)    
+function encode_data!(outfile::AbstractVector{<:UInt8}, nlength::Ref{Integer}, shuffled::AbstractArray{<:Integer},
+                 nrows::Integer, ncols::Integer, scale::Integer)
     GLOBALS[:noutchar] = 0
     nel = nrows * ncols
-    
+
     # Write the file header and metadata.
     qwrite!(outfile, code_magic)
     writeint!(outfile, nrows)
     writeint!(outfile, ncols)
     writeint!(outfile, scale)
     writeint!(outfile, Int(shuffled[1,1]), nbytes = 8)
-    
+
     shuffled[1,1] = 0
-    
+
     # Allocate storage for the sign-bit stream.
     signbits = zeros(UInt8, div(nel, 8, RoundUp))
     nsign = 1
     bits_to_go = 8
-    
+
     for i in 1:nrows
         for j in 1:ncols
             if shuffled[i,j] > 0
@@ -179,14 +180,14 @@ function encode_data!(outfile::AbstractVector{<:UInt8}, nlength::Ref{Integer}, s
                 bits_to_go -= 1
                 shuffled[i,j] = -shuffled[i,j]
             end
-            
+
             if bits_to_go == 0
                 bits_to_go = 8
                 nsign += 1
             end
         end
     end
-    
+
     if bits_to_go != 8
         signbits[nsign] = signbits[nsign] << bits_to_go
         nsign += 1
@@ -205,16 +206,16 @@ function encode_data!(outfile::AbstractVector{<:UInt8}, nlength::Ref{Integer}, s
             nbitplanes[q] += 1
         end
     end
-    
+
     # Write nbitplanes
     if qwrite!(outfile, nbitplanes) == 0
         nlength[] = GLOBALS[:noutchar]
         return 1
     end
-    
+
     # Encode the bit planes into the output stream.
     stat = doencode!(outfile, shuffled, nrows, ncols, nbitplanes)
-    
+
     # Append the sign-bit stream after the encoded values.
     if nsign > 1
         if qwrite!(outfile, view(signbits, 1:nsign-1)) == 0
@@ -223,13 +224,13 @@ function encode_data!(outfile::AbstractVector{<:UInt8}, nlength::Ref{Integer}, s
             return 1
         end
     end
-    
+
     nlength[] = GLOBALS[:noutchar]
-    
+
     if GLOBALS[:noutchar] >= GLOBALS[:noutmax]
         return 1
     end
-    
+
     return stat
 end
 
@@ -256,16 +257,16 @@ end
 Write bytes to output array. Returns number of bytes written or 0 on failure.
 """
 function qwrite!(file::AbstractVector{UInt8}, buffer::AbstractVector{UInt8})
-    
+
     n = length(buffer)
     if GLOBALS[:noutchar] + n > GLOBALS[:noutmax]
         println("  qwrite! failed: noutchar=$(GLOBALS[:noutchar]), n=$n, noutmax=$(GLOBALS[:noutmax])")
         return 0
     end
-    
+
     file[GLOBALS[:noutchar]+1:GLOBALS[:noutchar]+n] .= buffer
     GLOBALS[:noutchar] += n
-    
+
     return n
 end
 
@@ -286,9 +287,9 @@ function doencode!(outfile::AbstractVector{<:UInt8}, shuffled::AbstractArray{<:I
     bl = shuffled[roundrows+1:nrows, 1:roundcols]
     tr = shuffled[1:roundrows, roundcols+1:ncols]
     br = shuffled[roundrows+1:nrows, roundcols+1:ncols]
-    
+
     start_outputting_bits()
-    
+
     # Encode the four quadrants in order.
     # Quadrant 1
     stat = qtree_encode!(outfile, tl, roundrows, roundcols, nbitplanes[1])
@@ -302,16 +303,16 @@ function doencode!(outfile::AbstractVector{<:UInt8}, shuffled::AbstractArray{<:I
         # Quadrant 3
         stat = qtree_encode!(outfile, tr, roundrows, halfcols, nbitplanes[2])
     end
-    
+
     if stat == 0
         # Quadrant 4
         stat = qtree_encode!(outfile, br, halfrows, halfcols, nbitplanes[3])
     end
-    
+
     # Add EOF symbol (4-bit nybble)
     output_nbits!(outfile, 0, 4)
     done_outputting_bits!(outfile)
-    
+
     return stat
 end
 
@@ -332,12 +333,12 @@ end
 Output n bits to buffer.
 """
 function output_nbits!(outfile::AbstractVector{<:UInt8}, bits::Integer, n::Integer)
-    
+
     mask = [0, 1, 3, 7, 15, 31, 63, 127, 255]
     GLOBALS[:buffer2] = GLOBALS[:buffer2] << n
     GLOBALS[:buffer2] |= (bits & mask[n+1])
     GLOBALS[:bits_to_go2] -= n
-    
+
     if GLOBALS[:bits_to_go2] <= 0
         outfile[GLOBALS[:noutchar]+1] = ((GLOBALS[:buffer2] >> (-GLOBALS[:bits_to_go2])) & 0xff) % UInt8
         if GLOBALS[:noutchar] < GLOBALS[:noutmax]
@@ -347,7 +348,7 @@ function output_nbits!(outfile::AbstractVector{<:UInt8}, bits::Integer, n::Integ
         GLOBALS[:buffer2] = GLOBALS[:buffer2] & ((UInt64(1) << (-GLOBALS[:bits_to_go2])) - 1)
         GLOBALS[:bits_to_go2] += 8
     end
-    
+
     GLOBALS[:bitcount] += n
 end
 
@@ -357,10 +358,10 @@ end
 Output 4-bit nybble.
 """
 function output_nybble!(outfile::AbstractVector{<:UInt8}, bits::Integer)
-    
+
     GLOBALS[:buffer2] = (GLOBALS[:buffer2] << 4) | (bits & 15)
     GLOBALS[:bits_to_go2] -= 4
-    
+
     if GLOBALS[:bits_to_go2] <= 0
         outfile[GLOBALS[:noutchar]+1] = ((GLOBALS[:buffer2] >> (-GLOBALS[:bits_to_go2])) & 0xff) % UInt8
         if GLOBALS[:noutchar] < GLOBALS[:noutmax]
@@ -368,7 +369,7 @@ function output_nybble!(outfile::AbstractVector{<:UInt8}, bits::Integer)
         end
         GLOBALS[:bits_to_go2] += 8
     end
-    
+
     GLOBALS[:bitcount] += 4
 end
 
@@ -378,7 +379,7 @@ end
 Flush any remaining bits to the output buffer.
 """
 function done_outputting_bits!(outfile::AbstractVector{<:UInt8})
-    
+
     if GLOBALS[:bits_to_go2] < 8
         outfile[GLOBALS[:noutchar]+1] = ((GLOBALS[:buffer2] << GLOBALS[:bits_to_go2]) & 0xff) % UInt8
         if GLOBALS[:noutchar] < GLOBALS[:noutmax]
@@ -407,14 +408,14 @@ function qtree_encode!(outfile::AbstractVector{<:UInt8}, quadrant::AbstractArray
     if nmax > (1 << log2n)
         log2n += 1
     end
-    
+
     roundrows = div(nrows, 2, RoundUp)
     roundcols = div(ncols, 2, RoundUp)
 
     bmax = div(roundrows * roundcols + 1, 2)
-    
+
     buffer = zeros(UInt8, bmax)
-    
+
     for bit = Int(nbitplanes)-1:-1:0
         # Align to the next byte boundary before writing the next bit plane.
         if GLOBALS[:bits_to_go2] < 8
@@ -425,17 +426,17 @@ function qtree_encode!(outfile::AbstractVector{<:UInt8}, quadrant::AbstractArray
             GLOBALS[:bits_to_go2] = 8
             GLOBALS[:buffer2] = 0
         end
-        
+
         b = 0
         bitbuffer_ref[1] = 0
         bits_to_go3_ref[1] = 0
-        
+
         # Extract the current bit plane from the quadrant values.
         bitmask = qtree_onebit!(quadrant, nrows, ncols, bit)
         og_bitmask = copy(bitmask)
         roundrows = div(nrows, 2, RoundUp)
         roundcols = div(ncols, 2, RoundUp)
-        
+
         # Copy non-zero values to buffer
         b_ret = bufcopy!(bitmask, buffer, b, bmax, bitbuffer_ref, bits_to_go3_ref)
         if b_ret < 0
@@ -484,7 +485,7 @@ function qtree_encode!(outfile::AbstractVector{<:UInt8}, quadrant::AbstractArray
         end
         done_outputting_bits!(outfile)
     end
-    
+
     return 0
 end
 
@@ -494,13 +495,13 @@ end
 Extract single bit plane from array.
 """
 function qtree_onebit!(input::AbstractArray{<:Integer}, nrows::Integer, ncols::Integer, bit::Integer)
-    
+
     output = zeros(UInt8, nrows, ncols)
     b0 = 1 << bit
     b1 = b0 << 1
     b2 = b0 << 2
     b3 = b0 << 3
-    
+
     halfrows = div(nrows, 2)
     halfcols = div(ncols, 2)
     roundrows = div(nrows, 2, RoundUp)
@@ -534,7 +535,7 @@ end
 Perform one quadtree reduction step on a nrows×ncols plane.
 """
 function qtree_reduce!(input::AbstractArray, nrows::Integer, ncols::Integer)
-    
+
     roundrows = div(nrows, 2, RoundUp)
     roundcols = div(ncols, 2, RoundUp)
     halfrows = div(nrows, 2)
@@ -560,16 +561,20 @@ function qtree_reduce!(input::AbstractArray, nrows::Integer, ncols::Integer)
 end
 
 """
-    bufcopy!(input::AbstractArray, buffer::AbstractVector{<:UInt8}, 
-                  b::Integer, bmax::Integer, bitbuffer_ref::AbstractVector{<:UInt64}, bits_to_go3_ref::AbstractVector) -> Int
+    bufcopy!(input::AbstractArray, buffer::AbstractVector{<:UInt8},
+             b::Integer, bmax::Integer,
+             bitbuffer_ref::AbstractVector{<:UInt64},
+             bits_to_go3_ref::AbstractVector) -> Int
 
 Copy non-zero codes from array to buffer. Returns 1 if buffer overflows.
 """
-function bufcopy!(input::AbstractArray, buffer::AbstractVector{<:UInt8}, 
-                  b::Integer, bmax::Integer, bitbuffer_ref::AbstractVector{<:UInt64}, bits_to_go3_ref::AbstractVector)
-    
+function bufcopy!(input::AbstractArray, buffer::AbstractVector{<:UInt8},
+                  b::Integer, bmax::Integer,
+                  bitbuffer_ref::AbstractVector{<:UInt64},
+                  bits_to_go3_ref::AbstractVector)
+
     b_local = b
-    
+
     for i in eachindex(input)
         if input[i] != 0
             bitbuffer_ref[1] |= (UInt64(code[input[i]+1]) << bits_to_go3_ref[1])
