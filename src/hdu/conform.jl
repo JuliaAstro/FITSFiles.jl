@@ -2,7 +2,7 @@
 
 """
     ConformField()
-
+    
 Conforming array element descriptor
 """
 struct ConformField <: AbstractField

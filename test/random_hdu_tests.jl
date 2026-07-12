@@ -253,7 +253,7 @@
 
     @test (length(data) == 4 && ndims(hdu.data[:data]) == 4 &&
            size(hdu.data[:data]) == (5, 2, 3, 4) && eltype(hdu.data[:data]) == Float32)
-
+    
     #  test Random type with data being an array of records and cards
     data = [
        (1.0f0, 1.0f0, 1.0f0,
@@ -361,7 +361,7 @@
 
     @test ((length(data[1])-1) == 3 && ndims(hdu.data[1][:data]) == 3 &&
            size(hdu.data[1][:data]) == (2, 3, 4) && eltype(hdu.data[1][:data]) == Float32)
-
+    
     #  test Random type with data being array of records and record == false
     data = [
        (par1=1.0f0, par2=1.0f0, par3=1.0f0,
