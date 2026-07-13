@@ -202,6 +202,28 @@
     #  create Value Card and get its type with boolean value
     @test typeof(Card("BOOL", true)) <: Card{Value{Bool}}
 
+    #  create Value card with undefined value
+    @test isequal(showfields(Card("UNDEF", missing)),
+                  ("UNDEF", missing, "",
+                   "UNDEF   =                                                                       "))
+
+    #  create Value card with undefined value and comment. An undefined value has no
+    #  units, so no units field is written.
+    @test isequal(showfields(Card("UNDEF", missing, "a comment")),
+                  ("UNDEF", missing, "a comment",
+                   "UNDEF   =                      / a comment                                      "))
+
+    #  an undefined value card round trips through its image
+    @test isequal(showfields(parse(Card,
+                   "UNDEF   =                      / a comment                                      ")),
+                  ("UNDEF", missing, "a comment",
+                   "UNDEF   =                      / a comment                                      "))
+
+    #  a units string in the comment of an undefined value card is preserved
+    @test isequal(showfields(Card("UNDEF", missing, "[m] a comment")),
+                  ("UNDEF", missing, "[m] a comment",
+                   "UNDEF   =                      / [m] a comment                                  "))
+
     #  create Value card with boolean value, fixed-format
     @test isequal(showfields(Card("BOOL", false)),
                   ("BOOL", false, "",
