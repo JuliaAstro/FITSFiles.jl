@@ -460,7 +460,8 @@ end
 function formatcard(::Type{Value{V}}, value::V, comment::C; kwds...) where
 {V <: ValueType, C <: AbstractString}
 
-	units = unit(value) === NoUnits ? missing : string(unit(value))
+	#  An undefined value has no units: `unit(missing)` is `missing`, not `NoUnits`.
+	units = ismissing(value) || unit(value) === NoUnits ? missing : string(unit(value))
 	#  Create appropriate CardFormat type
 	format = CardFormat(kwds[:fixed])
 	fmt = string(ustrip(value))
