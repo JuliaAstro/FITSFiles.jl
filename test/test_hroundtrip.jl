@@ -15,7 +15,7 @@ using .HDecompress
 function compress_image(original::AbstractArray{<:Integer}, scale::Integer=2)
     output = Vector{UInt8}(undef, length(original) * 32)
     nbytes = Ref{Integer}(length(output))
-    stat, encoded = HCompress.encode(HCompress.HComp, original, scale; output, nbytes)
+    stat, encoded = HCompress.encode(HCompress.HComp, original, scale; output = output, nbytes = nbytes)
     return stat, encoded[1:nbytes[]], nbytes[]
 end
 
