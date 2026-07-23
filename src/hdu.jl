@@ -421,6 +421,13 @@ end
 typeofhdu(::HDU{T}) where T = T
 
 """
+	Base.size(hdu::HDU{<:Union{Primary, Image}})
+
+Dimensions of the HDU's data array, taken from the `NAXISn` cards without reading the data.
+"""
+Base.size(hdu::HDU{<:Union{Primary, Image}}) = datasize(getfield(hdu, :cards))
+
+"""
 	typeofhdu(data)
 	typeofhdu(dict)
 	typeofhdu(data, dict)

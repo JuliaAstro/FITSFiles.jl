@@ -917,7 +917,7 @@
 
     @test isequal(showfields(parse(Card,
                    "HIERARCH ABC DEF GH IJKLM_- = -99.9 / [m] abcdef ghijklm nopqrstu vw xyzab      ")),
-                  ("ABC DEF GH IJKLM_-", -99.9f0, "[m] abcdef ghijklm nopqrstu vw xyzab",
+                  ("ABC DEF GH IJKLM_-", -99.9, "[m] abcdef ghijklm nopqrstu vw xyzab",
                    "HIERARCH ABC DEF GH IJKLM_- = -99.9 / [m] abcdef ghijklm nopqrstu vw xyzab      "))
 
 
