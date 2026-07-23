@@ -964,4 +964,25 @@
 
     #  test raw keyword
 
+    @testset "real value precision" begin
+        #  values narrow to Float32 only when that represents the written
+        #  decimal exactly as well as a Float64 does
+        @test FITSFiles.parse_number("1.0") === 1.0f0
+        @test FITSFiles.parse_number("0.5") === 0.5f0
+        @test FITSFiles.parse_number("-99.9") === -99.9
+        @test FITSFiles.parse_number("0.1") === 0.1
+        @test FITSFiles.parse_number("266.400000") === 266.4
+        @test FITSFiles.parse_number("1.0E2") === 100.0f0
+        @test FITSFiles.parse_number("1E30") === 1.0e30
+
+        #  D exponents always parse as Float64
+        @test FITSFiles.parse_number("1.0D2") === 100.0
+
+        #  integers are unaffected
+        @test FITSFiles.parse_number("42") === Int64(42)
+
+        #  the written decimal survives a card parse at full precision
+        card = parse(Card, rpad("CRVAL1  =           266.400000", 80))
+        @test card.value === 266.4
+    end
 end
