@@ -919,6 +919,35 @@
     @test (length(hdu.data[1]) == 5 && length(hdu.data) == 3 &&
         all([hdu.data[j][:par4] for j=1:3] .== [1.0, 2.0, 3.0]))
 
+    #  test one-dimensional TDIM values
+    cards = [Card("XTENSION", "BINTABLE"),
+             Card("BITPIX", 8),
+             Card("NAXIS", 2),
+             Card("NAXIS1", 24),
+             Card("NAXIS2", 2),
+             Card("PCOUNT", 0),
+             Card("GCOUNT", 1),
+             Card("TFIELDS", 1),
+             Card("TFORM1", "3D"),
+             Card("TTYPE1", "values"),
+             Card("TDIM1", "(3)")]
+    hdu = HDU(Bintable, missing, cards; record=true)
+
+    @test length(hdu.data) == 2
+    @test hdu.data[1].values == zeros(3)
+
+    cards = Card[Card("TDIM1", "(3)")]
+    records = [(values=[1.0, 2.0, 3.0],),
+               (values=[4.0, 5.0, 6.0],)]
+    hdu = HDU(Bintable, records, cards)
+
+    @test hdu.data == records
+
+    columns = (values=[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]],)
+    hdu = HDU(Bintable, columns, cards)
+
+    @test hdu.data == columns
+
     rm(temppath)
 
 end
