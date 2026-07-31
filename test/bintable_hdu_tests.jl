@@ -919,6 +919,32 @@
     @test (length(hdu.data[1]) == 5 && length(hdu.data) == 3 &&
         all([hdu.data[j][:par4] for j=1:3] .== [1.0, 2.0, 3.0]))
 
+    #  test scaled unsigned integer columns with a large TZERO
+    cards = [Card("XTENSION", "BINTABLE"),
+             Card("BITPIX", 8),
+             Card("NAXIS", 2),
+             Card("NAXIS1", 4),
+             Card("NAXIS2", 2),
+             Card("PCOUNT", 0),
+             Card("GCOUNT", 1),
+             Card("TFIELDS", 1),
+             Card("TFORM1", "1J"),
+             Card("TTYPE1", "N_ALONGDISP"),
+             Card("TZERO1", 2147483648)]
+    data = [(N_ALONGDISP=Int32(-2147483602),),
+            (N_ALONGDISP=Int32(-2147483520),)]
+
+    unsigned_io = IOBuffer()
+    write(unsigned_io, HDU(data, cards))
+
+    seekstart(unsigned_io)
+    columns = read(unsigned_io, HDU; record=false, scale=true).data
+    @test columns.N_ALONGDISP == [46.0, 128.0]
+
+    seekstart(unsigned_io)
+    records = read(unsigned_io, HDU; record=true, scale=true).data
+    @test getproperty.(records, :N_ALONGDISP) == [46.0, 128.0]
+
     rm(temppath)
 
 end
