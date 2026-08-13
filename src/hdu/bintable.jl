@@ -14,6 +14,7 @@ const BINARYTYPE = Dict(
     ComplexF32 => "C", ComplexF64 => "M")
 
 const POINTERTYPE = Dict("P" => Int32, "Q" => Int64, Int32 => "P", Int64 => "Q")
+const TDIMFMT = r"^\((?<dims>\d+(?:,\d+)*)\)\s*$"
 
 """
     BinaryField(name, pntr, type, slice, leng, supp, unit, disp, dims,
@@ -57,13 +58,8 @@ struct BinaryField <: AbstractField
     lmax::Union{AbstractFloat, Nothing}
 end
 
-function _parse_tdim(value)
-    dim_string = strip(String(value))
-    isempty(dim_string) && return nothing
-
-    dims = eval(Meta.parse(dim_string))
-    dims isa Integer ? (dims,) : dims
-end
+parse_tdim(value) = isempty(value) ? nothing :
+    Tuple(parse.(Int, split(match(TDIMFMT, value)[:dims], ',')))
 
 function Base.read(io::IO, ::Type{Bintable}, format::DataFormat,
     fields::Vector{BinaryField}; record::Bool = false, kwds...)
@@ -195,7 +191,7 @@ function FieldFormat(::Type{Bintable}, mankeys::DataFormat, reskeys::Dict{S, V},
         supp  = form[:a]
         unit_ = get(reskeys, "TUNIT$j", "")
         disp  = get(reskeys, "TDISP$j", "")
-        dims  = _parse_tdim(get(reskeys, "TDIM$j", ""))
+        dims  = parse_tdim(get(reskeys, "TDIM$j", ""))
         zero_ = least_float_type(get(reskeys, "TZERO$j",
             type <: Union{Bool, BitVector, String} ? nothing : 0.0f0))
         scale = least_float_type(get(reskeys, "TSCAL$j",
@@ -242,7 +238,7 @@ function FieldFormat(::Type{Bintable}, mankey::DataFormat, reskeys::Dict{S, V},
         #     get(reskeys, "TUNIT$j", "")
         unit_ = get(reskeys, "TUNIT$j", "")
         disp  = get(reskeys, "TDISP$j", "")
-        dims  = _parse_tdim(get(reskeys, "TDIM$j", ""))
+        dims  = parse_tdim(get(reskeys, "TDIM$j", ""))
         zero_ = least_float_type(get(reskeys, "TZERO$j",
             type <: Union{Bool, BitVector, String} ? nothing : 0.0f0))
         scale = least_float_type(get(reskeys, "TSCAL$j",
@@ -291,7 +287,7 @@ function FieldFormat(::Type{Bintable}, mankey::DataFormat, reskeys::Dict{S, V},
         #     get(reskeys, "TUNIT$j", "")
         unit_ = get(reskeys, "TUNIT$j", "")
         disp  = get(reskeys, "TDISP$j", "")
-        dims  = _parse_tdim(get(reskeys, "TDIM$j", ""))
+        dims  = parse_tdim(get(reskeys, "TDIM$j", ""))
         zero_ = least_float_type(get(reskeys, "TZERO$j",
             type <: Union{Bool, BitVector, String} ? nothing : 0.0f0))
         scale = least_float_type(get(reskeys, "TSCAL$j",

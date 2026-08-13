@@ -919,6 +919,13 @@
     @test (length(hdu.data[1]) == 5 && length(hdu.data) == 3 &&
         all([hdu.data[j][:par4] for j=1:3] .== [1.0, 2.0, 3.0]))
 
+    #  test TDIM parsing
+    @test FITSFiles.parse_tdim("") === nothing
+    @test FITSFiles.parse_tdim("(3)") == (3,)
+    @test FITSFiles.parse_tdim("(5,14)") == (5, 14)
+    @test FITSFiles.parse_tdim("(5,14)    ") == (5, 14)
+    @test_throws MethodError FITSFiles.parse_tdim("(5,x)")
+
     #  test one-dimensional TDIM values
     cards = [Card("XTENSION", "BINTABLE"),
              Card("BITPIX", 8),
