@@ -923,20 +923,25 @@
     cards = [Card("XTENSION", "BINTABLE"),
              Card("BITPIX", 8),
              Card("NAXIS", 2),
-             Card("NAXIS1", 6),
+             Card("NAXIS1", 14),
              Card("NAXIS2", 2),
              Card("PCOUNT", 0),
              Card("GCOUNT", 1),
-             Card("TFIELDS", 2),
+             Card("TFIELDS", 3),
              Card("TFORM1", "1J"),
              Card("TTYPE1", "N_ALONGDISP"),
              Card("TZERO1", 2147483648),
              Card("TFORM2", "1I"),
              Card("TTYPE2", "SCALED"),
              Card("TZERO2", 1.0f0),
-             Card("TSCAL2", 0.5f0)]
+             Card("TSCAL2", 0.5f0),
+             Card("TFORM3", "2J"),
+             Card("TTYPE3", "SCALED_ARRAY"),
+             Card("TZERO3", 2147483648)]
     data = (N_ALONGDISP=Int32[-2147483602, -2147483520],
-            SCALED=Int16[2, 4])
+            SCALED=Int16[2, 4],
+            SCALED_ARRAY=[Int32[-2147483602, -2147483520],
+                          Int32[-2147483520, -2147483602]])
 
     unsigned_io = IOBuffer()
     write(unsigned_io, HDU(data, cards))
@@ -947,15 +952,20 @@
     @test eltype(columns.N_ALONGDISP) === Float64
     @test columns.SCALED == Float32[2, 3]
     @test eltype(columns.SCALED) === Float32
+    @test columns.SCALED_ARRAY == Float64[46 128; 128 46]
+    @test eltype(columns.SCALED_ARRAY) === Float64
 
     seekstart(unsigned_io)
     records = read(unsigned_io, HDU; record=true, scale=true).data
     record_n_alongdisp = getproperty.(records, :N_ALONGDISP)
     record_scaled = getproperty.(records, :SCALED)
+    record_scaled_array = getproperty.(records, :SCALED_ARRAY)
     @test record_n_alongdisp == Float64[46, 128]
     @test eltype(record_n_alongdisp) === Float64
     @test record_scaled == Float32[2, 3]
     @test eltype(record_scaled) === Float32
+    @test record_scaled_array == [Float64[46, 128], Float64[128, 46]]
+    @test eltype.(record_scaled_array) == fill(Float64, 2)
 
     rm(temppath)
 
