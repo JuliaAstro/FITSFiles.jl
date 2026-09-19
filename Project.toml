@@ -14,7 +14,7 @@ UnitfulAtomic = "a7773ee8-282e-5fa2-be4e-bd808c38a91a"
 
 [compat]
 CodecZlib = "0.7"
-Printf = "1.8"
+Printf = "1.8, < 0.0.1"
 Unitful = "1.22"
 UnitfulAngles = "0.7"
 UnitfulAstro = "1.2"
