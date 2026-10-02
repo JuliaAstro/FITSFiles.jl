@@ -408,6 +408,10 @@ end
 function Base.read(io::IO, field::BinaryField, format::DataFormat,
     begpos::Integer; scale::Bool = true)
 
+    #  Without TSCAL/TZERO the data pass through unchanged; scaling by the
+    #  Float32 defaults would round integers above 2^24 (e.g. Int32 pointers)
+    scale = scale && !(field.scale == 1 && field.zero == 0)
+
     type, leng = field.type, field.leng
 
     L, M, N = format.shape[1], first(field.slice)-1, format.shape[2]
@@ -459,6 +463,10 @@ function Base.read(io::IO, field::BinaryField, format::DataFormat,
 end
 
 function Base.read(io::IO, field::BinaryField; scale::Bool = true)
+
+    #  Without TSCAL/TZERO the data pass through unchanged; scaling by the
+    #  Float32 defaults would round integers above 2^24 (e.g. Int32 pointers)
+    scale = scale && !(field.scale == 1 && field.zero == 0)
 
     name, type, leng = field.name, field.type, field.leng
 

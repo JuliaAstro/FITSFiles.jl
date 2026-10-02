@@ -921,4 +921,14 @@
 
     rm(temppath)
 
+    #  Int32 columns without TSCAL/TZERO must not be rounded to Float32 (values
+    #  above 2^24); the file (written by astropy) has a fixed 8J column and a
+    #  variable-length PJ column holding the same values
+    expected = Int32[16777214, 16777215, 16777216, 16777217, 16777275,
+                     16777277, 33554433, 2000000001]
+    hdus = fits(joinpath(@__DIR__, "data", "int32_large.fits"))
+    @test vec(hdus[2].data[:fixed]) == expected
+    @test hdus[2].data[:heap][1] == expected
+    @test eltype(hdus[2].data[:heap][1]) == Int32
+
 end
