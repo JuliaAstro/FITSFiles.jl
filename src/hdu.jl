@@ -166,9 +166,10 @@ function HDU(data::D = missing, cards::C = missing; record::B = false,
 
 	kwds = (;
 		#  data formatting options
-		record, scale,
+		record = record, scale = scale,
 		#  card formatting options
-		append, fixed, slash, lpad, rpad, upad, truncate)
+		append = append, fixed = fixed, slash = slash, lpad = lpad, rpad = rpad,
+		upad = upad, truncate = truncate)
 
 	kards = ismissing(cards) ? Card[] : copy(cards)
 
