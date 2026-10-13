@@ -511,20 +511,20 @@
                     "PTYPE3  = 'PARAM3'                                                              "),
                    ("PZERO1", 1.0f0, "",
                     "PZERO1  =                  1.0                                                  "),
-                   ("PSCAL1",  0.1f0, "",
+                   ("PSCAL1",  0.1, "",
                     "PSCAL1  =                  0.1                                                  "),
                    ("PZERO2", 1.0f0, "",
                     "PZERO2  =                  1.0                                                  "),
-                   ("PSCAL2",  0.1f0, "",
+                   ("PSCAL2",  0.1, "",
                     "PSCAL2  =                  0.1                                                  "),
                    ("PZERO3", 1.0f0, "",
                     "PZERO3  =                  1.0                                                  "),
-                   ("PSCAL3",  0.1f0, "",
+                   ("PSCAL3",  0.1, "",
                     "PSCAL3  =                  0.1                                                  ")])
 
     @test (length(data[1]) == 4 && ndims(hdu.data[:data]) == 4 &&
            size(hdu.data[:data]) == (3, 2, 3, 4) && eltype(hdu.data[:data]) == Float32 &&
-           all(hdu.data[:PARAM1] .== [1.1f0, 1.2f0, 1.3f0]))
+           all(hdu.data[:PARAM1] .== [1.1, 1.2, 1.3]))
 
     #  test Random type with data being array of records and scale == false
     data = [
@@ -587,15 +587,15 @@
                     "PTYPE3  = 'PARAM3'                                                              "),
                    ("PZERO1", 1.0f0, "",
                     "PZERO1  =                  1.0                                                  "),
-                   ("PSCAL1",  0.1f0, "",
+                   ("PSCAL1",  0.1, "",
                     "PSCAL1  =                  0.1                                                  "),
                    ("PZERO2", 1.0f0, "",
                     "PZERO2  =                  1.0                                                  "),
-                   ("PSCAL2",  0.1f0, "",
+                   ("PSCAL2",  0.1, "",
                     "PSCAL2  =                  0.1                                                  "),
                    ("PZERO3", 1.0f0, "",
                     "PZERO3  =                  1.0                                                  "),
-                   ("PSCAL3",  0.1f0, "",
+                   ("PSCAL3",  0.1, "",
                     "PSCAL3  =                  0.1                                                  ")])
 
     @test (length(data[1]) == 4 && ndims(hdu.data[:data]) == 4 &&

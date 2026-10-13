@@ -2,7 +2,7 @@ name = "FITSFiles"
 uuid = "358a0a88-3548-4ad6-b652-8bdbf64af8e5"
 repo = "https://github.com/JuliaAstro/FITSFiles.jl"
 authors = ["Paul Barrett <pebarrett@gmail.com> and contributors"]
-version = "0.3.2"
+version = "0.4.0"
 
 [deps]
 CodecZlib = "944b1d66-785c-5afd-91f1-9de20f533193"

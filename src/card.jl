@@ -1027,14 +1027,15 @@ end
 Determine the type of a number as a Float32, Float64, or Integer
 """
 function parse_number(real::AbstractString)
-	if occursin('D', real) || (occursin('E', real) && overflow(real))
-		value = parse(Float64, replace(real, "E" => "e", "D" => "e"))
-	elseif occursin("E", real)
-		value = parse(Float32, replace(real, "E" => "e"))
-	elseif occursin(r"\.0*[1-9]+", real) && length(split(real, ".")[2]) >= 10
-		value = parse(Float64, real)
-	elseif occursin(".", real)
-		value = parse(Float32, real)
+	if occursin('D', real)
+		value = parse(Float64, replace(real, "D" => "e"))
+	elseif occursin('E', real) || occursin('.', real)
+		#  Parse at full precision, then narrow to Float32 only when the
+		#  narrowed value represents the written decimal exactly as well as a
+		#  Float64 does.
+		value64 = parse(Float64, replace(real, "E" => "e"))
+		value32 = Float32(value64)
+		value = Float64(value32) == value64 ? value32 : value64
 	else
 		value = try
 			parse(Int64, real)
@@ -1061,12 +1062,6 @@ function least_float_type(value::Union{Real, Nothing})
 		end
 	end
 	value
-end
-
-function overflow(real::AbstractString)
-	#  test for overflow or precision
-	n = findlast('E', real)
-	abs(parse(Int, real[(n+1):end])) >= 39 || n >= 14
 end
 
 function parse_complex(real::S, imag::S) where S <: AbstractString
