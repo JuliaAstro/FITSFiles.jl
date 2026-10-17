@@ -203,6 +203,7 @@ function HDU(type::Type, ::Missing = missing, cards::C = missing; kwds...) where
 	#  Create dictionaries of mandatory and reserved keywords
 	mankeys, reskeys = get_reserved_keys(kards)
 
+	kards  = verify!(type, kards, mankeys)
 	format = DataFormat(type, missing, mankeys)
 	kards  = verify!(type, kards, format, mankeys)
 	fields = FieldFormat(type, format, reskeys, missing)
@@ -335,6 +336,7 @@ function Base.read(io::IO, ::Type{HDU}; type = nothing, strict::Bool = true, uni
 
 	#  Read data
 	type_  = type === nothing ? typeofhdu(mankeys) : type
+	cards  = verify!(type_, cards, mankeys)
 	format = DataFormat(type_, missing, mankeys)
 	cards  = verify!(type_, cards, format, mankeys)
 	fields = FieldFormat(type_, format, reskeys, missing)
@@ -367,6 +369,7 @@ function Base.write(io::IO, hdu::HDU{<:AbstractHDU}; kwds...)
 	mankeys, reskeys = get_reserved_keys(cards)
 
 	type   = typeofhdu(hdu)
+	cards  = verify!(type, cards, mankeys)
 	format = DataFormat(type, missing, mankeys)
 	cards  = verify!(type, cards, format, mankeys)
 	fields = FieldFormat(type, format, reskeys, missing)
@@ -439,6 +442,19 @@ function leastfloat(value::Union{Real, Nothing})
 	end
 	value
 end
+
+"""
+    verify!(type, cards, mankeys)
+
+Verify the values of the mandatory keywords of a header before the data format is created
+from them. Return the cards. A verify! method of an HDU type corrects the cards and the
+mandatory keywords, `mankeys`, when it is possible, and otherwise raises an error that names
+the keyword and its value. The generic method accepts all values.
+
+The verify! methods that also have a data format argument are for the HDU types that create
+the format from data and then correct the header to match the data.
+"""
+verify!(::Type{<:AbstractHDU}, cards::Cards, mankeys::AbstractDict) = cards
 
 function get_reserved_keys(cards::Cards)
 	mankeys = Dict{AbstractString, ValueType}()
