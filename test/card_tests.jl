@@ -1322,4 +1322,24 @@
     @test (card2.value, card2.comment) == (7.5f0 * Unitful.m, "a comment")
     @test parse(Card, repr(card2)).comment == "[m]  a comment"
 
+    ###  Regression tests: records without a value indicator  ###
+
+    #  a record without a value indicator is commentary text.
+    for img in ("FOO      some text", "FOO", "FOO-BAR_1  text", "FOO      'a string'", "SIMPLE   text")
+        img = rpad(img, 80)
+        card = parse(Card, img)
+        @test FITSFiles.typename(card) == Comment
+        @test (card.key, card.value) == (rstrip(img[1:8]), rstrip(img[9:end]))
+        @test repr(card) == img
+    end
+
+    #  END and records with an illegal keyword are invalid cards.
+    for img in ("END       a value", "foo      some text", "A B      some text", " FOO     some text",
+                "foo     = 1")
+        @test parse(Card, rpad(img, 80)) isa Card{Invalid}
+    end
+
+    #  a record with a value indicator is not commentary text.
+    @test FITSFiles.typename(parse(Card, rpad("FOO     = 1", 80))) == Value{Int}
+
 end

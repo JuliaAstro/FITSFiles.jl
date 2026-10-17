@@ -925,6 +925,7 @@ function Base.parse(::Type{Card}, image::AbstractString)
 	#
 	card = Card()
 	if length(image) == CARDLENGTH
+		key = rstrip(image[1:KEYLENGTH])
 		if image == END_IMAGE
 			card = Card(End, "END", missing, "", CardFormat())
 		elseif (m = match(Regex("^"*VALUE_CARD*"\$"), image[1:TOKENLEN])) !== nothing
@@ -945,6 +946,11 @@ function Base.parse(::Type{Card}, image::AbstractString)
 			value, comment, format =
 				parse_value_comment(Value, image[(TOKENLEN+1):end])
 			card = Card(Continue, m[:key], value, comment, format)
+		elseif image[(KEYLENGTH+1):TOKENLEN] != EQUAL_TOKEN && key != "END" &&
+			!isempty(key) && !occursin(NON_KEY_TEXT, key)
+			#  A record without a value indicator is commentary text (Sect. 4.1.2.3).
+			comment = image[(KEYLENGTH+1):end]
+			card = Card(Comment, key, rstrip(comment), "", CardFormat(true, 1, length(comment)))
 		else
 			card = Card(Invalid, rstrip(image[1:8]), image[(KEYLENGTH+1):end],
 				"", CardFormat())
