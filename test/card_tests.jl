@@ -1366,4 +1366,42 @@
     @test FITSFiles.parse_complex("12345678901234567890123456789012345678901234567890", "1") ==
           complex(big"12345678901234567890123456789012345678901234567890", 1)
 
+    ###  Regression tests: malformed values  ###
+
+    #  a record with a malformed value is an invalid card that keeps its text.
+    for img in ("KEY     = 'unterminated", "KEY     = abc", "KEY     = (1, 2", "KEY     = 1 2 3",
+                "KEY     = 1.5.5 / c", "KEY     = T F", "KEY     = 'a' 'b'", "KEY     = 'a' b",
+                "KEY     = 5 6 / c", "KEY     = 1,5", "KEY     = é", "KEY     = 'é'",
+                "CONTINUE  'a' b", "CONTINUE  abc", "BITPIX  = sixteen")
+        img = rpad(img, 80)
+        card = parse(Card, img)
+        @test card isa Card{Invalid}
+        @test card.key == rstrip(img[1:8])
+        @test repr(card) == img
+    end
+
+    #  valid records are not changed.
+    for (img, type, value, comment) in (("KEY     = 5 / a comment", Value{Int}, 5, "a comment"),
+            ("KEY     = 'a b' / c / d", Value{String}, "a b", "c / d"),
+            ("KEY     = 'it''s'", Value{String}, "it's", ""),
+            ("KEY     = / a comment", Value{Missing}, missing, "a comment"),
+            ("KEY     =", Value{Missing}, missing, ""),
+            ("KEY     = T / [m] 1 2 3", Value{Bool}, true, "[m] 1 2 3"),
+            ("KEY     = (1.5, 2) / c", Value{ComplexF32}, 1.5f0 + 2.0f0im, "c"),
+            ("CONTINUE  'a b&' / c", Continue, "a b", "c"))
+        card = parse(Card, rpad(img, 80))
+        @test FITSFiles.typename(card) == type
+        @test isequal(card.value, value)
+        @test card.comment == comment
+    end
+
+    #  a HIERARCH record with a malformed value is commentary text.
+    for img in ("HIERARCH ESO A = 'unterminated", "HIERARCH ESO A = abc", "HIERARCH ESO A = 1 2 3")
+        img = rpad(img, 80)
+        card = parse(Card, img)
+        @test FITSFiles.typename(card) == Comment
+        @test card.key == "HIERARCH"
+        @test repr(card) == img
+    end
+
 end

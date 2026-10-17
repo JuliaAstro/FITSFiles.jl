@@ -929,8 +929,10 @@ function Base.parse(::Type{Card}, image::AbstractString)
 		if image == END_IMAGE
 			card = Card(End, "END", missing, "", CardFormat())
 		elseif (m = match(Regex("^"*VALUE_CARD*"\$"), image[1:TOKENLEN])) !== nothing
-			value, comment, format = parse_value_comment(Value, image[(TOKENLEN+1):end])
-			card = Card(Value{typeof(value)}, m[:key], value, comment, format)
+			parsed = parse_value_comment(Value, image[(TOKENLEN+1):end])
+			card = isnothing(parsed) ?
+				Card(Invalid, key, image[(KEYLENGTH+1):end], "", CardFormat()) :
+				Card(Value{typeof(parsed[1])}, m[:key], parsed...)
 		elseif (m = match(Regex("^"*COMMENT_CARD*"\$"), image[1:TOKENLEN])) !== nothing
 			comment = image[(KEYLENGTH+1):end]
 			#  A HIERARCH card without a value is commentary text.
@@ -943,9 +945,10 @@ function Base.parse(::Type{Card}, image::AbstractString)
 					rstrip(comment), "", CardFormat(true, 1, length(comment)))
 			end
 		elseif (m = match(Regex("^"*CONTINUE_CARD*"\$"), image[1:TOKENLEN])) !== nothing
-			value, comment, format =
-				parse_value_comment(Value, image[(TOKENLEN+1):end])
-			card = Card(Continue, m[:key], value, comment, format)
+			parsed = parse_value_comment(Value, image[(TOKENLEN+1):end])
+			card = isnothing(parsed) ?
+				Card(Invalid, key, image[(KEYLENGTH+1):end], "", CardFormat()) :
+				Card(Continue, m[:key], parsed...)
 		elseif image[(KEYLENGTH+1):TOKENLEN] != EQUAL_TOKEN && key != "END" &&
 			!isempty(key) && !occursin(NON_KEY_TEXT, key)
 			#  A record without a value indicator is commentary text (Sect. 4.1.2.3).
@@ -996,8 +999,14 @@ function value_type(valus::RegexMatch)
 	basetype(Tuple(types[k] for k in keys if valus[k] !== nothing)[1])
 end
 
+#  A value field is malformed if it does not match, or if text follows the value without a
+#  comment separator.
+ismalformed(valus::Union{RegexMatch, Nothing}) =
+	isnothing(valus) || (!isnothing(valus[:comment]) && isnothing(valus[:slash]))
+
 function parse_value_comment(::Type{Value}, image::AbstractString)
 	valus = match(VALUE_FSC_2, image)
+	ismalformed(valus) && return nothing
 	offsets = named_offsets(valus)
 	value, format = parse_value(value_type(valus), valus, offsets)
 	units, comment, format = parse_comment!(format, valus, offsets)
@@ -1061,7 +1070,7 @@ end
 
 function parse_value_comment(::Type{Hierarch}, image::AbstractString)
 	values = match(HIERARCH_FSC, image)
-	isnothing(values) && return nothing
+	ismalformed(values) && return nothing
 	offsets = named_offsets(values)
 
 	format = CardFormat(false, offsets[:key], 0, offsets[:equal])
