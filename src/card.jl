@@ -532,6 +532,9 @@ function formatcard(::Type{Hierarch{V}}, token::S, value::V, comment::C; kwds...
 	#  Use ampersand for '=' index
 	ampr = length(token) + 2
 	vend = HIERINDEX+vlen
+	#  The keyword, value, and equal sign must fit on the card after "HIERARCH ".
+	vend > CARDLENGTH - KEYLENGTH - 1 &&
+		throw(ArgumentError("HIERARCH keyword and value do not fit on the card."))
 	format.vbeg, format.vend, format.ampr = Int8(0), Int8(vend), Int8(ampr)
 	# format.frmt = fmt
 	#  Format comment, if necessary

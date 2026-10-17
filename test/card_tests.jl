@@ -1404,4 +1404,28 @@
         @test repr(card) == img
     end
 
+    ###  Regression tests: HIERARCH keyword and value that do not fit  ###
+
+    #  a HIERARCH keyword and value that end in the last column are written, and anything longer
+    #  is an error instead of a truncated card.
+    for n in (60, 61)
+        card = Card("HIERARCH", "ESO A", repeat("x", n), "")
+        parsed = parse(Card, repr(card))
+        @test parsed.value == repeat("x", n)
+        @test FITSFiles.typename(parsed) == Hierarch{String}
+    end
+    @test length(rstrip(repr(Card("HIERARCH", "ESO A", repeat("x", 61), "")))) == 80
+    @test_throws ArgumentError Card("HIERARCH", "ESO A", repeat("x", 62), "")
+    @test_throws ArgumentError Card("HIERARCH", "ESO A", repeat("x", 62), "a comment")
+    @test_throws ArgumentError Card("HIERARCH", repeat("ABC ", 20), 1, "")
+    @test_throws ArgumentError Card("HIERARCH", "ESO A", repeat("''", 31), "")
+    @test_throws ArgumentError Card("HIERARCH", "ESO A", big(10)^70, "")
+    @test_throws "HIERARCH keyword and value do not fit on the card." Card("HIERARCH", "ESO A", repeat("x", 62), "")
+
+    #  setting a value that does not fit is an error, and the card is not changed.
+    card = Card("HIERARCH", "ESO A", "short", "a comment")
+    @test_throws ArgumentError FITSFiles.setvalue!(card, repeat("x", 62))
+    @test card.value == "short"
+    @test FITSFiles.setvalue!(card, repeat("x", 61)).value == repeat("x", 61)
+
 end
