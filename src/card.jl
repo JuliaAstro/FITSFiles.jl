@@ -226,6 +226,7 @@ Value{T}.
 - `rpad::Integer=1`: number of spaces after comment separator
 - `upad::Integer=1`: number of spaces after the units string
 - `truncate::Bool=true`: truncate comment at end of card
+- `warn::Bool=true`: warn when a keyword longer than 8 characters creates a HIERARCH card
 """
 struct Card{T <: AbstractCardType}  # make value a parameter
 	key::AbstractString
@@ -239,7 +240,7 @@ end
 
 function Card(key::K = "", value::V = missing, comment::C = ""; fixed::B = true,
 	append::B = false, slash::I = 32, lpad::I = 1, rpad::I = 1, upad::I = 1,
-	truncate::B = true) where
+	truncate::B = true, warn::B = true) where
 	{B <: Bool, I <: Integer, K <: AbstractString, V <: ValueType, C <: AbstractString}
 
 	#  Convert key to uppercase and remove trailing spaces.
@@ -250,6 +251,13 @@ function Card(key::K = "", value::V = missing, comment::C = ""; fixed::B = true,
 	### if slash <= TOKENLEN+FIXEDINDEX
 	###     error("Comment separator postion must be >$")
 	### end
+
+	#  A keyword that is longer than 8 characters is the tokens of a HIERARCH keyword.
+	if length(upkey) > KEYLENGTH
+		tokens = replace(upkey, r"^HIERARCH +" => "")
+		warn && @warn "Keyword is longer than $KEYLENGTH characters, so a HIERARCH card is created." key=upkey
+		return Card("HIERARCH", tokens, value, comment; fixed, slash, lpad, rpad, upad)
+	end
 
 	#  Check for invalid characters in key, value string, and comment.
 	if !is_hierarch(upkey) && occursin(NON_KEY_TEXT, upkey)

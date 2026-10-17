@@ -932,9 +932,9 @@
     #  test Card constructor for long keywords with warning.
 
     #  HIERARCH keyword implied by long keyword
-    ### @test isequal(showfields(Card("abc def gh ijklmn", -99.9, "[m] abcdef ghijklm nopqrstu vw xyzab")),
-    ###              ("ABC DEF GH IJKLMN", -99.9, "[m] abcdef ghijklm nopqrstu vw xyzab",
-    ###               "HIERARCH ABC DEF GH IJKLMN = -99.9 / [m] abcdef ghijklm nopqrstu vw xyzab       "))
+    @test isequal(showfields(Card("abc def gh ijklmn", -99.9, "[m] abcdef ghijklm nopqrstu vw xyzab"; warn = false)),
+                  ("ABC DEF GH IJKLMN", -99.9, "[m] abcdef ghijklm nopqrstu vw xyzab",
+                   "HIERARCH ABC DEF GH IJKLMN = -99.9 / [m] abcdef ghijklm nopqrstu vw xyzab       "))
 
     #  test Card constructor allowing illegal characters in the keyword, but creates a HIERARCH keyword.
     # @test show(Card("abc+", 9)) == rpad_card("HIERARCH abc+ =                    9")
@@ -1427,5 +1427,40 @@
     @test_throws ArgumentError FITSFiles.setvalue!(card, repeat("x", 62))
     @test card.value == "short"
     @test FITSFiles.setvalue!(card, repeat("x", 61)).value == repeat("x", 61)
+
+    ###  Regression tests: long keywords imply HIERARCH  ###
+
+    #  a keyword that is longer than 8 characters creates a HIERARCH card.
+    for key in ("abc def gh ijklmn", "ABCDEFGHI", "ESO TEL FOCU SCALE", "hierarch eso a", "HIERARCH  ESO A")
+        card = Card(key, 1.5f0, "a comment"; warn = false)
+        tokens = uppercase(replace(key, r"^(?i)hierarch +" => ""))
+        @test FITSFiles.typename(card) == Hierarch{Float32}
+        @test card.key == tokens
+        @test repr(card) == repr(Card("HIERARCH", tokens, 1.5f0, "a comment"))
+    end
+    @test repr(Card("ESO TEL A B", "a string"; warn = false)) == repr(Card("HIERARCH", "ESO TEL A B", "a string", ""))
+    @test repr(Card("ESO TEL A B", 5.0f0 * Unitful.m, "a comment"; warn = false)) ==
+          repr(Card("HIERARCH", "ESO TEL A B", 5.0f0 * Unitful.m, "a comment"))
+    @test parse(Card, repr(Card("ABCDEFGHI", 5; warn = false))).value == 5
+
+    #  a keyword of 8 characters or fewer is not a HIERARCH keyword.
+    @test FITSFiles.typename(Card("ABCDEFGH", 1)) == Value{Int}
+    @test_throws "Keyword contains invalid characters." Card("ABC DEF", 1)
+
+    #  the tokens of a HIERARCH keyword must be legal, and the card must fit.
+    @test_throws "HIERARCH keyword contains invalid characters." Card("abc+ def ghijklm", 1; warn = false)
+    @test_throws "HIERARCH keyword contains invalid characters." Card("ABC=DEF GHIJKLM", 1; warn = false)
+    @test_throws ArgumentError Card(repeat("ABCDEFGH ", 9), 1; warn = false)
+
+    #  a warning is emitted when a long keyword creates a HIERARCH card, unless it is silenced.
+    @test_logs (:warn, r"longer than 8 characters.*HIERARCH") Card("ABCDEFGHI", 5)
+    @test_logs (:warn, r"longer than 8 characters") Card("abc def gh ijklmn", 5, "a comment")
+    @test_logs Card("ABCDEFGHI", 5; warn = false)
+    @test_logs Card("ABCDEFGHI", 5, "a comment"; warn = false)
+    @test repr(Card("ABCDEFGHI", 5; warn = false)) == repr(Card("HIERARCH", "ABCDEFGHI", 5, ""))
+
+    #  no warning is emitted for other keywords or for an explicit HIERARCH card.
+    @test_logs Card("ABCDEFGH", 5)
+    @test_logs Card("HIERARCH", "ABCDEFGHI", 5, "")
 
 end
