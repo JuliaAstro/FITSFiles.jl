@@ -437,7 +437,8 @@ end
 """
 	join_cards(cards)
 
-Join CONTINUE cards to initial long string card to create a long value and comment card
+Join CONTINUE cards to initial long string card to create a long value and comment card.
+Cards after the end of the continued string are ignored.
 """
 function join_cards(cards::AbstractArray{<:Card})
 	#  Cards are joined while the preceding card ends with an ampersand. An ampersand
