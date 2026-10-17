@@ -649,8 +649,8 @@ end
 
 #  Format special XTENSION values, pad to 8 characters
 function format_xtension_value(key::AbstractString, value::AbstractString)
-	(key == "XTENSION" && any(contains(s, uppercase(value)) for s in XTENSION_VALUES)) ?
-	rpad(uppercase(value), 8) : value
+	(key == "XTENSION" && rstrip(uppercase(value)) in XTENSION_VALUES) ?
+	rpad(rstrip(uppercase(value)), 8) : value
 end
 
 #  Format String value for card

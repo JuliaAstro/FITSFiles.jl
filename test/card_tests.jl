@@ -1507,4 +1507,22 @@
     @test FITSFiles.setvalue!(Card("HIERARCH", "ESO A", "a", ""), "TABLE").value == "TABLE"
     @test FITSFiles.setvalue!(Card("XTENSION", "IMAGE"), "FOO").value == "FOO"
 
+    ###  Regression tests: XTENSION values of the standard types are 8 characters  ###
+
+    #  the IMAGE, TABLE, and BINTABLE values are padded to exactly 8 characters, whatever their padding.
+    for (value, padded) in (("IMAGE", "IMAGE   "), ("image", "IMAGE   "), ("IMAGE ", "IMAGE   "),
+                            ("IMAGE   ", "IMAGE   "), ("IMAGE      ", "IMAGE   "), ("Table  ", "TABLE   "),
+                            ("TABLE", "TABLE   "), ("BINTABLE", "BINTABLE"), ("bintable ", "BINTABLE"),
+                            ("BINTABLE   ", "BINTABLE"))
+        card = Card("XTENSION", value)
+        @test card.value == padded
+        @test repr(card) == rpad("XTENSION= '$padded'", 80)
+        @test repr(FITSFiles.setvalue!(Card("XTENSION", "FOO"), value)) == repr(card)
+    end
+
+    #  other values are not changed.
+    for value in ("FOO", "I", "", " IMAGE", "IMAGES", "A3DTABLE", "BIN")
+        @test Card("XTENSION", value).value == value
+    end
+
 end
