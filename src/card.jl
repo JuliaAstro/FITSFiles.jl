@@ -396,6 +396,7 @@ typename(::Card{T}) where T = T
 
 #  modify card value
 function setvalue!(card::Card, value::ValueType)
+	value = value isa AbstractString ? format_xtension_value(card.key, value) : value
 	if card.value !== value
 		f, T = card.format, basetype(typename(card))
 		if T in (Value, Hierarch)

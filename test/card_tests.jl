@@ -1483,4 +1483,28 @@
     @test repr(Card("K", "abc", "c")) == rpad("K       = 'abc'                / c", 80)
     @test repr(Card("K", "O'HARA", "c"; fixed = false)) == rpad("K       = 'O''HARA'            / c", 80)
 
+    ###  Regression tests: XTENSION value is padded when it is set  ###
+
+    #  an XTENSION value is padded to 8 characters when it is set.
+    card = Card("XTENSION", "IMAGE")
+    for (value, padded) in (("TABLE", "TABLE   "), ("table", "TABLE   "), ("BINTABLE", "BINTABLE"),
+                            ("IMAGE", "IMAGE   "))
+        card2 = FITSFiles.setvalue!(card, value)
+        @test card2.value == padded
+        @test repr(card2) == repr(Card("XTENSION", value))
+        @test repr(card2) == rpad("XTENSION= '$padded'", 80)
+    end
+
+    #  a value that is the same after it is padded does not change the card.
+    @test FITSFiles.setvalue!(card, "IMAGE") === card
+    @test FITSFiles.setvalue!(card, "image") === card
+    card = parse(Card, rpad("XTENSION= 'IMAGE   '           / a comment", 80))
+    @test FITSFiles.setvalue!(card, "IMAGE") === card
+    @test repr(FITSFiles.setvalue!(card, "TABLE")) == rpad("XTENSION= 'TABLE   '           / a comment", 80)
+
+    #  other keywords and other values are not padded.
+    @test FITSFiles.setvalue!(Card("KEY", "a"), "TABLE").value == "TABLE"
+    @test FITSFiles.setvalue!(Card("HIERARCH", "ESO A", "a", ""), "TABLE").value == "TABLE"
+    @test FITSFiles.setvalue!(Card("XTENSION", "IMAGE"), "FOO").value == "FOO"
+
 end
