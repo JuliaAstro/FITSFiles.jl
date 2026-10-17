@@ -1057,6 +1057,12 @@
     @test FITSFiles.join_cards(cards).value == "first secondthird"
     @test cards[1].format.ampr > 0
 
+    #  only CONTINUE cards continue a string.
+    for next in ("KEY2    = 'second'", "KEY2    =                    5", "COMMENT second", "HISTORY second")
+        cards = [parse(Card, rpad("KEY     = 'first &'", 80)), parse(Card, rpad(next, 80))]
+        @test FITSFiles.join_cards(cards).value == "first &"
+    end
+
     #  the last ampersand is literal if the string ends with it, and later cards are ignored.
     cards = [parse(Card, rpad("KEY     = 'first &'", 80)),
              parse(Card, rpad("CONTINUE  'second&'", 80))]

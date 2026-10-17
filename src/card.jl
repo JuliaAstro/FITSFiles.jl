@@ -463,12 +463,13 @@ end
 Join CONTINUE cards to initial long string card to create a long value and comment card.
 Cards after the end of the continued string are ignored.
 """
-function join_cards(cards::AbstractArray{<:Card})
-	#  Cards are joined while the preceding card ends with an ampersand. An ampersand
-	#  that is not followed by a CONTINUE card is the literal last character of the
-	#  string (Sect. 4.2.1.2).
+function join_cards(cards::AbstractVector)
+	#  Cards are joined while the preceding card ends with an ampersand and the next card is a
+	#  CONTINUE card. An ampersand that is not followed by a CONTINUE card is the literal last
+	#  character of the string (Sect. 4.2.1.2).
 	n = 1
-	while n < length(cards) && cards[n].format.ampr > 0
+	while n < length(cards) && cards[n].format.ampr > 0 &&
+		basetype(typename(cards[n+1])) == Continue
 		n += 1
 	end
 	joined = cards[1:n]

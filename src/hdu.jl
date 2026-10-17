@@ -359,8 +359,6 @@ end
 function Base.read(io::IO, ::Type{Card})
     #  Read cards
     cards = Card{<:Any}[]
-    mankeys = Dict{AbstractString, ValueType}()
-    reskeys = Dict{AbstractString, ValueType}()
     N, M = BLOCKLEN÷CARDLENGTH, CARDLENGTH
 
     lastblok = false
@@ -369,12 +367,6 @@ function Base.read(io::IO, ::Type{Card})
         for j=1:N
             card = parse(Card, String(block[M*(j-1)+1:M*j]),
                          isempty(cards) ? nothing : cards[end])
-            if any(occursin.(MANDATORYKEYS, card.key))
-                mankeys[card.key] = card.value
-            end
-            if any(occursin.(RESERVEDKEYS, card.key))
-                reskeys[card.key] = card.value
-            end
             if typename(card) == End
                 lastblok = true
                 break
@@ -386,6 +378,9 @@ function Base.read(io::IO, ::Type{Card})
         end
         block = read(io, BLOCKLEN)
     end
+    #  Create dictionaries of mandatory and reserved keywords, which include the END keyword.
+    mankeys, reskeys = get_reserved_keys(cards)
+    mankeys["END"] = missing
     (cards, mankeys, reskeys)
 end
 
@@ -408,12 +403,12 @@ end
 function get_reserved_keys(cards::Cards)
 	mankeys = Dict{AbstractString, ValueType}()
 	reskeys = Dict{AbstractString, ValueType}()
-	for card in cards
+	for (j, card) in enumerate(cards)
 		if any(occursin.(MANDATORYKEYS, card.key))
-			mankeys[card.key] = card.value
+			mankeys[card.key] = joinvalue(cards, j)
 		end
 		if any(occursin.(RESERVEDKEYS, card.key))
-			reskeys[card.key] = card.value
+			reskeys[card.key] = joinvalue(cards, j)
 		end
 	end
 	(mankeys, reskeys)
@@ -610,10 +605,20 @@ function Base.haskey(cards::Cards, key::AbstractString)
 	false
 end
 
+"""
+    joinvalue(cards, j)
+
+Return the value of the card at index `j`. The value of a continued string is the value of the
+card joined with the CONTINUE cards that follow it.
+"""
+joinvalue(cards::Cards, j::Integer) =
+	basetype(typename(cards[j])) == Value && continued(cards[j]) ?
+	join_cards(@view cards[j:end]).value : cards[j].value
+
 function Base.getindex(cards::Cards, key::AbstractString)
-	for card in cards
+	for (j, card) in enumerate(cards)
 		if uppercase(card.key) == uppercase(key)
-			return card.value
+			return joinvalue(cards, j)
 		end
 	end
 	throw(KeyError(key))
@@ -621,9 +626,9 @@ end
 
 function Base.get(cards::Cards, key::AbstractString, default = nothing)
 	value = default
-	for card in cards
+	for (j, card) in enumerate(cards)
 		if uppercase(card.key) == uppercase(key)
-			value = card.value
+			value = joinvalue(cards, j)
 			break
 		end
 	end
@@ -635,9 +640,9 @@ function Base.get(cards::Cards, keys::Union{AbstractArray, Tuple},
 
 	values = [defaults...]
 	for (j, key) in enumerate(keys)
-		for card in cards
+		for (k, card) in enumerate(cards)
 			if uppercase(card.key) == uppercase(key)
-				values[j] = card.value
+				values[j] = joinvalue(cards, k)
 			end
 		end
 	end
