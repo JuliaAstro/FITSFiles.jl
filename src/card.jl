@@ -397,10 +397,11 @@ function setvalue!(card::Card, value::ValueType)
 			type = T{typeof(value)}
 			rpad = max(f.cbeg, f.ubeg) > 0 ? (f.ubeg > 0 ? f.ubeg : f.cbeg) - f.slsh - 1 : 1
 			upad = f.ubeg > 0 && f.cbeg > 0 ? f.cbeg - f.uend - 1 : 1
+			comment = card.comment
 			args = T == Hierarch ? (card.key,) : ()
-			fmt = formatcard(type, args..., value, card.comment; fixed = f.fixd, append = false,
+			fmt = formatcard(type, args..., value, comment; fixed = f.fixd, append = false,
 				slash = f.slsh + TOKENLEN, lpad = 1, rpad, upad)
-			card = Card(type, card.key, value, card.comment, fmt)
+			card = Card(type, card.key, value, comment, fmt)
 		else
 			card = Card(T, card.key, value, card.comment, f)
 		end
@@ -528,7 +529,8 @@ function formatcard(::Type{Hierarch{V}}, token::S, value::V, comment::C; kwds...
 	format.vbeg, format.vend, format.ampr = Int8(0), Int8(vend), Int8(ampr)
 	# format.frmt = fmt
 	#  Format comment, if necessary
-	formatcomment!(comment, vend, format; kwds...)
+	units = value isa Quantity && unit(value) !== NoUnits ? string(unit(value)) : missing
+	formatcomment!(comment, vend, format; units, kwds...)
 end
 
 #  Free-format value field of a HIERARCH card: strings are quoted, logicals are T or F,
@@ -699,8 +701,15 @@ function format_card(::Type{Hierarch}, key::K, value::V, comment::C,
 	valu = rpad(key, format.ampr-1) * "=" * lpad(value_image(value), format.vend-format.ampr)
 	padl = repeat(" ", max(0, (format.slsh-1) - format.vend))
 	slash = format.slsh > 0 ? "/" : " "
-	padr = repeat(" ", max(0, (format.cbeg-1) - format.slsh))
-	rpad_image("HIERARCH " * valu * padl * slash * padr * comment)
+	if format.ubeg > 0
+		padr = repeat(" ", max(0, format.ubeg-1 - format.slsh))
+		unts = "[$(unit(value))]"
+		padu = repeat(" ", max(0, format.cbeg-1 - format.uend))
+	else
+		padr = repeat(" ", max(0, (format.cbeg-1) - format.slsh))
+		unts, padu = "", ""
+	end
+	rpad_image("HIERARCH " * valu * padl * slash * padr * unts * padu * comment)
 end
 
 #  Format History card using only keyword and value.

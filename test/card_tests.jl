@@ -1271,4 +1271,24 @@
     cards, _, _ = read(header(images...), Card)
     @test FITSFiles.typename.(cards[36:38]) == [Value{String}, Continue, Comment]
 
+    ###  Regression tests: units of HIERARCH values  ###
+
+    #  a HIERARCH card writes the units of a Quantity at the beginning of the comment.
+    card = Card("HIERARCH", "ESO TEL SCALE", 1.489f0 * Unitful.m, "a comment")
+    @test occursin("/ [m] a comment", repr(card))
+    @test occursin("ESO TEL SCALE = 1.489 ", repr(card))
+    parsed = parse(Card, repr(card))
+    @test (parsed.value, parsed.comment) == (1.489f0, "[m] a comment")
+    @test repr(parsed) == repr(card)
+
+    #  the units are written without a comment, and a value without units has no units field.
+    card = Card("HIERARCH", "ESO TEL SCALE", 5 * Unitful.s, "")
+    @test parse(Card, repr(card)).comment == "[s]"
+    @test repr(Card("HIERARCH", "ESO TEL SCALE", 5, "a comment")) ==
+          rpad("HIERARCH ESO TEL SCALE = 5    / a comment", 80)
+
+    #  a value that is set with units writes the units.
+    card = FITSFiles.setvalue!(Card("HIERARCH", "ESO A", 5, "a comment"), 2.5f0 * Unitful.m)
+    @test parse(Card, repr(card)).comment == "[m] a comment"
+
 end
