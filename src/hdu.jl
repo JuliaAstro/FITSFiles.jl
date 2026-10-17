@@ -310,9 +310,9 @@ end
 
 Read the specified HDU type from a file.
 """
-function Base.read(io::IO, ::Type{HDU}; type = nothing, kwds...)::HDU
+function Base.read(io::IO, ::Type{HDU}; type = nothing, strict::Bool = true, kwds...)::HDU
     #  Read cards
-    cards, mankeys, reskeys = read(io, Card)
+    cards, mankeys, reskeys = read(io, Card; strict)
 
 	#  Read data
 	type_  = type === nothing ? typeofhdu(mankeys) : type
@@ -356,7 +356,7 @@ function Base.write(io::IO, hdu::HDU{<:AbstractHDU}; kwds...)
 	write(io, type, getfield(hdu, :data), format, fields; kwds...)
 end
 
-function Base.read(io::IO, ::Type{Card})
+function Base.read(io::IO, ::Type{Card}; strict::Bool = true)
     #  Read cards
     cards = Card{<:Any}[]
     N, M = BLOCKLEN÷CARDLENGTH, CARDLENGTH
@@ -366,7 +366,7 @@ function Base.read(io::IO, ::Type{Card})
     while !lastblok
         for j=1:N
             card = parse(Card, String(block[M*(j-1)+1:M*j]),
-                         isempty(cards) ? nothing : cards[end])
+                         isempty(cards) ? nothing : cards[end]; strict)
             if typename(card) == End
                 lastblok = true
                 break

@@ -97,30 +97,40 @@ const VALUE_FSC  = Regex(
 	"(?P<real>" * NUMBER_FSC_STR * ") *, *(?P<imag>" * NUMBER_FSC_STR * ") *\\)))? *)" *
 	"(?P<comm_field>(?P<sepr>/ *)(?P<comm>[!-~][ -~]*)?)?\$")
 =#
-const VALUE_FSC_2 = Regex(
+#  regex for a FSC real number substring that has a lower case exponent letter, which is
+#  not allowed by the standard but is valid FORTRAN.
+const NUMBER_LOWER_STR = "[+-]?(?:\\.\\d+|\\d+(?:\\.\\d*)?)(?:[DEde][+-]?\\d+)?"
+
+#  regexes for a value field with the real numbers of a number regex.
+value_fsc(number) = Regex(
 	"^ *" *
 	"(?:" *
 	"(?<strg>'(?:[ -&(-~]|''|)*?(?<ampr>&)? *')(?=\$|/| )|" *
 	"(?<bool>[FT])|" *
-	"(?<numr>" * NUMBER_FSC_STR_2 * ")|" *
-	"(?<cplx>\\( *(?<real>" * NUMBER_FSC_STR_2 * ") *, *(?<imag>" * NUMBER_FSC_STR_2 * ") *\\))|" *
+	"(?<numr>" * number * ")|" *
+	"(?<cplx>\\( *(?<real>" * number * ") *, *(?<imag>" * number * ") *\\))|" *
 	"(?<miss> *)" *
 	") *" *
 	"(?<slash>/)? *" *
 	"(?<comment>[!-~][ -~]*?)?(?= *\$) *\$")
 
-const HIERARCH_FSC = Regex(
+hierarch_fsc(number) = Regex(
 	"^ *" *
 	"(?<key>[A-Z0-9 _-]*?)" *
 	" *(?<equal>=) *" *
 	"(?:" *
 	"(?<strg>'(?:[ -~]|''|)*?')(?=\$|/| )|" *
 	"(?<bool>[FT])|" *
-	"(?<numr>" * NUMBER_FSC_STR_2 * ")|" *
-	"(?<cplx>\\( *(?<real>" * NUMBER_FSC_STR_2 * ") *, *(?<imag>" * NUMBER_FSC_STR_2 * ") *\\))|" *
+	"(?<numr>" * number * ")|" *
+	"(?<cplx>\\( *(?<real>" * number * ") *, *(?<imag>" * number * ") *\\))|" *
 	"(?<miss> *)" *
 	") *" *
 	"(?<slash>/)? *" * "(?<comment>[!-~][ -~]*?)?(?= *\$) *\$")
+
+const VALUE_FSC_2    = value_fsc(NUMBER_FSC_STR_2)
+const VALUE_LOWER    = value_fsc(NUMBER_LOWER_STR)
+const HIERARCH_FSC   = hierarch_fsc(NUMBER_FSC_STR_2)
+const HIERARCH_LOWER = hierarch_fsc(NUMBER_LOWER_STR)
 
 const VALUE_NFSC = Regex(
 	"(?P<valu_field> *" *
@@ -934,11 +944,12 @@ end
 #  orphaned CONTINUE cards become COMMENT cards.
 
 """
-    Base.parse(::Type{Card}, image::AbstractString)
+    Base.parse(::Type{Card}, image::AbstractString; strict = true)
 
-Parse 80 character card image from string buffer.
+Parse 80 character card image from string buffer. A number with a lower case exponent letter
+(d or e) is not allowed by the standard, so it is an invalid card, unless `strict` is false.
 """
-function Base.parse(::Type{Card}, image::AbstractString)
+function Base.parse(::Type{Card}, image::AbstractString; strict::Bool = true)
 	#
 	#  !!! Currently, checks are for 'strict' standard
 	#
@@ -954,7 +965,7 @@ function Base.parse(::Type{Card}, image::AbstractString)
 		if image == END_IMAGE
 			card = Card(End, "END", missing, "", CardFormat())
 		elseif (m = match(Regex("^"*VALUE_CARD*"\$"), image[1:TOKENLEN])) !== nothing
-			parsed = parse_value_comment(Value, image[(TOKENLEN+1):end])
+			parsed = parse_value_comment(Value, image[(TOKENLEN+1):end]; strict)
 			card = isnothing(parsed) ?
 				Card(Invalid, key, image[(KEYLENGTH+1):end], "", CardFormat()) :
 				Card(Value{typeof(parsed[1])}, m[:key], parsed...)
@@ -962,7 +973,7 @@ function Base.parse(::Type{Card}, image::AbstractString)
 			comment = image[(KEYLENGTH+1):end]
 			#  A HIERARCH card without a value is commentary text.
 			hier = m[:key] == "HIERARCH" && image[KEYLENGTH+1] == ' ' ?
-				parse_value_comment(Hierarch, image[TOKENLEN:end]) : nothing
+				parse_value_comment(Hierarch, image[TOKENLEN:end]; strict) : nothing
 			if !isnothing(hier)
 				card = Card(Hierarch{typeof(hier[2])}, hier...)
 			else
@@ -970,7 +981,7 @@ function Base.parse(::Type{Card}, image::AbstractString)
 					rstrip(comment), "", CardFormat(true, 1, length(comment)))
 			end
 		elseif (m = match(Regex("^"*CONTINUE_CARD*"\$"), image[1:TOKENLEN])) !== nothing
-			parsed = parse_value_comment(Value, image[(TOKENLEN+1):end])
+			parsed = parse_value_comment(Value, image[(TOKENLEN+1):end]; strict)
 			card = isnothing(parsed) ?
 				Card(Invalid, key, image[(KEYLENGTH+1):end], "", CardFormat()) :
 				Card(Continue, m[:key], parsed...)
@@ -994,13 +1005,13 @@ end
 continued(card::Card) = basetype(typename(card)) in (Value, Continue) && card.format.ampr > 0
 
 """
-    Base.parse(::Type{Card}, image::AbstractString, previous)
+    Base.parse(::Type{Card}, image::AbstractString, previous; strict = true)
 
 Parse 80 character card image that follows the card `previous`, or `nothing`. A CONTINUE
 card that does not continue a string is commentary text.
 """
-function Base.parse(::Type{Card}, image::AbstractString, previous)
-	card = parse(Card, image)
+function Base.parse(::Type{Card}, image::AbstractString, previous; strict::Bool = true)
+	card = parse(Card, image; strict)
 	if typename(card) == Continue && !(!isnothing(previous) && continued(previous))
 		card = Card(Comment, "CONTINUE", rstrip(image[(KEYLENGTH+1):end]), "",
 			CardFormat(true, 1, length(image) - KEYLENGTH))
@@ -1029,8 +1040,8 @@ end
 ismalformed(valus::Union{RegexMatch, Nothing}) =
 	isnothing(valus) || (!isnothing(valus[:comment]) && isnothing(valus[:slash]))
 
-function parse_value_comment(::Type{Value}, image::AbstractString)
-	valus = match(VALUE_FSC_2, image)
+function parse_value_comment(::Type{Value}, image::AbstractString; strict::Bool = true)
+	valus = match(strict ? VALUE_FSC_2 : VALUE_LOWER, image)
 	ismalformed(valus) && return nothing
 	offsets = named_offsets(valus)
 	value, format = parse_value(value_type(valus), valus, offsets)
@@ -1095,8 +1106,8 @@ function parse_value(::Type{Missing}, valus::RegexMatch,
 	(missing, format)
 end
 
-function parse_value_comment(::Type{Hierarch}, image::AbstractString)
-	values = match(HIERARCH_FSC, image)
+function parse_value_comment(::Type{Hierarch}, image::AbstractString; strict::Bool = true)
+	values = match(strict ? HIERARCH_FSC : HIERARCH_LOWER, image)
 	ismalformed(values) && return nothing
 	offsets = named_offsets(values)
 
@@ -1179,6 +1190,7 @@ Determine the type of a number as a Float32, Float64, Int64, Int128, or BigInt. 
 number is a Float32 only if it is represented exactly by its shortest Float32 string.
 """
 function parse_number(real::AbstractString)
+	real = uppercase(real)
 	if occursin('D', real)
 		value = parse(Float64, replace(real, "D" => "e"))
 	elseif occursin(r"[.E]", real)

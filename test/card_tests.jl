@@ -1564,4 +1564,62 @@
     @test FITSFiles.setvalue!(parse(Card, rpad("K       = ' ' / c", 80)), "  ").value == " "
     @test FITSFiles.setvalue!(parse(Card, rpad("K       = ' ' / c", 80)), "").value == ""
 
+    ###  Regression tests: lower case exponent letters  ###
+
+    #  a number with a lower case exponent letter is not allowed by the standard, so it is an invalid
+    #  card, unless the parsing is not strict.
+    for img in ("K       = 1.0e3", "K       = 1.0d3", "K       = 1e3", "K       = -.5d0 / c",
+                "K       = (1.0e3, 2)", "K       = (1, 2.0d1) / c", "HIERARCH ESO A = 1.0e3 / c")
+        img = rpad(img, 80)
+        for card in (parse(Card, img), parse(Card, img; strict = true), parse(Card, img, nothing))
+            @test FITSFiles.typename(card) in (Invalid, Comment)
+            @test repr(card) == img
+        end
+    end
+    @test parse(Card, rpad("K       = 1.0e3", 80)) isa Card{Invalid}
+    @test FITSFiles.typename(parse(Card, rpad("HIERARCH ESO A = 1.0e3", 80))) == Comment
+
+    #  the numbers of a card that is not strict have the types of the numbers with upper case letters.
+    for (img, value) in (("K       = 1.0e3", 1000.0f0), ("K       = 1.0d3", 1000.0), ("K       = 1e3", 1000.0f0),
+                         ("K       = -2.5e-3 / c", -0.0025f0), ("K       = 1.0e50", 1.0e50),
+                         ("K       = .5d0", 0.5), ("K       = 5.e1", 50.0f0), ("K       = 1.5D3", 1500.0),
+                         ("K       = (1.0e3, -2.0d1)", 1000.0 - 20.0im), ("K       = (1.5e0, 2.5e0) / c", 1.5f0 + 2.5f0im),
+                         ("K       = (1, 2.0d1)", 1.0 + 20.0im))
+        card = parse(Card, rpad(img, 80); strict = false)
+        @test card.value === value
+        @test card isa Card{Value{typeof(value)}}
+        #  the card is written with the standard exponent letter, and is a valid card. A double precision
+        #  number that is exact in single precision is read as a single precision number.
+        @test !occursin(r"\d[de]", repr(card))
+        @test parse(Card, repr(card)).value == value
+        @test parse(Card, rpad(img, 80), nothing; strict = false).value === value
+    end
+    card = parse(Card, rpad("K       = 1.0e3 / a comment", 80); strict = false)
+    @test card.comment == "a comment"
+    card = parse(Card, rpad("HIERARCH ESO A = 1.0e3 / a comment", 80); strict = false)
+    @test FITSFiles.typename(card) == Hierarch{Float32}
+    @test (card.key, card.value, card.comment) == ("ESO A", 1000.0f0, "a comment")
+    @test parse(Card, repr(card)).value === 1000.0f0
+    @test parse(Card, rpad("HIERARCH ESO A = (1.0e3, 2.0d0)", 80); strict = false).value === 1000.0 + 2.0im
+
+    #  numbers that follow the standard are the same, whether the parsing is strict or not.
+    for img in ("K       = 5", "K       = -1.5 / c", "K       = 1.0E3", "K       = 1.0D3", "K       = (1.0E3, 2)",
+                "K       = 'a string'", "K       = T", "K       =", "HIERARCH ESO A = 1.0E3 / c")
+        img = rpad(img, 80)
+        card, lenient = parse(Card, img), parse(Card, img; strict = false)
+        @test isequal(card.value, lenient.value) && card.comment == lenient.comment
+        @test FITSFiles.typename(card) == FITSFiles.typename(lenient)
+        @test repr(card) == repr(lenient)
+    end
+
+    #  numbers that are not valid FORTRAN or standard numbers are invalid cards, even if not strict.
+    for img in ("K       = 1 000", "K       = 1,5", "K       = 1.5.5", "K       = 1.5+3", "K       = 1.0 e3",
+                "K       = 1.0e 3", "K       = 1.0ee3", "K       = + 2.1", "K       = 1.0e", "K       = e3",
+                "K       = 1.0e+", "K       = 1.0f3", "K       = 1.0 d 3", "K       = (1.0e3 2)", "K       = Inf",
+                "K       = NaN", "K       = 0x10")
+        for strict in (true, false)
+            @test parse(Card, rpad(img, 80); strict) isa Card{Invalid}
+        end
+    end
+
 end

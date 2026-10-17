@@ -60,4 +60,32 @@
     #  the values of cards that are not continued are not joined with the following cards.
     cards3 = Card{<:Any}[Card("KEY", "a"), Card("COMMENT", "b")]
     @test cards3["KEY"] == "a"
+    ####    Test that the header reader is strict or not    ####
+
+    images = ["SIMPLE  =                    T", "BITPIX  =                   16", "NAXIS   =                    0",
+              "BZERO   = 1.0e1", "EXPTIME = 1.5d0 / seconds", "HIERARCH ESO A = 2.5e0"]
+
+    #  the default is strict, so a lower case exponent letter is an invalid card.
+    cards, mankeys, reskeys = read(header(images...), Card)
+    @test FITSFiles.typename.(cards[4:5]) == [Invalid, Invalid]
+    @test FITSFiles.typename(cards[6]) == Comment
+    cards, mankeys, reskeys = read(header(images...), Card; strict = true)
+    @test FITSFiles.typename.(cards[4:5]) == [Invalid, Invalid]
+
+    #  the numbers are read if the parsing is not strict.
+    cards, mankeys, reskeys = read(header(images...), Card; strict = false)
+    @test cards["BZERO"] == 10.0f0
+    @test cards["EXPTIME"] == 1.5
+    @test cards["ESO A"] == 2.5f0
+    @test reskeys["BZERO"] == 10.0f0
+    @test cards[5].comment == "seconds"
+    @test FITSFiles.typename.(cards[4:6]) == [Value{Float32}, Value{Float64}, Hierarch{Float32}]
+
+    #  the HDUs and the FITS file are read if the parsing is not strict.
+    hdu = read(header(images...), HDU; strict = false)
+    @test getfield(hdu, :cards)[4].value === 10.0f0
+    hdus = fits(header(images...); strict = false)
+    @test length(hdus) == 1
+    @test getfield(hdus[1], :cards)[5].value === 1.5
+
 end
