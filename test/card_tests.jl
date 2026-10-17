@@ -1342,4 +1342,28 @@
     #  a record with a value indicator is not commentary text.
     @test FITSFiles.typename(parse(Card, rpad("FOO     = 1", 80))) == Value{Int}
 
+    ###  Regression tests: large integers  ###
+
+    #  an integer has the smallest type that holds it.
+    @test FITSFiles.parse_number("9223372036854775807") === typemax(Int64)
+    @test FITSFiles.parse_number("9223372036854775808") === Int128(typemax(Int64)) + 1
+    @test FITSFiles.parse_number("-170141183460469231731687303715884105728") === typemin(Int128)
+    @test FITSFiles.parse_number("170141183460469231731687303715884105728") ==
+          big(typemax(Int128)) + 1
+    @test FITSFiles.parse_number("170141183460469231731687303715884105728") isa BigInt
+    @test FITSFiles.parse_number("-12345678901234567890123456789012345678901234567890") ==
+          -big"12345678901234567890123456789012345678901234567890"
+
+    #  a card with an integer that does not fit in 128 bits is read and written.
+    img = rpad("KEY     = 12345678901234567890123456789012345678901234567890 / a comment", 80)
+    card = parse(Card, img)
+    @test card.value == big"12345678901234567890123456789012345678901234567890"
+    @test card.comment == "a comment"
+    @test parse(Card, repr(card)).value == card.value
+    @test parse(Card, repr(Card("KEY", big(10)^60))).value == big(10)^60
+
+    #  a complex number can have large integer parts.
+    @test FITSFiles.parse_complex("12345678901234567890123456789012345678901234567890", "1") ==
+          complex(big"12345678901234567890123456789012345678901234567890", 1)
+
 end

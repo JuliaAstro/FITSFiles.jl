@@ -1139,7 +1139,7 @@ end
 """
 	parse_number(real::AbstractString)
 
-Determine the type of a number as a Float32, Float64, or Integer. A floating-point
+Determine the type of a number as a Float32, Float64, Int64, Int128, or BigInt. A floating-point
 number is a Float32 only if it is represented exactly by its shortest Float32 string.
 """
 function parse_number(real::AbstractString)
@@ -1152,7 +1152,11 @@ function parse_number(real::AbstractString)
 		value = try
 			parse(Int64, real)
 		catch _
-			parse(Int128, real)
+			try
+				parse(Int128, real)
+			catch _
+				parse(BigInt, real)
+			end
 		end
 	end
 	value
