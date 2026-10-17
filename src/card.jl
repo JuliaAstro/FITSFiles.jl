@@ -255,6 +255,8 @@ function Card(key::S = "", value::V = missing, comment::S = ""; fixed::B = true,
 		error("Value string contains invalid characters.")
 	elseif !ismissing(comment) && occursin(NON_ASCII_TEXT, comment)
 		error("Comment contains invalid characters.")
+	elseif value isa Number && !isfinite(value)
+		error("Value is not finite.")
 	end
 	#  Format card image from key, value, and comment arguments and construct Card.
 	#  Card is a parametric type containing Comment, Continue, End, Hierarch, History,
@@ -328,6 +330,8 @@ function Card(key::S, tokens::S, value::V, comment::S;
 		error("Value string contains invalid characters.")
 	elseif !ismissing(comment) && occursin(NON_ASCII_TEXT, comment)
 		error("Comment contains invalid characters.")
+	elseif value isa Number && !isfinite(value)
+		error("Value is not finite.")
 	end
 
 	#  Format card image from key, value, and comment arguments and construct Card.
@@ -789,8 +793,8 @@ function format_card(::Type{Value}, key::K, value::V, comment::C,
 	value = replace(string(value), "e" => "D")
 	#  Truncate mantissa, so value contains 20 characters.
 	if format.fixd && length(value) > FIXEDINDEX
-		n = findfirst("D", value)[1]
-		value = value[1:(n-2)] * value[n:end]
+		n = something(findfirst('D', value), length(value)+1)
+		value = value[1:(n-1-length(value)+FIXEDINDEX)] * value[n:end]
 	end
 	padlen = max(0, FIXEDINDEX - length(value))
 	#  If fixed format, pad value string.
@@ -926,8 +930,8 @@ function Base.parse(::Type{Card}, image::AbstractString)
 				"", CardFormat())
 		end
 	else
-		card = Card(Invalid, rstrip(image[1:8]), image[(KEYLENGTH+1):end],
-			"", CardFormat())
+		card = Card(Invalid, rstrip(first(image, KEYLENGTH)),
+			image[(min(end, KEYLENGTH)+1):end], "", CardFormat())
 	end
 	card
 end
@@ -1091,17 +1095,15 @@ end
 """
 	parse_number(real::AbstractString)
 
-Determine the type of a number as a Float32, Float64, or Integer
+Determine the type of a number as a Float32, Float64, or Integer. A floating-point
+number is a Float32 only if it is represented exactly by its shortest Float32 string.
 """
 function parse_number(real::AbstractString)
-	if occursin('D', real) || (occursin('E', real) && overflow(real))
-		value = parse(Float64, replace(real, "E" => "e", "D" => "e"))
-	elseif occursin("E", real)
-		value = parse(Float32, replace(real, "E" => "e"))
-	elseif occursin(r"\.0*[1-9]+", real) && length(split(real, ".")[2]) >= 10
-		value = parse(Float64, real)
-	elseif occursin(".", real)
-		value = parse(Float32, real)
+	if occursin('D', real)
+		value = parse(Float64, replace(real, "D" => "e"))
+	elseif occursin(r"[.E]", real)
+		value = parse(Float64, replace(real, "E" => "e"))
+		value = parse(Float64, string(Float32(value))) == value ? Float32(value) : value
 	else
 		value = try
 			parse(Int64, real)
@@ -1130,27 +1132,11 @@ function least_float_type(value::Union{Real, Nothing})
 	value
 end
 
-function overflow(real::AbstractString)
-	#  test for overflow or precision
-	n = findlast('E', real)
-	abs(parse(Int, real[(n+1):end])) >= 39 || n >= 14
-end
+"""
+	parse_complex(real::AbstractString, imag::AbstractString)
 
-function parse_complex(real::S, imag::S) where S <: AbstractString
-	if occursin("D", real) || occursin("D", imag)
-		real_, imag_ = replace(real, "D" => "e"), replace(imag, "D" => "e")
-		value = parse(ComplexF64, "$(real_) + $(imag_)im")
-	elseif occursin("E", real) || occursin("E", imag)
-		real_, imag_ = replace(real, "E" => "f"), replace(imag, "E" => "f")
-		value = parse(ComplexF32, "$(real) + $(imag)im")
-	elseif occursin(".", real) || occursin(".", imag)
-		value = parse(ComplexF64, "$(real) + $(imag)im")
-	else
-		value = try
-			parse(Complex{Int64}, "$(real) + $(imag)im")
-		catch _
-			parse(Complex{Int128}, "$(real) + $(imag)im")
-		end
-	end
-	value
+Determine the type of a complex number as the smallest type that holds both parts.
+"""
+function parse_complex(real::AbstractString, imag::AbstractString)
+	complex(parse_number(real), parse_number(imag))
 end
