@@ -1463,4 +1463,24 @@
     @test_logs Card("ABCDEFGH", 5)
     @test_logs Card("HIERARCH", "ABCDEFGHI", 5, "")
 
+    ###  Regression tests: spaces that are not part of a string value  ###
+
+    #  the spaces after an ampersand and before the string in free-format are restored on write.
+    for img in ("K       = 'abc &     ' / c", "CONTINUE  'abc &     ' / c", "K       =   'ABC' / c",
+                "K       = 'abc &' / c", "K       =     'a b &  ' / c", "K       = 'it''s &   ' / c",
+                "CONTINUE  'x''&   '", "K       = 'ABC   ' / c", "K       = '' / c", "K       = '   ' / c",
+                "K       = '&   ' / c", "XTENSION= 'IMAGE   '           / c")
+        img = rpad(img, 80)
+        card = parse(Card, img)
+        @test repr(card) == img
+    end
+
+    #  the value does not include the spaces that follow the ampersand.
+    @test parse(Card, rpad("K       = 'abc &     ' / c", 80)).value == "abc "
+    @test parse(Card, rpad("K       =   'ABC' / c", 80)).value == "ABC"
+
+    #  a string value that is created is not changed.
+    @test repr(Card("K", "abc", "c")) == rpad("K       = 'abc'                / c", 80)
+    @test repr(Card("K", "O'HARA", "c"; fixed = false)) == rpad("K       = 'O''HARA'            / c", 80)
+
 end

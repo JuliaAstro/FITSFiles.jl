@@ -655,9 +655,13 @@ end
 #  Format String value for card
 function stringvalue(value::S, format::F) where {S <: AbstractString, F <: CardFormat}
 	#  Replace strings with single quotes with two single quotes.
-	#  Append ampersand to value field, if necessary
-	vlen, ampr = length(value), format.ampr
-	"'" * rpad(rpad(replace(value, "'" => "''"), ampr-2)*(ampr > 0 ? "&" : ""), vlen-2) * "'"
+	#  Append ampersand to value field, if necessary.
+	#  Pad the string to the width of the value field, which restores the spaces that are not
+	#  part of the string, i.e., the spaces following the ampersand and preceding the string
+	#  in free-format.
+	vbeg, vend, ampr = format.vbeg, format.vend, format.ampr
+	strg = rpad(replace(value, "'" => "''"), ampr-vbeg-1) * (ampr > 0 ? "&" : "")
+	repeat(" ", max(0, vbeg-1)) * "'" * rpad(strg, vend-vbeg-1) * "'"
 end
 
 ####  Format Card Image  ####
