@@ -1129,4 +1129,21 @@
     @test repr(Card(SubString("xHIERARCH", 2), "ESO A", 1, SubString("xa comment", 2))) ==
           repr(Card("HIERARCH", "ESO A", 1, "a comment"))
 
+    ###  Regression tests: mandatory keywords  ###
+
+    #  mandatory keywords are in fixed format even if free format is requested.
+    for key in ("BITPIX", "NAXIS", "NAXIS1", "NAXIS999", "PCOUNT", "GCOUNT")
+        @test repr(Card(key, 5; fixed = false)) == repr(Card(key, 5; fixed = true))
+        @test repr(Card(lowercase(key), 5; fixed = false)) == repr(Card(key, 5))
+    end
+    @test repr(Card("SIMPLE", true; fixed = false)) == repr(Card("SIMPLE", true))
+    @test repr(Card("XTENSION", "IMAGE"; fixed = false)) == repr(Card("XTENSION", "IMAGE"))
+    @test repr(Card("NAXIS1", 5; fixed = false)) == rpad("NAXIS1  =                    5", 80)
+
+    #  other keywords keep the requested format.
+    for key in ("XNAXIS1", "NAXIS1X", "NAXISX", "OBJECT")
+        @test repr(Card(key, 5; fixed = false)) == rpad(rpad(key, 8) * "= 5", 80)
+    end
+    @test repr(Card("OBJECT", "x"; fixed = false)) == rpad("OBJECT  = 'x'", 80)
+
 end

@@ -243,6 +243,8 @@ function Card(key::K = "", value::V = missing, comment::C = ""; fixed::B = true,
 
 	#  Convert key to uppercase and remove trailing spaces.
 	upkey = uppercase(strip(key))
+	#  Mandatory keywords are always in fixed format.
+	fixed = fixed || is_fixed_key(upkey)
 
 	### if slash <= TOKENLEN+FIXEDINDEX
 	###     error("Comment separator postion must be >$")
@@ -377,7 +379,8 @@ function is_string(value::ValueType)
 end
 
 function is_fixed_key(key::AbstractString)
-	key in ("BITPIX", "END", "NAXIS", "SIMPLE") || !isnothing(match(r"NAXIS\d{1,3}", key))
+	key in ("SIMPLE", "XTENSION", "BITPIX", "NAXIS", "PCOUNT", "GCOUNT", "END") ||
+		occursin(r"^NAXIS\d{1,3}$", key)
 end
 
 function is_long_string(value::AbstractString, comment::AbstractString,
