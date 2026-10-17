@@ -964,4 +964,106 @@
 
     #  test raw keyword
 
+    ###  Regression tests: HIERARCH cards  ###
+
+    #  a HIERARCH card without a value is commentary text and round trips.
+    img = rpad("HIERARCH ESO TEL some commentary text", 80)
+    card = parse(Card, img)
+    @test FITSFiles.typename(card) == Comment
+    @test card.key == "HIERARCH"
+    @test repr(card) == img
+
+    #  a HIERARCH string value is unquoted and unescaped when parsed.
+    img = rpad("HIERARCH ESO INS OPTI-3 ID = 'ESO#427 ' / Optical element", 80)
+    card = parse(Card, img)
+    @test (card.key, card.value, card.comment) ==
+          ("ESO INS OPTI-3 ID", "ESO#427 ", "Optical element")
+    @test repr(card) == img
+    @test parse(Card, rpad("HIERARCH ESO A = 'O''HARA'", 80)).value == "O'HARA"
+
+    #  HIERARCH values are written as FITS values: quoted strings, T or F, E and D exponents.
+    @test repr(Card("HIERARCH", "ESO A B", "abc", "")) ==
+          rpad("HIERARCH ESO A B = 'abc'", 80)
+    @test repr(Card("HIERARCH", "ESO A B", "O'HARA", "")) ==
+          rpad("HIERARCH ESO A B = 'O''HARA'", 80)
+    @test repr(Card("HIERARCH", "ESO A B", true, "")) == rpad("HIERARCH ESO A B = T", 80)
+    @test repr(Card("HIERARCH", "ESO A B", false, "")) == rpad("HIERARCH ESO A B = F", 80)
+    @test repr(Card("HIERARCH", "ESO A B", 1.5f-5, "")) == rpad("HIERARCH ESO A B = 1.5E-5", 80)
+    @test repr(Card("HIERARCH", "ESO A B", 1.5e-5, "")) == rpad("HIERARCH ESO A B = 1.5D-5", 80)
+    @test repr(Card("HIERARCH", "ESO A B", 12, "")) == rpad("HIERARCH ESO A B = 12", 80)
+    @test repr(Card("HIERARCH", "ESO A B", 1.5 + 2.5im, "")) ==
+          rpad("HIERARCH ESO A B = (1.5, 2.5)", 80)
+
+    #  HIERARCH values round trip through their images.
+    for value in ("a string", "O'HARA", true, false, 12, 1.5f0, 2.5e-10, 1.0 - 2.0im, 3 + 4im)
+        card = Card("HIERARCH", "ESO TEL FOCU SCALE", value, "a comment")
+        parsed = parse(Card, repr(card))
+        @test parsed.value == value
+        @test parsed.comment == "a comment"
+        @test repr(parsed) == repr(card)
+    end
+
+    #  HIERARCH tokens may only contain characters that are legal in a keyword.
+    @test_throws "HIERARCH keyword contains invalid characters." Card("HIERARCH", "ESO a=b", 1, "")
+    @test_throws "HIERARCH keyword contains invalid characters." Card("HIERARCH", "ESO A/B", 1, "")
+    @test_throws "HIERARCH keyword contains invalid characters." Card("HIERARCH", "", 1, "")
+    @test_throws "HIERARCH keyword contains invalid characters." Card("HIERARCH", "ESO 'A", 1, "")
+
+    ###  Regression tests: units in comments  ###
+
+    #  a units string in the comment is not lost when a card is parsed.
+    img = rpad("EXPTIME =               1200. / [s] exposure time", 80)
+    card = parse(Card, img)
+    @test card.value == 1200.0f0
+    @test card.comment == "[s] exposure time"
+    @test occursin("/ [s] exposure time", repr(card))
+
+    img = rpad("OBJECT  = 'Cygnus X-1' / [see note] the object", 80)
+    card = parse(Card, img)
+    @test card.value == "Cygnus X-1"
+    @test card.comment == "[see note] the object"
+    @test repr(card) == img
+
+    #  a units string written from a Quantity is read back in the comment.
+    card = Card("EXPTIME", 1200.0f0 * Unitful.s, "exposure time")
+    @test parse(Card, repr(card)).comment == "[s] exposure time"
+
+    ###  Regression tests: long strings with single quotes  ###
+
+    #  a long string consisting of single quotes keeps all of its characters.
+    for n in (1, 2, 17, 40, 100), value in (repeat("'", n), "a" * repeat("'", n), repeat("'a", n))
+        cards = Card("KEY", value, "")
+        cards = cards isa AbstractArray ? cards : [cards]
+        #  every card fits, and no doubled single quote is split between cards.
+        images = [repr(c) for c in cards]
+        @test all(length(image) == 80 for image in images)
+        @test FITSFiles.join_cards(cards).value == value
+        @test FITSFiles.join_cards([parse(Card, image) for image in images]).value == value
+    end
+
+    ###  Regression tests: literal ampersand  ###
+
+    #  an ampersand that is not followed by a CONTINUE card is part of the string.
+    card = parse(Card, rpad("KEY     = 'AT&T&' / c", 80))
+    @test card.value == "AT&T"
+    @test FITSFiles.join_cards([card]).value == "AT&T&"
+    @test repr(FITSFiles.join_cards([card]).format.ampr) == "0"
+    @test card.format.ampr > 0
+
+    #  an ampersand followed by a CONTINUE card joins the strings.
+    cards = [parse(Card, rpad("KEY     = 'first &'", 80)),
+             parse(Card, rpad("CONTINUE  'second&'", 80)),
+             parse(Card, rpad("CONTINUE  'third'", 80))]
+    @test FITSFiles.join_cards(cards).value == "first secondthird"
+    @test cards[1].format.ampr > 0
+
+    #  the last ampersand is literal if the string ends with it, and later cards are ignored.
+    cards = [parse(Card, rpad("KEY     = 'first &'", 80)),
+             parse(Card, rpad("CONTINUE  'second&'", 80))]
+    @test FITSFiles.join_cards(cards).value == "first second&"
+    cards = [parse(Card, rpad("KEY     = 'first'", 80)),
+             parse(Card, rpad("CONTINUE  'second'", 80))]
+    @test FITSFiles.join_cards(cards).value == "first"
+
+
 end

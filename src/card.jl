@@ -36,6 +36,9 @@ const END_IMAGE = "END"*repeat(' ', 77)
 #  regex for a FITS standard compliant (FSC) keyword.
 const KEY_FSC = Regex("^[A-Z0-9_-]{0," * string(KEYLENGTH) * "}\$")
 const NON_KEY_TEXT = Regex("[^A-Z0-9_-]")
+#  regex for the tokens of a HIERARCH keyword, which are separated by spaces and
+#  contain only characters that are legal in a FITS keyword.
+const HIERARCH_TOKENS = r"^[A-Z0-9_-]+(?: +[A-Z0-9_-]+)*$"
 #  regex for any printable ASCII character excluding '='.
 # const KEY_HIERARCH = Regex("^(?:HIERARCH +)?(?:^[ -<>-~]+ ?)+\$", "i")
 
@@ -103,7 +106,6 @@ const VALUE_FSC_2 = Regex(
 	"(?<miss> *)" *
 	") *" *
 	"(?<slash>/)? *" *
-	"(?<units>\\[[ -~]+\\])? *" *
 	"(?<comment>[!-~][ -~]*?)?(?= *\$) *\$")
 
 const HIERARCH_FSC = Regex(
@@ -334,6 +336,9 @@ function Card(key::S, tokens::S, value::V, comment::S;
 	format = CardFormat(fixed, 0, 0)
 
 	if is_hierarch(upkey) && is_valid_key(upkey)
+		if !occursin(HIERARCH_TOKENS, uptoken)
+			error("HIERARCH keyword contains invalid characters.")
+		end
 		type = Hierarch{typeof(value)}
 		format = formatcard(type, uptoken, value, comment; fixed, slash, lpad, rpad, upad)
 	else
@@ -410,8 +415,7 @@ function split_card(key::K, value::S, comment::C, kwds) where
 	slash, lpad, rpad = kwds[:slash], kwds[:lpad], kwds[:rpad]
 	vallen, comlen = value_length(slash, lpad) - 1, comment_length(slash, rpad)
 	#  Calculate number of cards, adjusting for ampersand and single quotes.
-	nquot = length(replace(value, "'" => "''")) - length(value)
-	ncard = max(div(length(value) + nquot, vallen, RoundUp),
+	ncard = max(nslices(value, vallen),
 		comlen == 0 ? 1 : div(length(comment), comlen, RoundUp))
 	#  Create arrays of card types, keywords, values, comments, and formatting keywords
 	#  for each card. Ensure ampersand is appended to each value string, except last.
@@ -431,11 +435,20 @@ end
 
 Join CONTINUE cards to initial long string card to create a long value and comment card
 """
-function join_cards(cards::AbstractArray{Card})
-	value = join((c.value for c in cards))
-	comment = join((c.comment for c in cards))
-	cards[1].format.ampr = 0
-	Card(typename(cards[1]), cards[1].key, value, comment, cards[1].format)
+function join_cards(cards::AbstractArray{<:Card})
+	#  Cards are joined while the preceding card ends with an ampersand. An ampersand
+	#  that is not followed by a CONTINUE card is the literal last character of the
+	#  string (Sect. 4.2.1.2).
+	n = 1
+	while n < length(cards) && cards[n].format.ampr > 0
+		n += 1
+	end
+	joined = cards[1:n]
+	value = join((c.value for c in joined)) * (joined[n].format.ampr > 0 ? "&" : "")
+	comment = join((c.comment for c in joined))
+	format = deepcopy(cards[1].format)
+	format.ampr = 0
+	Card(typename(cards[1]), cards[1].key, value, comment, format)
 end
 
 ####  Format Card  ####
@@ -498,8 +511,8 @@ end
 function formatcard(::Type{Hierarch{V}}, token::S, value::V, comment::C; kwds...) where
 {S <: AbstractString, V <: ValueType, C <: AbstractString}
 	format = CardFormat(kwds[:fixed])
-	fmt = string(value)
-	vlen = length(token) + 3 + (typeof(value) <: Bool ? 1 : length(fmt))
+	fmt = value_image(value)
+	vlen = length(token) + 3 + length(fmt)
 	#  Use ampersand for '=' index
 	ampr = length(token) + 2
 	vend = HIERINDEX+vlen
@@ -507,6 +520,27 @@ function formatcard(::Type{Hierarch{V}}, token::S, value::V, comment::C; kwds...
 	# format.frmt = fmt
 	#  Format comment, if necessary
 	formatcomment!(comment, vend, format; kwds...)
+end
+
+#  Free-format value field of a HIERARCH card: strings are quoted, logicals are T or F,
+#  and floats use an E (single precision) or D (double precision) exponent.
+function value_image(value::ValueType)
+	value = value isa Quantity ? ustrip(value) : value
+	if ismissing(value)
+		""
+	elseif value isa AbstractString
+		"'" * replace(value, "'" => "''") * "'"
+	elseif value isa Bool
+		value ? "T" : "F"
+	elseif value isa Complex
+		"(" * value_image(real(value)) * ", " * value_image(imag(value)) * ")"
+	elseif value isa Float32
+		replace(string(value), "f" => "E", "e" => "E")
+	elseif value isa AbstractFloat
+		replace(string(value), "e" => "D")
+	else
+		string(value)
+	end
 end
 
 function formatcomment!(comment::S, vend::I, format::F; units = missing,
@@ -544,16 +578,42 @@ end
 
 rpad_key(key::AbstractString, n::Integer = 0) = rpad(key, KEYLENGTH + n)
 
+#  Last index of the slice of value that begins at index j1 and has at most slen
+#  characters. If single is true, the slice is limited to slen characters after each
+#  single quote is doubled, and a doubled single quote is never split.
+function lastndx(value::AbstractString, j1::Integer, slen::Integer, single::Bool)
+	vlen = length(value)
+	if !single
+		return min(j1 + slen - 1, vlen)
+	end
+	j2, width = j1 - 1, 0
+	while j2 < vlen
+		w = value[j2+1] == '\'' ? 2 : 1
+		width + w > slen && break
+		width, j2 = width + w, j2 + 1
+	end
+	j2
+end
+
+#  Number of slices needed to hold value.
+function nslices(value::AbstractString, slen::Integer)
+	j1, n = 1, 0
+	while j1 <= length(value)
+		j2 = lastndx(value, j1, slen, true)
+		j2 < j1 && throw(ArgumentError("Value string does not fit on a card."))
+		j1, n = j2 + 1, n + 1
+	end
+	max(n, 1)
+end
+
 function slices(value::S, slen::I, ncard::I, single::B = false) where
 {S <: AbstractString, I <: Integer, B <: Bool}
 	vals = Array{Tuple{Integer, Integer}}(undef, ncard)
-	j1, j2, vlen = 1, slen, length(value)
+	j1 = 1
 	for j ∈ 1:ncard
-		val = value[j1:min(j2, vlen)]
-		#  Adjust length of string for single quotes
-		j2 = min(j2 - (single ? count("'", val) : 0), vlen)
-		vals[j] = (j1, min(j2, vlen))
-		j1, j2 = min(j2 + 1, vlen + 1), j2 + slen
+		j2 = lastndx(value, j1, slen, single)
+		vals[j] = (j1, j2)
+		j1 = j2 + 1
 	end
 	vals
 end
@@ -627,7 +687,7 @@ function format_card(::Type{Hierarch}, key::K, value::V, comment::C,
 	format::F) where {K <: AbstractString, V <: ValueType, C <: AbstractString,
 	F <: CardFormat}
 
-	valu = rpad(key, format.ampr-1) * "=" * lpad(string(value), format.vend-format.ampr)
+	valu = rpad(key, format.ampr-1) * "=" * lpad(value_image(value), format.vend-format.ampr)
 	padl = repeat(" ", max(0, (format.slsh-1) - format.vend))
 	slash = format.slsh > 0 ? "/" : " "
 	padr = repeat(" ", max(0, (format.cbeg-1) - format.slsh))
@@ -848,10 +908,11 @@ function Base.parse(::Type{Card}, image::AbstractString)
 			card = Card(Value{typeof(value)}, m[:key], value, comment, format)
 		elseif (m = match(Regex("^"*COMMENT_CARD*"\$"), image[1:TOKENLEN])) !== nothing
 			comment = image[(KEYLENGTH+1):end]
-			if m[:key] == "HIERARCH"
-				key, value, comment, format =
-					parse_value_comment(Hierarch, image[TOKENLEN:end])
-				card = Card(Hierarch{typeof(value)}, key, value, comment, format)
+			#  A HIERARCH card without a value is commentary text.
+			hier = m[:key] == "HIERARCH" ?
+				parse_value_comment(Hierarch, image[TOKENLEN:end]) : nothing
+			if !isnothing(hier)
+				card = Card(Hierarch{typeof(hier[2])}, hier...)
 			else
 				card = Card(m[:key] == "HISTORY " ? History : Comment, rstrip(m[:key]),
 					rstrip(comment), "", CardFormat(true, 1, length(comment)))
@@ -952,13 +1013,15 @@ end
 
 function parse_value_comment(::Type{Hierarch}, image::AbstractString)
 	values = match(HIERARCH_FSC, image)
+	isnothing(values) && return nothing
 	offsets = named_offsets(values)
 
 	format = CardFormat(false, offsets[:key], 0, offsets[:equal])
 	key = uppercase(values[:key])
 	if !isnothing(values[:strg])
-		value = string(values[:strg])
-		format.vend = Int8(offsets[:strg]+length(value)-1)
+		strg = string(values[:strg])
+		format.vend = Int8(offsets[:strg]+length(strg)-1)
+		value = replace(strg[2:(end-1)], "''" => "'")
 	elseif !isnothing(values[:bool])
 		value = values[:bool] == "T" ? true : false
 		format.vend = Int8(offsets[:bool])
@@ -971,7 +1034,7 @@ function parse_value_comment(::Type{Hierarch}, image::AbstractString)
 		### real_, imag_ = offsets[:real], offsets[:imag]
 		### rlen, ilen = length(values[:real]), length(values[:imag])
 		### format.vbeg, format.vend = Int8.((real_, imag_)), Int8.((real_+rlen-1, imag_+ilen-1))
-		format.vend = Int8(offsets[:cplx]+length(values[:cplx]))
+		format.vend = Int8(offsets[:cplx]+length(values[:cplx])-1)
 		# format.frmt = values[:cplx]
 	else
 		value = missing
@@ -1000,6 +1063,8 @@ function parse_comment!(format::F, values::R, offsets::N) where
 	comment = ""
 	if !isnothing(values[:slash])
 		format.slsh = Int8(offsets[:slash])
+		#  Units are not yet implemented. This needs the `units` group, "(?<units>\\[[ -~]+\\])? *",
+		#  restored in VALUE_FSC_2 before the comment group.
 		#=
 		if !isnothing(values[:units])
 			if !isnothing(values[:numr]) || !isnothing(values[:cplx])
@@ -1012,6 +1077,8 @@ function parse_comment!(format::F, values::R, offsets::N) where
 			format.ubeg, format.uend = Int8(ubeg), Int8(ubeg+ulen-1)
 		end
 		=#
+		#  A units string, e.g., "[m]", is only a convention of the comment text
+		#  (Sect. 4.3.2), so it is kept at the beginning of the comment.
 		if !isnothing(values[:comment])
 			comment = values[:comment]
 			cbeg, clen = offsets[:comment], length(comment)

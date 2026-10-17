@@ -1,5 +1,6 @@
 using FITSFiles
 using Test
+using Unitful
 
 showfields(card) = Tuple(push!([getfield(card, k) for k in fieldnames(Card)[1:3]], repr(card)))
 
