@@ -116,7 +116,7 @@
     hdu = read(io, HDU; scale=true)
 
     @test isequal(showfields.(hdu.cards),
-                  [("XTENSION", "IMAGE   ", "",
+                  [("XTENSION", "IMAGE", "",
                     "XTENSION= 'IMAGE   '                                                            "),
                    ("BITPIX", 32, "",
                     "BITPIX  =                   32                                                  "),
@@ -150,7 +150,7 @@
 
 
     @test isequal(showfields.(hdu.cards),
-                  [("XTENSION", "IMAGE   ", "",
+                  [("XTENSION", "IMAGE", "",
                     "XTENSION= 'IMAGE   '                                                            "),
                    ("BITPIX", 32, "",
                     "BITPIX  =                   32                                                  "),
@@ -187,7 +187,7 @@
     close(fileio)
 
     @test isequal(showfields.(hdu.cards),
-                  [("XTENSION", "IMAGE   ", "",
+                  [("XTENSION", "IMAGE", "",
                     "XTENSION= 'IMAGE   '                                                            "),
                    ("BITPIX", 32, "",
                     "BITPIX  =                   32                                                  "),

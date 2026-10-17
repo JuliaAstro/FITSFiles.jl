@@ -649,10 +649,10 @@
                   ("STRING", "        ", "",
                    "STRING  = '        '                                                            "))
 
-    #  parse Value Card with an empty string
+    #  parse Value Card with an empty string, which is a single space
     @test isequal(showfields(parse(Card,
                    "STRING  = '        '                                                            ")),
-                  ("STRING", "        ", "",
+                  ("STRING", " ", "",
                    "STRING  = '        '                                                            "))
 
     #  create Value Card with a string value
@@ -1524,5 +1524,38 @@
     for value in ("FOO", "I", "", " IMAGE", "IMAGES", "A3DTABLE", "BIN")
         @test Card("XTENSION", value).value == value
     end
+
+    ###  Regression tests: trailing spaces of a string value  ###
+
+    #  the trailing spaces of a string are not significant, and the card is written as it was read.
+    for (img, value) in (("K       = 'ABC   ' / c", "ABC"), ("K       = 'ABC' / c", "ABC"),
+                         ("K       = '' / c", ""), ("K       = ' ' / c", " "), ("K       = '    ' / c", " "),
+                         ("K       = '  ABC  ' / c", "  ABC"), ("K       =   'ABC   ' / c", "ABC"),
+                         ("K       = 'A  B   ' / c", "A  B"), ("CONTINUE  'ABC   ' / c", "ABC"),
+                         ("XTENSION= 'IMAGE   '           / c", "IMAGE"), ("XTENSION= 'BINTABLE'", "BINTABLE"))
+        img = rpad(img, 80)
+        card = parse(Card, img)
+        @test card.value == value
+        @test repr(card) == img
+    end
+
+    #  the trailing spaces of a string that continues are significant.
+    for (img, value) in (("K       = 'abc   &' / c", "abc   "), ("CONTINUE  'abc   &   ' / c", "abc   "),
+                         ("K       = ' &' / c", " "), ("K       = 'abc  &    '", "abc  "))
+        card = parse(Card, rpad(img, 80))
+        @test card.value == value
+        @test repr(card) == rpad(img, 80)
+    end
+
+    #  the trailing spaces of a string are not significant when a value is set.
+    card = parse(Card, rpad("K       = 'ABC   ' / c", 80))
+    @test FITSFiles.setvalue!(card, "ABC") === card
+    @test FITSFiles.setvalue!(card, "ABC  ") === card
+    @test FITSFiles.setvalue!(card, "ABD").value == "ABD"
+    card = parse(Card, rpad("K       = '' / c", 80))
+    @test FITSFiles.setvalue!(card, "").value == ""
+    @test FITSFiles.setvalue!(card, " ").value == " "
+    @test FITSFiles.setvalue!(parse(Card, rpad("K       = ' ' / c", 80)), "  ").value == " "
+    @test FITSFiles.setvalue!(parse(Card, rpad("K       = ' ' / c", 80)), "").value == ""
 
 end

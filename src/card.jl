@@ -397,7 +397,10 @@ typename(::Card{T}) where T = T
 #  modify card value
 function setvalue!(card::Card, value::ValueType)
 	value = value isa AbstractString ? format_xtension_value(card.key, value) : value
-	if card.value !== value
+	#  The trailing spaces of a string are not significant.
+	same = card.value isa AbstractString && value isa AbstractString ?
+		trimvalue(card.value) == trimvalue(value) : card.value === value
+	if !same
 		f, T = card.format, basetype(typename(card))
 		if T in (Value, Hierarch)
 			#  The type of the card follows the type of the new value. The card is formatted
@@ -646,6 +649,11 @@ function slices(value::S, slen::I, ncard::I, single::B = false) where
 	end
 	vals
 end
+
+#  Remove the trailing spaces of a string value, which are not significant. The first space of
+#  a string of only spaces is significant, because it is an empty string and not a null string.
+trimvalue(value::AbstractString) =
+	isempty(rstrip(value)) && !isempty(value) ? " " : String(rstrip(value))
 
 #  Format special XTENSION values, pad to 8 characters
 function format_xtension_value(key::AbstractString, value::AbstractString)
@@ -1039,7 +1047,9 @@ function parse_value(::Type{String}, valus::RegexMatch,
 	format.fixd = vbeg == 1 ? true : false
 	format.vbeg, format.vend, format.ampr = Int8(vbeg), Int8(vend), Int8(ampr)
 	value = replace(value[2:((ampr>0 ? ampr : vend)-vbeg)], "''" => "'")
-	(value, format)
+	#  Trailing spaces are not significant, except in a string that continues. The spaces are
+	#  restored by the value field when the card is written.
+	(ampr == 0 ? trimvalue(value) : value, format)
 end
 
 function parse_value(::Type{Bool}, valus::RegexMatch,
