@@ -1227,4 +1227,48 @@
     @test FITSFiles.typename(card) == Value{Int}
     @test (card.key, card.value, card.comment) == ("HIERARCH", 5, "a comment")
 
+    ###  Regression tests: orphaned CONTINUE cards  ###
+
+    #  a CONTINUE card that does not continue a string is commentary text.
+    img = rpad("CONTINUE  'some text&' / a comment", 80)
+    for previous in (nothing, Card("KEY", 5), Card("KEY", "no ampersand"),
+                     Card("HIERARCH", "ESO A", "O&", ""), Card("COMMENT", "text"),
+                     Card("KEY", "text&; "))
+        card = parse(Card, img, previous)
+        @test FITSFiles.typename(card) == Comment
+        @test (card.key, card.value) == ("CONTINUE", "  'some text&' / a comment")
+        @test repr(card) == img
+    end
+
+    #  a CONTINUE card that continues a string is a CONTINUE card.
+    first_ = parse(Card, rpad("KEY     = 'first &'", 80))
+    card = parse(Card, img, first_)
+    @test FITSFiles.typename(card) == Continue
+    @test (card.key, card.value, card.comment) == ("CONTINUE", "some text", "a comment")
+    @test FITSFiles.typename(parse(Card, rpad("CONTINUE  'last'", 80), card)) == Continue
+
+    #  a CONTINUE card that follows the last card of a continued string is commentary text.
+    last_ = parse(Card, rpad("CONTINUE  'last'", 80), card)
+    @test FITSFiles.typename(parse(Card, img, last_)) == Comment
+
+    #  other cards are not changed by a previous card.
+    img = rpad("KEY     = 5 / a comment", 80)
+    @test repr(parse(Card, img, nothing)) == repr(parse(Card, img))
+
+    #  reading a header converts orphaned CONTINUE cards, also across blocks.
+    function header(images...)
+        text = join(rpad.(images, 80)) * rpad("END", 80)
+        IOBuffer(rpad(text, 2880 * cld(length(text), 2880)))
+    end
+    cards, _, _ = read(header("SIMPLE  =                    T", "KEY     = 'first &'",
+        "CONTINUE  'second&'", "CONTINUE  'third'", "CONTINUE  'orphan'"), Card)
+    @test FITSFiles.typename.(cards) ==
+          [Value{Bool}, Value{String}, Continue, Continue, Comment]
+    @test cards[end].key == "CONTINUE"
+
+    images = ["SIMPLE  =                    T"; fill("", 34); "KEY     = 'first &'";
+              "CONTINUE  'second'"; "CONTINUE  'orphan'"]
+    cards, _, _ = read(header(images...), Card)
+    @test FITSFiles.typename.(cards[36:38]) == [Value{String}, Continue, Comment]
+
 end

@@ -941,6 +941,24 @@ function Base.parse(::Type{Card}, image::AbstractString)
 	card
 end
 
+#  A CONTINUE card continues a string only if the preceding card ends with an ampersand.
+continued(card::Card) = basetype(typename(card)) in (Value, Continue) && card.format.ampr > 0
+
+"""
+    Base.parse(::Type{Card}, image::AbstractString, previous)
+
+Parse 80 character card image that follows the card `previous`, or `nothing`. A CONTINUE
+card that does not continue a string is commentary text.
+"""
+function Base.parse(::Type{Card}, image::AbstractString, previous)
+	card = parse(Card, image)
+	if typename(card) == Continue && !(!isnothing(previous) && continued(previous))
+		card = Card(Comment, "CONTINUE", rstrip(image[(KEYLENGTH+1):end]), "",
+			CardFormat(true, 1, length(image) - KEYLENGTH))
+	end
+	card
+end
+
 #  implement joincards() function. This functionality may need to be moved to hdu.jl
 
 const NUMBER_FORMAT_STR = "(?<i>\\d+)?(?:(?<p>\\.)(?<f>\\d*))?(?:(?<x>[DE])(?<n>[+-]?\\d+))?"

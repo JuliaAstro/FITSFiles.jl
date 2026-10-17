@@ -367,7 +367,8 @@ function Base.read(io::IO, ::Type{Card})
     block = read(io, BLOCKLEN)
     while !lastblok
         for j=1:N
-            card = parse(Card, String(block[M*(j-1)+1:M*j]))
+            card = parse(Card, String(block[M*(j-1)+1:M*j]),
+                         isempty(cards) ? nothing : cards[end])
             if any(occursin.(MANDATORYKEYS, card.key))
                 mankeys[card.key] = card.value
             end
