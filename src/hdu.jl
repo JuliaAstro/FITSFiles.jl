@@ -123,9 +123,9 @@ const OUTTYPE  = Dict(
     UInt8 => Float32, Int16 => Float32, Int32 => Float64, Int64 => Float64,
     Float32 => Float32, Float64 => Float64)
 
-    #  Combine XTENSION values in card.jl and hdu.jl
-const XTENSIONTYPE = Dict("IMAGE   " => Image, "TABLE   " => Table,
-	"BINTABLE" => Bintable)
+    #  Combine XTENSION values in card.jl and hdu.jl. The trailing spaces of a value are not
+    #  significant, so the keys are not padded.
+const XTENSIONTYPE = Dict("IMAGE" => Image, "TABLE" => Table, "BINTABLE" => Bintable)
 
 const MANDATORYKEYS = (
 	#  Mandatory keys, except THEAP (see Table C.1)
@@ -456,7 +456,7 @@ function typeofhdu(mankeys::Dict{S, V}) where {S <: AbstractString, V <: ValueTy
 	#  Determine HDU type from mandatory keys
 	exval = get(mankeys, "XTENSION", missing)
 	if !ismissing(exval)
-		type = get(XTENSIONTYPE, exval, Conform)
+		type = get(XTENSIONTYPE, exval isa AbstractString ? rstrip(exval) : exval, Conform)
 		if type == Bintable
 			if get(mankeys, "ZIMAGE", false)
 				type = ZImage
