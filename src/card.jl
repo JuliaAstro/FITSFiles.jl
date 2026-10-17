@@ -236,10 +236,10 @@ struct Card{T <: AbstractCardType}  # make value a parameter
 	end
 end
 
-function Card(key::S = "", value::V = missing, comment::S = ""; fixed::B = true,
+function Card(key::K = "", value::V = missing, comment::C = ""; fixed::B = true,
 	append::B = false, slash::I = 32, lpad::I = 1, rpad::I = 1, upad::I = 1,
 	truncate::B = true) where
-	{B <: Bool, I <: Integer, S <: AbstractString, V <: ValueType}
+	{B <: Bool, I <: Integer, K <: AbstractString, V <: ValueType, C <: AbstractString}
 
 	#  Convert key to uppercase and remove trailing spaces.
 	upkey = uppercase(strip(key))
@@ -312,9 +312,10 @@ function Card(key::S = "", value::V = missing, comment::S = ""; fixed::B = true,
 	Card(type, upkey, value, comment, format)
 end
 
-function Card(key::S, tokens::S, value::V, comment::S;
+function Card(key::K, tokens::T, value::V, comment::C;
 	fixed::B = true, slash::I = 32, lpad::I = 1, rpad::I = 1, upad::I = 1) where
-{B <: Bool, I <: Integer, S <: AbstractString, V <: ValueType}
+{B <: Bool, I <: Integer, K <: AbstractString, T <: AbstractString, V <: ValueType,
+	C <: AbstractString}
 
 	#  Convert key to uppercase and remove trailing SPECIAL_KEYS
 	upkey, uptoken = uppercase(strip(key)), uppercase(strip(tokens))

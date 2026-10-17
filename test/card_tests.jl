@@ -1117,4 +1117,16 @@
     @test parse(Card, "KEY     = 1").value == "= 1"
 
 
+    ###  Regression tests: string types  ###
+
+    #  the key, tokens, value, and comment may be different string types.
+    @test repr(Card(SubString("xKEY", 2), 1, SubString("xa comment", 2))) ==
+          rpad("KEY     =                    1 / a comment", 80)
+    @test repr(Card(SubString("xKEY", 2), "a string", "a comment")) ==
+          repr(Card("KEY", "a string", "a comment"))
+    @test repr(Card("HIERARCH", SubString("xESO A", 2), 1, SubString("xa comment", 2))) ==
+          repr(Card("HIERARCH", "ESO A", 1, "a comment"))
+    @test repr(Card(SubString("xHIERARCH", 2), "ESO A", 1, SubString("xa comment", 2))) ==
+          repr(Card("HIERARCH", "ESO A", 1, "a comment"))
+
 end
