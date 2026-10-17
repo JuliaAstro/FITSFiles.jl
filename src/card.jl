@@ -513,7 +513,7 @@ function formatcard(::Type{Value{V}}, value::V, comment::C; kwds...) where
 {V <: ValueType, C <: AbstractString}
 
 	#  An undefined value has no units: `unit(missing)` is `missing`, not `NoUnits`.
-	units = ismissing(value) || unit(value) === NoUnits ? missing : string(unit(value))
+	units = ismissing(value) || unit(value) === NoUnits ? missing : formunit(unit(value))
 	#  Create appropriate CardFormat type
 	format = CardFormat(kwds[:fixed])
 	fmt = string(ustrip(value))
@@ -528,7 +528,7 @@ end
 function formatcard(::Type{Value{V}}, value::V, comment::C; kwds...) where
 {V <: Complex, C <: AbstractString}
 
-	units = unit(value) === NoUnits ? missing : string(unit(value))
+	units = unit(value) === NoUnits ? missing : formunit(unit(value))
 	#  Create appropriate CardFormat type
 	format = CardFormat(false)
 	rlen, ilen = length(string(real(value))), length(string(imag(value)))
@@ -561,7 +561,7 @@ function formatcard(::Type{Hierarch{V}}, token::S, value::V, comment::C; kwds...
 	format.vbeg, format.vend, format.ampr = Int8(0), Int8(vend), Int8(ampr)
 	# format.frmt = fmt
 	#  Format comment, if necessary
-	units = value isa Quantity && unit(value) !== NoUnits ? string(unit(value)) : missing
+	units = value isa Quantity && unit(value) !== NoUnits ? formunit(unit(value)) : missing
 	formatcomment!(comment, vend, format; units, kwds...)
 end
 
@@ -744,7 +744,7 @@ function format_card(::Type{Hierarch}, key::K, value::V, comment::C,
 	slash = format.slsh > 0 ? "/" : " "
 	if format.ubeg > 0
 		padr = repeat(" ", max(0, format.ubeg-1 - format.slsh))
-		unts = "[$(unit(value))]"
+		unts = "[$(formunit(unit(value)))]"
 		padu = repeat(" ", max(0, format.cbeg-1 - format.uend))
 	else
 		padr = repeat(" ", max(0, (format.cbeg-1) - format.slsh))
@@ -812,7 +812,7 @@ function format_card(::Type{Value}, key::K, value::I, comment::C,
 	I <: Union{Integer, Quantity{<:Integer, <:Any, <:Any}},
 	C <: AbstractString, F <: CardFormat}
 
-	value, units = ustrip(value), string(unit(value))
+	value, units = ustrip(value), formunit(unit(value))
 	#  Fixed format integer value ends at index 30
 	padlen = max(0, FIXEDINDEX - (format.vend-format.vbeg+1))
 	#  If fixed format, pad value string.
@@ -828,7 +828,7 @@ function format_card(::Type{Value}, key::K, value::V, comment::C,
 
 	#  Fixed format float value ends at index 30
 	#  Replace (lowercase) 'e' and 'f' with (uppercase) 'E'
-	value, units = ustrip(value), string(unit(value))
+	value, units = ustrip(value), formunit(unit(value))
 	value = replace(string(value), "f" => "E", "e" => "E")
 	padlen = max(0, FIXEDINDEX - length(value))
 	#  If fixed format, pad value string.
@@ -844,7 +844,7 @@ function format_card(::Type{Value}, key::K, value::V, comment::C,
 
 	#  Fixed format float value ends at index 30
 	#  Replace (lowercase) 'e' with (uppercase) 'D'.
-	value, units = ustrip(value), string(unit(value))
+	value, units = ustrip(value), formunit(unit(value))
 	value = replace(string(value), "e" => "D")
 	#  Truncate mantissa, so value contains 20 characters.
 	if format.fixd && length(value) > FIXEDINDEX
@@ -865,7 +865,7 @@ function format_card(::Type{Value}, key::K, value::V, comment::C,
 
 	#   Fixed format complex values do not exist.
 	#   ???  Can there be spaces between the paratheses?
-	value, units = ustrip(value), string(unit(value))
+	value, units = ustrip(value), formunit(unit(value))
 	value = "($(string(real(value))), $(string(imag(value))))"
 	rpad_image(key, value, units, comment, format)
 end
@@ -878,7 +878,7 @@ function format_card(::Type{Value}, key::K, value::V, comment::C,
 
 	#  Fixed format complex values do not exist.
 	#  Replace (lowercase) 'e' and 'f' with (uppercase) 'E'.
-	value, units = ustrip(value), string(unit(value))
+	value, units = ustrip(value), formunit(unit(value))
 	real_ = replace(string(real(value)), "f" => "E", "e" => "E")
 	imag_ = replace(string(imag(value)), "f" => "E", "e" => "E")
 	#  Add paretheses.
@@ -895,7 +895,7 @@ function format_card(::Type{Value}, key::K, value::V, comment::C,
 
 	#  Fixed format complex values do no exist.
 	#  Replace (lowercase) 'e' with (uppercase) 'D'.
-	value, units = ustrip(value), string(unit(value))
+	value, units = ustrip(value), formunit(unit(value))
 	real_ = replace(string(real(value)), "e" => "D")
 	imag_ = replace(string(imag(value)), "e" => "D")
 	#  Add paretheses
