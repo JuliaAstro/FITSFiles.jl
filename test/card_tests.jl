@@ -1209,4 +1209,22 @@
     @test cards[2].value == 1
     @test_throws KeyError cards["NONE"] = 1
 
+    ###  Regression tests: HIERARCH keyword and byte 9  ###
+
+    #  a HIERARCH card requires a space in byte 9, otherwise the record is commentary.
+    img = rpad("HIERARCHX ESO A = 1", 80)
+    card = parse(Card, img)
+    @test FITSFiles.typename(card) == Comment
+    @test (card.key, card.value) == ("HIERARCH", "X ESO A = 1")
+    @test repr(card) == img
+    img = rpad("HIERARCH ESO A = 1", 80)
+    @test FITSFiles.typename(parse(Card, img)) == Hierarch{Int}
+    @test repr(parse(Card, img)) == img
+
+    #  a HIERARCH keyword with a value indicator in bytes 9 and 10 is a value card.
+    img = rpad("HIERARCH= 5 / a comment", 80)
+    card = parse(Card, img)
+    @test FITSFiles.typename(card) == Value{Int}
+    @test (card.key, card.value, card.comment) == ("HIERARCH", 5, "a comment")
+
 end

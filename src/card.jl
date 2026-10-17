@@ -24,10 +24,11 @@ const KEYWD_CHARS = "[A-Z0-9_-]"
 const ASCII_CHARS = "[ -~]"
 const VALUE_TOKEN = "[ A-Z0-9_-]{8}= "
 const VALUE_KEY = KEYWD_CHARS*"*?"
-const COMMENT_KEY = "COMMENT |HISTORY |HIERARCH| {8}"
+const COMMENTARY_KEY = "COMMENT |HISTORY | {8}"
+const COMMENT_KEY = COMMENTARY_KEY*"|HIERARCH"
 const CONTINUE_KEY = "CONTINUE"
 
-const VALUE_CARD = "(?!"*COMMENT_KEY*")(?="*VALUE_TOKEN*")(?<key>"*VALUE_KEY*") *= "
+const VALUE_CARD = "(?!"*COMMENTARY_KEY*")(?="*VALUE_TOKEN*")(?<key>"*VALUE_KEY*") *= "
 const CONTINUE_CARD = "(?<key>"*CONTINUE_KEY*")"*ASCII_CHARS*"{2}"
 const COMMENT_CARD = "(?<key>"*COMMENT_KEY*")"*ASCII_CHARS*"{2}"
 
@@ -917,7 +918,7 @@ function Base.parse(::Type{Card}, image::AbstractString)
 		elseif (m = match(Regex("^"*COMMENT_CARD*"\$"), image[1:TOKENLEN])) !== nothing
 			comment = image[(KEYLENGTH+1):end]
 			#  A HIERARCH card without a value is commentary text.
-			hier = m[:key] == "HIERARCH" ?
+			hier = m[:key] == "HIERARCH" && image[KEYLENGTH+1] == ' ' ?
 				parse_value_comment(Hierarch, image[TOKENLEN:end]) : nothing
 			if !isnothing(hier)
 				card = Card(Hierarch{typeof(hier[2])}, hier...)
