@@ -1146,4 +1146,67 @@
     end
     @test repr(Card("OBJECT", "x"; fixed = false)) == rpad("OBJECT  = 'x'", 80)
 
+    ###  Regression tests: setvalue!  ###
+
+    #  setvalue! replaces the value and keeps the format of the separator, units, and comment.
+    card = Card("KEY", 5, "a comment")
+    verified = FITSFiles.setvalue!(card, 7)
+    @test verified.value == 7
+    @test (verified.format.slsh, verified.format.cbeg, verified.format.cend) ==
+          (card.format.slsh, card.format.cbeg, card.format.cend)
+    @test repr(verified) == repr(Card("KEY", 7, "a comment"))
+    @test FITSFiles.setvalue!(card, 5) === card
+    @test FITSFiles.typename(FITSFiles.setvalue!(card, 5.0)) == Value{Float64}
+
+    #  setvalue! changes the type of the card to the type of the new value.
+    for value in (7, 7.5f0, 7.5, true, "abc", missing, 7 + 2im)
+        verified = FITSFiles.setvalue!(card, value)
+        @test isequal(verified.value, value)
+        @test FITSFiles.typename(verified) == Value{typeof(value)}
+        @test repr(verified) == repr(Card("KEY", value, "a comment"))
+    end
+
+    #  setvalue! moves the comment when the new value is longer than the old value.
+    for value in ("a string longer than the old", 1.2345678901234567 + 1.2345678901234567im,
+                  "O'HARA O'HARA O'HARA O'HARA", 123456789012345678901234)
+        verified = FITSFiles.setvalue!(card, value)
+        parsed = parse(Card, repr(verified))
+        @test length(repr(verified)) == 80
+        @test parsed.value == value
+        @test parsed.comment == "a comment"
+        @test verified.format.cbeg > last(verified.format.vend)
+        @test verified.format.slsh > last(verified.format.vend)
+    end
+    verified = FITSFiles.setvalue!(Card("KEY", 5.0f0 * Unitful.m, "a comment"), 1.2345678901234567 * Unitful.m)
+    @test parse(Card, repr(verified)).comment == "[m] a comment"
+
+    #  setvalue! keeps the spacing of a card that was parsed from an image.
+    card = parse(Card, rpad("KEY     =                    5   /    a comment", 80))
+    @test repr(FITSFiles.setvalue!(card, 7)) == rpad("KEY     =                    7   /    a comment", 80)
+
+    #  setvalue! works with undefined values.
+    undef = Card("KEY", missing, "a comment")
+    @test FITSFiles.setvalue!(undef, missing) === undef
+    @test repr(FITSFiles.setvalue!(undef, 5)) == repr(Card("KEY", 5, "a comment"))
+    @test FITSFiles.typename(FITSFiles.setvalue!(undef, 5)) == Value{Int}
+
+    #  setvalue! keeps the type of other cards.
+    hier = Card("HIERARCH", "ESO A", 1, "a comment")
+    @test FITSFiles.typename(FITSFiles.setvalue!(hier, 2.5)) == Hierarch{Float64}
+    @test FITSFiles.typename(FITSFiles.setvalue!(hier, 1)) == Hierarch{Int}
+
+    card = Card("KEY", 5.0f0 * Unitful.m, "a comment")
+    verified = FITSFiles.setvalue!(card, 7.0f0 * Unitful.m)
+    @test (verified.format.ubeg, verified.format.uend) == (card.format.ubeg, card.format.uend)
+
+    #  assigning a value to a keyword of a list of cards may change the type of the value.
+    cards = Card{<:Any}[Card("KEY", 5, "a comment"), Card("OTHER", 1)]
+    for value in (7.5f0, "abc", true, missing)
+        cards["KEY"] = value
+        @test isequal(cards[1].value, value)
+        @test repr(cards[1]) == repr(Card("KEY", value, "a comment"))
+    end
+    @test cards[2].value == 1
+    @test_throws KeyError cards["NONE"] = 1
+
 end

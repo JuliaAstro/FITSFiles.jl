@@ -354,19 +354,6 @@ function Card(key::K, tokens::T, value::V, comment::C;
 	Card(type, uptoken, value, comment, format)
 end
 
-#  modify card value
-function setvalue!(card::Card, value::ValueType)
-	type, f = typename(card), card.format
-	if f.ubeg > 0
-		lpad, rpad, upad = f.slsh-f.vend-1, f.ubeg-f.slsh-1, f.cbeg-f.uend-1
-	else
-		lpad, rpad, upad = f.slsh-f.vend-1, f.cbeg-f.slsh-1, 0
-	end
-	Card(type, card.key, value, card.comment,
-		formatcard(type, value, card.comment;
-			fixed = f.fixd, slash = f.slsh, lpad, rpad, upad))
-end
-
 #  check key type
 is_end_key(key::AbstractString)      = key == "END"
 is_continue_key(key::AbstractString) = key == "CONTINUE"
@@ -398,12 +385,24 @@ end
 
 typename(::Card{T}) where T = T
 
-function verify(card::Card, value::ValueType)
-	if card.value != value
-		f = card.format
-		vbeg = f.vend-(typeof(value) <: Bool ? 1 : length(string(value)))+1
-		fmt = CardFormat(f.fixd, vbeg, f.vend, f.ampr, f.slsh, f.cbeg, f.cend)
-		card = Card(typename(card), card.key, value, card.comment, fmt)
+#  modify card value
+function setvalue!(card::Card, value::ValueType)
+	if card.value !== value
+		f, T = card.format, basetype(typename(card))
+		if T in (Value, Hierarch)
+			#  The type of the card follows the type of the new value. The card is formatted
+			#  again at the separator index of the old card, so a value that does not fit
+			#  before the separator moves the separator and comment.
+			type = T{typeof(value)}
+			rpad = max(f.cbeg, f.ubeg) > 0 ? (f.ubeg > 0 ? f.ubeg : f.cbeg) - f.slsh - 1 : 1
+			upad = f.ubeg > 0 && f.cbeg > 0 ? f.cbeg - f.uend - 1 : 1
+			args = T == Hierarch ? (card.key,) : ()
+			fmt = formatcard(type, args..., value, card.comment; fixed = f.fixd, append = false,
+				slash = f.slsh + TOKENLEN, lpad = 1, rpad, upad)
+			card = Card(type, card.key, value, card.comment, fmt)
+		else
+			card = Card(T, card.key, value, card.comment, f)
+		end
 	end
 	card
 end
