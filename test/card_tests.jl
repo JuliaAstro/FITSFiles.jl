@@ -1291,4 +1291,35 @@
     card = FITSFiles.setvalue!(Card("HIERARCH", "ESO A", 5, "a comment"), 2.5f0 * Unitful.m)
     @test parse(Card, repr(card)).comment == "[m] a comment"
 
+    ###  Regression tests: units in the comment of a parsed card  ###
+
+    #  setting a value with units on a parsed card does not repeat the units in the comment.
+    card = parse(Card, rpad("KEY     =                    5 / [m]   a comment", 80))
+    card2 = FITSFiles.setvalue!(card, 7.5f0 * Unitful.m)
+    @test repr(card2) == rpad("KEY     =                  7.5 / [m]   a comment", 80)
+    @test card2.comment == "a comment"
+    @test (card2.format.ubeg, card2.format.uend) != (0, 0)
+    @test parse(Card, repr(card2)).comment == "[m]   a comment"
+
+    #  the units of the new value replace the units of the comment.
+    card2 = FITSFiles.setvalue!(parse(Card, rpad("KEY     = 5 / [km] a comment", 80)), 7.5f0 * Unitful.m)
+    @test parse(Card, repr(card2)).comment == "[m] a comment"
+
+    #  a comment of only units keeps the units.
+    card2 = FITSFiles.setvalue!(parse(Card, rpad("KEY     = 5 / [m]", 80)), 7.5f0 * Unitful.m)
+    @test parse(Card, repr(card2)).comment == "[m]"
+
+    #  a value without units keeps the comment, and a card with recorded units is unchanged.
+    card2 = FITSFiles.setvalue!(card, 7)
+    @test parse(Card, repr(card2)).comment == "[m]   a comment"
+    card = Card("KEY", 5.0f0 * Unitful.m, "a comment"; upad = 3)
+    @test repr(FITSFiles.setvalue!(card, 7.5f0 * Unitful.m)) ==
+          repr(Card("KEY", 7.5f0 * Unitful.m, "a comment"; upad = 3))
+
+    #  HIERARCH cards are treated the same way.
+    card = parse(Card, rpad("HIERARCH ESO A = 5 / [m]  a comment", 80))
+    card2 = FITSFiles.setvalue!(card, 7.5f0 * Unitful.m)
+    @test (card2.value, card2.comment) == (7.5f0 * Unitful.m, "a comment")
+    @test parse(Card, repr(card2)).comment == "[m]  a comment"
+
 end

@@ -397,7 +397,13 @@ function setvalue!(card::Card, value::ValueType)
 			type = T{typeof(value)}
 			rpad = max(f.cbeg, f.ubeg) > 0 ? (f.ubeg > 0 ? f.ubeg : f.cbeg) - f.slsh - 1 : 1
 			upad = f.ubeg > 0 && f.cbeg > 0 ? f.cbeg - f.uend - 1 : 1
+			#  A units string at the beginning of the comment of a parsed card is replaced by
+			#  the units of the new value.
 			comment = card.comment
+			if value isa Quantity && unit(value) !== NoUnits && f.ubeg == 0 &&
+				(m = match(r"^\[[^\]]*\]( *)", comment)) !== nothing
+				comment, upad = comment[(length(m.match)+1):end], length(m[1])
+			end
 			args = T == Hierarch ? (card.key,) : ()
 			fmt = formatcard(type, args..., value, comment; fixed = f.fixd, append = false,
 				slash = f.slsh + TOKENLEN, lpad = 1, rpad, upad)
