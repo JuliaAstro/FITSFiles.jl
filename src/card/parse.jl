@@ -15,7 +15,9 @@ function Base.parse(::Type{Card}, image::AbstractString; strict::Bool = true, un
 	#  Value types. The Hierarch and Value types are parametric types of Missing, Number, and
 	#  String types.
 	#
-	if length(image) == CARDLENGTH
+	#  An image that is not ASCII is invalid, since the indexes of the image are the indexes of
+	#  the characters of the card.
+	if length(image) == CARDLENGTH && isascii(image)
 		key = rstrip(image[1:KEYLENGTH])
 		if image == END_IMAGE
 			card = Card(End, "END", missing, "", CardFormat())
@@ -39,9 +41,15 @@ function Base.parse(::Type{Card}, image::AbstractString; strict::Bool = true, un
 			end
 		elseif (m = match(Regex("^"*CONTINUE_CARD*"\$"), image[1:TOKENLEN])) !== nothing
 			parsed = parse_value_comment(Value, image[(TOKENLEN+1):end]; strict, units = false)
-			card = isnothing(parsed) ?
-				Card(Invalid, key, image[(KEYLENGTH+1):end], "", CardFormat()) :
-				Card(Continue, m[:key], parsed...)
+			if isnothing(parsed)
+				card = Card(Invalid, key, image[(KEYLENGTH+1):end], "", CardFormat())
+			elseif parsed[1] isa AbstractString
+				card = Card(Continue, m[:key], parsed...)
+			else
+				#  A CONTINUE card without a string is commentary text.
+				card = Card(Comment, "CONTINUE", rstrip(image[(KEYLENGTH+1):end]), "",
+					CardFormat(true, 1, CARDLENGTH - KEYLENGTH))
+			end
 		elseif image[(KEYLENGTH+1):TOKENLEN] != EQUAL_TOKEN && key != "END" &&
 			!isempty(key) && !occursin(NON_KEY_TEXT, key)
 			#  A record without a value indicator is commentary text (Sect. 4.1.2.3).
@@ -53,7 +61,7 @@ function Base.parse(::Type{Card}, image::AbstractString; strict::Bool = true, un
 		end
 	else
 		card = Card(Invalid, rstrip(first(image, KEYLENGTH)),
-			image[(min(end, KEYLENGTH)+1):end], "", CardFormat())
+			chop(image; head = min(length(image), KEYLENGTH), tail = 0), "", CardFormat())
 	end
 	card
 end

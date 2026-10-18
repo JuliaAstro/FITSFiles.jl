@@ -260,5 +260,5 @@ end
 
 #  Format card to 80 characters by either padding or truncating length.
 function rpad_image(card::AbstractString)
-	length(card) < CARDLENGTH ? rpad(card, CARDLENGTH) : card[1:CARDLENGTH]
+	length(card) < CARDLENGTH ? card * " "^(CARDLENGTH - length(card)) : first(card, CARDLENGTH)
 end

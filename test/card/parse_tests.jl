@@ -654,4 +654,38 @@
         @test parse(Card, rpad("HIERARCH ESO A = / a comment", 80)).comment == "a comment"
     end
 
+    #  An image with a character that is not ASCII is invalid, and does not misalign the card.
+    @testset "non-ASCII image" begin
+        for image in (rpad("caf\u00e9    = 1 / comment", 79), rpad("KEY     = 'caf\u00e9'", 79),
+            rpad("ABC\u00e9\u00e9\u00e9\u00e9\u00e9= 1", 80), "short \u00e9")
+            card = parse(Card, image)
+            @test FITSFiles.typename(card) == FITSFiles.Invalid
+            @test length(repr(card)) <= 80
+        end
+        card = parse(Card, rpad("caf\u00e9    = 1", 80))
+        @test FITSFiles.typename(card) == FITSFiles.Invalid && card.key == "caf\u00e9"
+        @test length(repr(card)) == 80
+    end
+
+    #  A CONTINUE card without a string is commentary text, which is written as it is read.
+    @testset "CONTINUE without a string" begin
+        for image in ("CONTINUE   / a comment", "CONTINUE  12", "CONTINUE  T", "CONTINUE")
+            card = parse(Card, rpad(image, 80))
+            @test FITSFiles.typename(card) == FITSFiles.Comment
+            @test card.key == "CONTINUE"
+            @test repr(card) == rpad(image, 80)
+        end
+        @test FITSFiles.typename(parse(Card, rpad("CONTINUE  'a'", 80))) == FITSFiles.Continue
+    end
+
+    #  A key and an image are padded by the number of characters, so a control character
+    #  does not change the length of the image.
+    @testset "control characters" begin
+        image = "T==E=\t*_B)0,./dC\t9&,+d)"
+        card = parse(Card, image * " "^(80 - length(image)))
+        @test FITSFiles.typename(card) == FITSFiles.Invalid
+        @test length(repr(card)) == 80
+        @test FITSFiles.rpad_key("a\tb") == "a\tb" * " "^5
+    end
+
 end

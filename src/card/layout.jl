@@ -134,7 +134,8 @@ function comment_length(slash::I, rpad::I)::Integer where I <: Integer
 	(slash+rpad) >= CARDLENGTH ? 0 : CARDLENGTH - (slash+rpad)
 end
 
-rpad_key(key::AbstractString, n::Integer = 0) = rpad(key, KEYLENGTH + n)
+#  The key is padded by the number of characters, since a control character has no width.
+rpad_key(key::AbstractString, n::Integer = 0) = key * " "^max(0, KEYLENGTH + n - length(key))
 
 #  Format String value for card
 function stringvalue(value::S, format::F) where {S <: AbstractString, F <: CardFormat}
