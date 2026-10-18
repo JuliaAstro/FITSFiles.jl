@@ -191,6 +191,7 @@ function parse_value_comment(::Type{Hierarch}, image::AbstractString; strict::Bo
 		format.vfmt = complexfmt(values[:cplx])
 	else
 		value = missing
+		format.vend = Int8(offsets[:equal])
 	end
 
 	unit, comment, format = parse_comment!(format, values, offsets; units)

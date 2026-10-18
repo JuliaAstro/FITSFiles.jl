@@ -643,9 +643,15 @@
             @test card.key == "ESO A" && ismissing(card.value) && isempty(card.comment)
             @test repr(card) == rpad(image, 80)
         end
-        card = parse(Card, rpad("HIERARCH ESO A = / a comment", 80))
-        @test FITSFiles.typename(card) == Hierarch{Missing}
-        @test ismissing(card.value) && card.comment == "a comment"
+        #  The comment keeps its position when the value is empty.
+        for image in ("HIERARCH ESO A = / a comment", "HIERARCH ESO A =      / a comment",
+            "HIERARCH ESO A     = / [m] a comment", "HIERARCH ESO A = /")
+            card = parse(Card, rpad(image, 80))
+            @test FITSFiles.typename(card) == Hierarch{Missing}
+            @test ismissing(card.value)
+            @test repr(card) == rpad(image, 80)
+        end
+        @test parse(Card, rpad("HIERARCH ESO A = / a comment", 80)).comment == "a comment"
     end
 
 end
