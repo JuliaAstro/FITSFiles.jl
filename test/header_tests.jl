@@ -1,4 +1,4 @@
-@testset "Cards" begin
+@testset "Header" begin
     ####    Test the values of continued strings    ####
 
     header(images...) = IOBuffer(rpad(join(rpad.([images...; "END"], 80)), 2880))

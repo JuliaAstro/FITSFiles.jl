@@ -7,7 +7,7 @@ showfields(card) = (card.key, card.value, card.comment, repr(card))
 io = IOBuffer()
 
 include("card_tests.jl")
-include("cards_tests.jl")
+include("header_tests.jl")
 include("units_tests.jl")
 include("format_tests.jl")
 include("typeofhdu_tests.jl")
