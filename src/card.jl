@@ -214,7 +214,7 @@ mutable struct CardFormat
 end
 
 """
-	Card(type, key, value, comment, format)
+	Card(type, key, value, [units,] comment, format)
 	Card([key, [value, [comment]]]; <keywords>)
 	Card("HIERARCH", key, [key, [value, [comment]]]; <keywords>)
 
@@ -224,7 +224,8 @@ Value{T}.
 # Argments
 
 - `key::AbstractString=""`: keyword string
-- `value::U=missing`: keyword value, where U is Bool, Number, or String
+- `value::U=missing`: keyword value, where U is Bool, Number, Quantity, or String. The units of
+  a Quantity are the units of the card, and are not part of the value.
 - `comment::AbstractString=""`: comment string
 
 # Keywords
@@ -241,12 +242,22 @@ Value{T}.
 struct Card{T <: AbstractCardType}  # make value a parameter
 	key::AbstractString
 	value::ValueType
+	units::Any
 	comment::AbstractString
 	format::CardFormat
-	function Card(T, key, value, comment, format)
-		new{T}(key, value, comment, format)
+	function Card(T, key, value, units, comment, format)
+		new{T}(key, value, units, comment, format)
 	end
 end
+
+#  Split a quantity into its value and units. A value without units has `nothing` for units.
+splitunits(value::Quantity) = unit(value) === NoUnits ? (ustrip(value), nothing) :
+	(ustrip(value), unit(value))
+splitunits(value) = (value, nothing)
+
+#  The units of a quantity are not part of the value of a card.
+Card(T, key, value, comment::AbstractString, format::CardFormat) =
+	Card(T, key, splitunits(value)..., comment, format)
 
 function Card(key::K = "", value::V = missing, comment::C = ""; fixed::B = true,
 	append::B = false, slash::I = 32, lpad::I = 1, rpad::I = 1, upad::I = 1,
@@ -268,6 +279,9 @@ function Card(key::K = "", value::V = missing, comment::C = ""; fixed::B = true,
 		warn && @warn "Keyword is longer than $KEYLENGTH characters, so a HIERARCH card is created." key=upkey
 		return Card("HIERARCH", tokens, value, comment; fixed, slash, lpad, rpad, upad)
 	end
+
+	#  The units of a quantity are not part of the value.
+	value, units = splitunits(value)
 
 	#  Check for invalid characters in key, value string, and comment.
 	if !is_hierarch(upkey) && occursin(NON_KEY_TEXT, upkey)
@@ -311,7 +325,7 @@ function Card(key::K = "", value::V = missing, comment::C = ""; fixed::B = true,
 		#  Create Value card
 		type = Value{typeof(value)}
 		format = formatcard(type, value, comment; fixed, append,
-			slash, lpad, rpad, upad, truncate)
+			slash, lpad, rpad, upad, truncate, units = unitstring(units))
 	elseif is_valid_key(upkey) && is_long_string(String(value), comment, slash, lpad,
 		rpad, truncate)
 		#  Create a list of cards from from a long string.
@@ -324,13 +338,13 @@ function Card(key::K = "", value::V = missing, comment::C = ""; fixed::B = true,
 		type = Value{typeof(value)}
 		value = format_xtension_value(upkey, value)
 		format = formatcard(type, value, comment; fixed, append,
-			slash, lpad, rpad, upad, truncate)
+			slash, lpad, rpad, upad, truncate, units = unitstring(units))
 	else
 		error("Invalid card")
 	end
 
 	typeof(cards) <: AbstractArray ? cards :
-	Card(type, upkey, value, comment, format)
+	Card(type, upkey, value, units, comment, format)
 end
 
 function Card(key::K, tokens::T, value::V, comment::C;
@@ -340,6 +354,8 @@ function Card(key::K, tokens::T, value::V, comment::C;
 
 	#  Convert key to uppercase and remove trailing SPECIAL_KEYS
 	upkey, uptoken = uppercase(strip(key)), uppercase(strip(tokens))
+	#  The units of a quantity are not part of the value.
+	value, units = splitunits(value)
 
 	### if slash <= TOKENLEN+FIXEDINDEX
 	###     error("Comment separator postion must be >$FIXEDINDEX")
@@ -366,11 +382,12 @@ function Card(key::K, tokens::T, value::V, comment::C;
 			error("HIERARCH keyword contains invalid characters.")
 		end
 		type = Hierarch{typeof(value)}
-		format = formatcard(type, uptoken, value, comment; fixed, slash, lpad, rpad, upad)
+		format = formatcard(type, uptoken, value, comment; fixed, slash, lpad, rpad, upad,
+			units = unitstring(units))
 	else
 		error("Invalid card")
 	end
-	Card(type, uptoken, value, comment, format)
+	Card(type, uptoken, value, units, comment, format)
 end
 
 #  check key type
@@ -407,9 +424,16 @@ typename(::Card{T}) where T = T
 #  modify card value
 function setvalue!(card::Card, value::ValueType)
 	value = value isa AbstractString ? format_xtension_value(card.key, value) : value
+	#  The units of a quantity are not part of the value. A number without units has the units of
+	#  the card, whereas a value of another type has none.
+	value, units = splitunits(value)
+	if isnothing(units) && value isa Union{Real, Complex} && !(value isa Bool)
+		units = card.units
+	end
 	#  The trailing spaces of a string are not significant.
-	same = card.value isa AbstractString && value isa AbstractString ?
-		trimvalue(card.value) == trimvalue(value) : card.value === value
+	same = (card.value isa AbstractString && value isa AbstractString ?
+		trimvalue(card.value) == trimvalue(value) : card.value === value) &&
+		isequal(card.units, units)
 	if !same
 		f, T = card.format, basetype(typename(card))
 		if T in (Value, Hierarch)
@@ -419,17 +443,17 @@ function setvalue!(card::Card, value::ValueType)
 			type = T{typeof(value)}
 			rpad = max(f.cbeg, f.ubeg) > 0 ? (f.ubeg > 0 ? f.ubeg : f.cbeg) - f.slsh - 1 : 1
 			upad = f.ubeg > 0 && f.cbeg > 0 ? f.cbeg - f.uend - 1 : 1
-			#  A units string at the beginning of the comment of a parsed card is replaced by
-			#  the units of the new value.
+			#  A units string at the beginning of the comment of a card that is parsed without
+			#  units is replaced by the units of the new value.
 			comment = card.comment
-			if value isa Quantity && unit(value) !== NoUnits && f.ubeg == 0 &&
+			if !isnothing(units) && f.ubeg == 0 &&
 				(m = match(r"^\[[^\]]*\]( *)", comment)) !== nothing
 				comment, upad = comment[(length(m.match)+1):end], length(m[1])
 			end
 			args = T == Hierarch ? (card.key,) : ()
 			fmt = formatcard(type, args..., value, comment; fixed = f.fixd, append = false,
-				slash = f.slsh + TOKENLEN, lpad = 1, rpad, upad)
-			card = Card(type, card.key, value, comment, fmt)
+				slash = f.slsh + TOKENLEN, lpad = 1, rpad, upad, units = unitstring(units))
+			card = Card(type, card.key, value, units, comment, fmt)
 		else
 			card = Card(T, card.key, value, card.comment, f)
 		end
@@ -512,23 +536,20 @@ end
 function formatcard(::Type{Value{V}}, value::V, comment::C; kwds...) where
 {V <: ValueType, C <: AbstractString}
 
-	#  An undefined value has no units: `unit(missing)` is `missing`, not `NoUnits`.
-	units = ismissing(value) || unit(value) === NoUnits ? missing : formunit(unit(value))
 	#  Create appropriate CardFormat type
 	format = CardFormat(kwds[:fixed])
-	fmt = string(ustrip(value))
+	fmt = string(value)
 	vlen = typeof(value) <: Bool ? 1 : length(fmt)
 	vend = max(FIXEDINDEX, vlen)
 	format.vbeg, format.vend = Int8(max(1, FIXEDINDEX-vlen+1)), Int8(vend)
 	# format.frmt = fmt
 	#   Format comment, if necessary
-	formatcomment!(comment, vend, format; units, kwds...)
+	formatcomment!(comment, vend, format; kwds...)
 end
 
 function formatcard(::Type{Value{V}}, value::V, comment::C; kwds...) where
 {V <: Complex, C <: AbstractString}
 
-	units = unit(value) === NoUnits ? missing : formunit(unit(value))
 	#  Create appropriate CardFormat type
 	format = CardFormat(false)
 	rlen, ilen = length(string(real(value))), length(string(imag(value)))
@@ -536,7 +557,7 @@ function formatcard(::Type{Value{V}}, value::V, comment::C; kwds...) where
 	format.vbeg, format.vend = Int8.((2, 2+rlen+2)), Int8.((1+rlen+2, vend))
 	# format.frmt = fmt
 	#   Format comment, if necessary
-	formatcomment!(comment, vend, format; units, kwds...)
+	formatcomment!(comment, vend, format; kwds...)
 end
 
 function formatcard(::Type{Continue}, value::S, comment::C; kwds...) where
@@ -561,8 +582,7 @@ function formatcard(::Type{Hierarch{V}}, token::S, value::V, comment::C; kwds...
 	format.vbeg, format.vend, format.ampr = Int8(0), Int8(vend), Int8(ampr)
 	# format.frmt = fmt
 	#  Format comment, if necessary
-	units = value isa Quantity && unit(value) !== NoUnits ? formunit(unit(value)) : missing
-	formatcomment!(comment, vend, format; units, kwds...)
+	formatcomment!(comment, vend, format; kwds...)
 end
 
 #  Free-format value field of a HIERARCH card: strings are quoted, logicals are T or F,
@@ -691,12 +711,12 @@ function Base.show(io::IO, cards::Vector{Card{<:Any}})
 end
 
 function Base.show(io::IO, card::Card)
-	print(io, format_card(basetype(typename(card)), card.key, card.value,
+	print(io, format_card(basetype(typename(card)), card.key, card.value, card.units,
 		card.comment, card.format))
 end
 
 #  Format End card using only keyword.
-function format_card(::Type{End}, key::K, value::V, comment::C,
+function format_card(::Type{End}, key::K, value::V, units, comment::C,
 	format::F) where {K <: AbstractString, V <: ValueType, C <: AbstractString,
 	F <: CardFormat}
 
@@ -704,7 +724,7 @@ function format_card(::Type{End}, key::K, value::V, comment::C,
 end
 
 #  Format Comment card using only keyword and value.
-function format_card(::Type{Comment}, key::K, value::V, comment::C,
+function format_card(::Type{Comment}, key::K, value::V, units, comment::C,
 	format::F) where {K <: AbstractString, V <: Union{Missing, AbstractString},
 	C <: AbstractString, F <: CardFormat}
 
@@ -712,7 +732,7 @@ function format_card(::Type{Comment}, key::K, value::V, comment::C,
 end
 
 #  Ensure Comment card value is only a string.
-function format_card(::Type{Comment}, key::K, value::N, comment::C,
+function format_card(::Type{Comment}, key::K, value::N, units, comment::C,
 	format::F) where {K <: AbstractString, N <: Number, C <: AbstractString,
 	F <: CardFormat}
 
@@ -720,14 +740,14 @@ function format_card(::Type{Comment}, key::K, value::N, comment::C,
 end
 
 #  Format Continue card value by adding ampersand to end of string.
-function format_card(::Type{Continue}, key::K, value::V, comment::C,
+function format_card(::Type{Continue}, key::K, value::V, units, comment::C,
 	format::F) where {K <: AbstractString, V <: AbstractString, C <: AbstractString,
 	F <: CardFormat}
 
 	rpad_image(key, stringvalue(value, format), "", comment, format)
 end
 
-function format_card(::Type{Continue}, key::K, value::V, comment::C,
+function format_card(::Type{Continue}, key::K, value::V, units, comment::C,
 	format::F) where {K <: AbstractString, V <: Union{Missing, Number},
 	C <: AbstractString, F <: CardFormat}
 
@@ -735,7 +755,7 @@ function format_card(::Type{Continue}, key::K, value::V, comment::C,
 end
 
 #  Add HIERARCH key, then format value and comment fields
-function format_card(::Type{Hierarch}, key::K, value::V, comment::C,
+function format_card(::Type{Hierarch}, key::K, value::V, units, comment::C,
 	format::F) where {K <: AbstractString, V <: ValueType, C <: AbstractString,
 	F <: CardFormat}
 
@@ -744,7 +764,7 @@ function format_card(::Type{Hierarch}, key::K, value::V, comment::C,
 	slash = format.slsh > 0 ? "/" : " "
 	if format.ubeg > 0
 		padr = repeat(" ", max(0, format.ubeg-1 - format.slsh))
-		unts = "[$(formunit(unit(value)))]"
+		unts = "[$(formunit(units))]"
 		padu = repeat(" ", max(0, format.cbeg-1 - format.uend))
 	else
 		padr = repeat(" ", max(0, (format.cbeg-1) - format.slsh))
@@ -754,7 +774,7 @@ function format_card(::Type{Hierarch}, key::K, value::V, comment::C,
 end
 
 #  Format History card using only keyword and value.
-function format_card(::Type{History}, key::K, value::V, comment::C,
+function format_card(::Type{History}, key::K, value::V, units, comment::C,
 	format::F) where {K <: AbstractString, V <: Union{AbstractString, Missing},
 	C <: AbstractString, F <: CardFormat}
 
@@ -762,7 +782,7 @@ function format_card(::Type{History}, key::K, value::V, comment::C,
 end
 
 #  Ensure History card value is only a string.
-function format_card(::Type{History}, key::K, value::N, comment::C,
+function format_card(::Type{History}, key::K, value::N, units, comment::C,
 	format::F) where {K <: AbstractString, N <: Number, C <: AbstractString,
 	F <: CardFormat}
 
@@ -770,7 +790,7 @@ function format_card(::Type{History}, key::K, value::N, comment::C,
 end
 
 #  Format Invalid card
-function format_card(::Type{Invalid}, key::K, value::V, comment::C,
+function format_card(::Type{Invalid}, key::K, value::V, units, comment::C,
 	format::F) where {K <: AbstractString, V <: AbstractString, C <: AbstractString,
 	F <: CardFormat}
 
@@ -778,7 +798,7 @@ function format_card(::Type{Invalid}, key::K, value::V, comment::C,
 end
 
 #  Format Value card for missing value.
-function format_card(::Type{Value}, key::K, value::M, comment::C,
+function format_card(::Type{Value}, key::K, value::M, units, comment::C,
 	format::F) where {K <: AbstractString, M <: Missing, C <: AbstractString,
 	F <: CardFormat}
 
@@ -786,7 +806,7 @@ function format_card(::Type{Value}, key::K, value::M, comment::C,
 end
 
 #  Format Value card for string value.
-function format_card(::Type{Value}, key::K, value::V, comment::C,
+function format_card(::Type{Value}, key::K, value::V, units, comment::C,
 	format::F) where {K <: AbstractString, V <: AbstractString, C <: AbstractString,
 	F <: CardFormat}
 
@@ -795,7 +815,7 @@ function format_card(::Type{Value}, key::K, value::V, comment::C,
 end
 
 #  Format Value card for boolean value.
-function format_card(::Type{Value}, key::K, value::V, comment::C,
+function format_card(::Type{Value}, key::K, value::V, units, comment::C,
 	format::F) where {K <: AbstractString, V <: Bool, C <: AbstractString,
 	F <: CardFormat}
 
@@ -807,12 +827,12 @@ function format_card(::Type{Value}, key::K, value::V, comment::C,
 end
 
 #  Format Value card for integer value.
-function format_card(::Type{Value}, key::K, value::I, comment::C,
+function format_card(::Type{Value}, key::K, value::I, units, comment::C,
 	format::F) where {K <: AbstractString,
 	I <: Union{Integer, Quantity{<:Integer, <:Any, <:Any}},
 	C <: AbstractString, F <: CardFormat}
 
-	value, units = ustrip(value), formunit(unit(value))
+	units = formunit(units)
 	#  Fixed format integer value ends at index 30
 	padlen = max(0, FIXEDINDEX - (format.vend-format.vbeg+1))
 	#  If fixed format, pad value string.
@@ -821,14 +841,14 @@ function format_card(::Type{Value}, key::K, value::I, comment::C,
 end
 
 #  Format Value card for 32-bit float value.
-function format_card(::Type{Value}, key::K, value::V, comment::C,
+function format_card(::Type{Value}, key::K, value::V, units, comment::C,
 	format::F) where {K <: AbstractString,
 	V <: Union{Float32, Quantity{Float32, <:Any, <:Any}},
 	C <: AbstractString, F <: CardFormat}
 
 	#  Fixed format float value ends at index 30
 	#  Replace (lowercase) 'e' and 'f' with (uppercase) 'E'
-	value, units = ustrip(value), formunit(unit(value))
+	units = formunit(units)
 	value = replace(string(value), "f" => "E", "e" => "E")
 	padlen = max(0, FIXEDINDEX - length(value))
 	#  If fixed format, pad value string.
@@ -837,14 +857,14 @@ function format_card(::Type{Value}, key::K, value::V, comment::C,
 end
 
 #  Format Value card for non-32-bit float values.
-function format_card(::Type{Value}, key::K, value::V, comment::C,
+function format_card(::Type{Value}, key::K, value::V, units, comment::C,
 	format::F) where {K <: AbstractString,
 	V <: Union{AbstractFloat, Quantity{<:AbstractFloat, <:Any, <:Any}},
 	C <: AbstractString, F <: CardFormat}
 
 	#  Fixed format float value ends at index 30
 	#  Replace (lowercase) 'e' with (uppercase) 'D'.
-	value, units = ustrip(value), formunit(unit(value))
+	units = formunit(units)
 	value = replace(string(value), "e" => "D")
 	#  Truncate mantissa, so value contains 20 characters.
 	if format.fixd && length(value) > FIXEDINDEX
@@ -858,27 +878,27 @@ function format_card(::Type{Value}, key::K, value::V, comment::C,
 end
 
 #  Format Value card for complex integer value.
-function format_card(::Type{Value}, key::K, value::V, comment::C,
+function format_card(::Type{Value}, key::K, value::V, units, comment::C,
 	format::F) where {K <: AbstractString,
 	V <: Union{Complex{<:Integer}, Quantity{<:Complex{<:Integer}, <:Any, <:Any}},
 	C <: AbstractString, F <: CardFormat}
 
 	#   Fixed format complex values do not exist.
 	#   ???  Can there be spaces between the paratheses?
-	value, units = ustrip(value), formunit(unit(value))
+	units = formunit(units)
 	value = "($(string(real(value))), $(string(imag(value))))"
 	rpad_image(key, value, units, comment, format)
 end
 
 #  Format Value card for complex 32-bit float value.
-function format_card(::Type{Value}, key::K, value::V, comment::C,
+function format_card(::Type{Value}, key::K, value::V, units, comment::C,
 	format::F) where {K <: AbstractString,
 	V <: Union{Complex{Float32}, Quantity{Complex{Float32}, <:Any, <:Any}},
 	C <: AbstractString, F <: CardFormat}
 
 	#  Fixed format complex values do not exist.
 	#  Replace (lowercase) 'e' and 'f' with (uppercase) 'E'.
-	value, units = ustrip(value), formunit(unit(value))
+	units = formunit(units)
 	real_ = replace(string(real(value)), "f" => "E", "e" => "E")
 	imag_ = replace(string(imag(value)), "f" => "E", "e" => "E")
 	#  Add paretheses.
@@ -887,7 +907,7 @@ function format_card(::Type{Value}, key::K, value::V, comment::C,
 end
 
 #  Format Value card for all other complex float values.
-function format_card(::Type{Value}, key::K, value::V, comment::C,
+function format_card(::Type{Value}, key::K, value::V, units, comment::C,
 	format::F) where {K <: AbstractString,
 	V <: Union{Complex{<:AbstractFloat},
 		Quantity{<:Complex{<:AbstractFloat}, <:Any, <:Any}},
@@ -895,7 +915,7 @@ function format_card(::Type{Value}, key::K, value::V, comment::C,
 
 	#  Fixed format complex values do no exist.
 	#  Replace (lowercase) 'e' with (uppercase) 'D'.
-	value, units = ustrip(value), formunit(unit(value))
+	units = formunit(units)
 	real_ = replace(string(real(value)), "e" => "D")
 	imag_ = replace(string(imag(value)), "e" => "D")
 	#  Add paretheses
@@ -944,12 +964,14 @@ end
 #  orphaned CONTINUE cards become COMMENT cards.
 
 """
-    Base.parse(::Type{Card}, image::AbstractString; strict = true)
+    Base.parse(::Type{Card}, image::AbstractString; strict = true, units = true)
 
 Parse 80 character card image from string buffer. A number with a lower case exponent letter
 (d or e) is not allowed by the standard, so it is an invalid card, unless `strict` is false.
+The units of a number, i.e., a unit string in square brackets at the beginning of the comment,
+are the units of the value, unless `units` is false or the keyword is mandatory.
 """
-function Base.parse(::Type{Card}, image::AbstractString; strict::Bool = true)
+function Base.parse(::Type{Card}, image::AbstractString; strict::Bool = true, units::Bool = true)
 	#
 	#  !!! Currently, checks are for 'strict' standard
 	#
@@ -965,7 +987,9 @@ function Base.parse(::Type{Card}, image::AbstractString; strict::Bool = true)
 		if image == END_IMAGE
 			card = Card(End, "END", missing, "", CardFormat())
 		elseif (m = match(Regex("^"*VALUE_CARD*"\$"), image[1:TOKENLEN])) !== nothing
-			parsed = parse_value_comment(Value, image[(TOKENLEN+1):end]; strict)
+			#  The mandatory keywords have no units.
+			parsed = parse_value_comment(Value, image[(TOKENLEN+1):end]; strict,
+				units = units && !is_fixed_key(key))
 			card = isnothing(parsed) ?
 				Card(Invalid, key, image[(KEYLENGTH+1):end], "", CardFormat()) :
 				Card(Value{typeof(parsed[1])}, m[:key], parsed...)
@@ -973,7 +997,7 @@ function Base.parse(::Type{Card}, image::AbstractString; strict::Bool = true)
 			comment = image[(KEYLENGTH+1):end]
 			#  A HIERARCH card without a value is commentary text.
 			hier = m[:key] == "HIERARCH" && image[KEYLENGTH+1] == ' ' ?
-				parse_value_comment(Hierarch, image[TOKENLEN:end]; strict) : nothing
+				parse_value_comment(Hierarch, image[TOKENLEN:end]; strict, units) : nothing
 			if !isnothing(hier)
 				card = Card(Hierarch{typeof(hier[2])}, hier...)
 			else
@@ -981,7 +1005,7 @@ function Base.parse(::Type{Card}, image::AbstractString; strict::Bool = true)
 					rstrip(comment), "", CardFormat(true, 1, length(comment)))
 			end
 		elseif (m = match(Regex("^"*CONTINUE_CARD*"\$"), image[1:TOKENLEN])) !== nothing
-			parsed = parse_value_comment(Value, image[(TOKENLEN+1):end]; strict)
+			parsed = parse_value_comment(Value, image[(TOKENLEN+1):end]; strict, units = false)
 			card = isnothing(parsed) ?
 				Card(Invalid, key, image[(KEYLENGTH+1):end], "", CardFormat()) :
 				Card(Continue, m[:key], parsed...)
@@ -1005,13 +1029,14 @@ end
 continued(card::Card) = basetype(typename(card)) in (Value, Continue) && card.format.ampr > 0
 
 """
-    Base.parse(::Type{Card}, image::AbstractString, previous; strict = true)
+    Base.parse(::Type{Card}, image::AbstractString, previous; strict = true, units = true)
 
 Parse 80 character card image that follows the card `previous`, or `nothing`. A CONTINUE
 card that does not continue a string is commentary text.
 """
-function Base.parse(::Type{Card}, image::AbstractString, previous; strict::Bool = true)
-	card = parse(Card, image; strict)
+function Base.parse(::Type{Card}, image::AbstractString, previous; strict::Bool = true,
+	units::Bool = true)
+	card = parse(Card, image; strict, units)
 	if typename(card) == Continue && !(!isnothing(previous) && continued(previous))
 		card = Card(Comment, "CONTINUE", rstrip(image[(KEYLENGTH+1):end]), "",
 			CardFormat(true, 1, length(image) - KEYLENGTH))
@@ -1040,13 +1065,14 @@ end
 ismalformed(valus::Union{RegexMatch, Nothing}) =
 	isnothing(valus) || (!isnothing(valus[:comment]) && isnothing(valus[:slash]))
 
-function parse_value_comment(::Type{Value}, image::AbstractString; strict::Bool = true)
+function parse_value_comment(::Type{Value}, image::AbstractString; strict::Bool = true,
+	units::Bool = true)
 	valus = match(strict ? VALUE_FSC_2 : VALUE_LOWER, image)
 	ismalformed(valus) && return nothing
 	offsets = named_offsets(valus)
 	value, format = parse_value(value_type(valus), valus, offsets)
-	units, comment, format = parse_comment!(format, valus, offsets)
-	(value*units, String(comment), format)
+	unit, comment, format = parse_comment!(format, valus, offsets; units)
+	(value, unit, String(comment), format)
 end
 
 function parse_value(::Type{String}, valus::RegexMatch,
@@ -1106,7 +1132,8 @@ function parse_value(::Type{Missing}, valus::RegexMatch,
 	(missing, format)
 end
 
-function parse_value_comment(::Type{Hierarch}, image::AbstractString; strict::Bool = true)
+function parse_value_comment(::Type{Hierarch}, image::AbstractString; strict::Bool = true,
+	units::Bool = true)
 	values = match(strict ? HIERARCH_FSC : HIERARCH_LOWER, image)
 	ismalformed(values) && return nothing
 	offsets = named_offsets(values)
@@ -1135,8 +1162,8 @@ function parse_value_comment(::Type{Hierarch}, image::AbstractString; strict::Bo
 		value = missing
 	end
 
-	units, comment, format = parse_comment!(format, values, offsets)
-	(key, value*units, comment, format)
+	unit, comment, format = parse_comment!(format, values, offsets; units)
+	(key, value, unit, comment, format)
 end
 
 #=
@@ -1150,37 +1177,31 @@ function parsevalue!(::Type{AbstractString}, format::F, values::N, offsets::N) w
 	(value, format)
 end
 =#
-function parse_comment!(format::F, values::R, offsets::N) where
+function parse_comment!(format::F, values::R, offsets::N; units::Bool = true) where
 {F <: CardFormat, R <: RegexMatch, N <: NamedTuple}
 
-	units = any(!isnothing(values[k]) for k in (:numr, :cplx, :bool)) ?
-			NoUnits : ""
+	unit = nothing
 	comment = ""
 	if !isnothing(values[:slash])
 		format.slsh = Int8(offsets[:slash])
-		#  Units are not yet implemented. This needs the `units` group, "(?<units>\\[[ -~]+\\])? *",
-		#  restored in VALUE_FSC_2 before the comment group.
-		#=
-		if !isnothing(values[:units])
-			if !isnothing(values[:numr]) || !isnothing(values[:cplx])
-				units = uparse(replace(values[:units][2:(end-1)],
-					unit_conversions...))
-			else
-				units = ""
-			end
-			ubeg, ulen = offsets[:units], length(values[:units])
-			format.ubeg, format.uend = Int8(ubeg), Int8(ubeg+ulen-1)
-		end
-		=#
-		#  A units string, e.g., "[m]", is only a convention of the comment text
-		#  (Sect. 4.3.2), so it is kept at the beginning of the comment.
 		if !isnothing(values[:comment])
 			comment = values[:comment]
 			cbeg, clen = offsets[:comment], length(comment)
 			format.cbeg, format.cend = Int8(cbeg), Int8(cbeg+clen-1)
+			#  The units of a number are in square brackets at the beginning of the comment
+			#  (Sect. 4.3.2). Text that is not a unit string, or has a scale factor, is a comment.
+			m = units && (!isnothing(values[:numr]) || !isnothing(values[:cplx])) ?
+				match(r"^\[([^\]]*)\]( *)", comment) : nothing
+			parsed = isnothing(m) ? nothing : parseunit(m[1])
+			if parsed isa Unitful.Units
+				unit, comment = parsed, comment[(length(m.match)+1):end]
+				format.ubeg, format.uend = Int8(cbeg), Int8(cbeg+length(m.match)-length(m[2])-1)
+				format.cbeg, format.cend = isempty(comment) ? (Int8(0), Int8(0)) :
+					(Int8(cbeg+length(m.match)), Int8(cbeg+clen-1))
+			end
 		end
 	end
-	(units, comment, format)
+	(unit, comment, format)
 end
 
 """

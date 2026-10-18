@@ -2,7 +2,7 @@ using FITSFiles
 using Test
 using Unitful, UnitfulAngles, UnitfulAstro
 
-showfields(card) = Tuple(push!([getfield(card, k) for k in fieldnames(Card)[1:3]], repr(card)))
+showfields(card) = (card.key, card.value, card.comment, repr(card))
 
 io = IOBuffer()
 

@@ -48,6 +48,12 @@ formunit(unit::Unitful.Units) = join(formfactor.(typeof(unit).parameters[1]), " 
 formunit(unit::Unitful.AffineUnits) =
 	throw(ArgumentError("The affine unit $unit has no FITS name."))
 
+formunit(::Nothing) = ""
+
+#  The units of the writers of a card format, where no units are missing.
+unitstring(::Nothing) = missing
+unitstring(unit) = formunit(unit)
+
 function formfactor(unit::Unitful.Unit)
 	name = get(FITS_UNIT_NAMES, Unitful.abbr(unit), Unitful.abbr(unit))
 	prefix = get(FITS_UNIT_NAMES, Unitful.prefix(unit), Unitful.prefix(unit))

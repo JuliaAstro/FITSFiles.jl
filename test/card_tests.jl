@@ -917,8 +917,9 @@
 
     @test isequal(showfields(parse(Card,
                    "HIERARCH ABC DEF GH IJKLM_- = -99.9 / [m] abcdef ghijklm nopqrstu vw xyzab      ")),
-                  ("ABC DEF GH IJKLM_-", -99.9f0, "[m] abcdef ghijklm nopqrstu vw xyzab",
+                  ("ABC DEF GH IJKLM_-", -99.9f0, "abcdef ghijklm nopqrstu vw xyzab",
                    "HIERARCH ABC DEF GH IJKLM_- = -99.9 / [m] abcdef ghijklm nopqrstu vw xyzab      "))
+    @test parse(Card, "HIERARCH ABC DEF GH IJKLM_- = -99.9 / [m] abcdef ghijklm nopqrstu vw xyzab      ").units == Unitful.m
 
 
     #  test HIERARCH Card with abbreviated value indicator.
@@ -1011,11 +1012,12 @@
 
     ###  Regression tests: units in comments  ###
 
-    #  a units string in the comment is not lost when a card is parsed.
+    #  a units string in the comment is not lost when a card is parsed, and is written again.
     img = rpad("EXPTIME =               1200. / [s] exposure time", 80)
     card = parse(Card, img)
-    @test card.value == 1200.0f0
-    @test card.comment == "[s] exposure time"
+    @test card.value === 1200.0f0
+    @test card.units == Unitful.s
+    @test card.comment == "exposure time"
     @test occursin("/ [s] exposure time", repr(card))
 
     img = rpad("OBJECT  = 'Cygnus X-1' / [see note] the object", 80)
@@ -1024,9 +1026,12 @@
     @test card.comment == "[see note] the object"
     @test repr(card) == img
 
-    #  a units string written from a Quantity is read back in the comment.
+    #  a units string written from a Quantity is read back as the units.
     card = Card("EXPTIME", 1200.0f0 * Unitful.s, "exposure time")
-    @test parse(Card, repr(card)).comment == "[s] exposure time"
+    @test parse(Card, repr(card)).comment == "exposure time"
+    @test parse(Card, repr(card)).value === 1200.0f0
+    @test parse(Card, repr(card)).units == Unitful.s
+    @test parse(Card, repr(card); units = false).comment == "[s] exposure time"
 
     ###  Regression tests: long strings with single quotes  ###
 
@@ -1184,7 +1189,9 @@
         @test verified.format.slsh > last(verified.format.vend)
     end
     verified = FITSFiles.setvalue!(Card("KEY", 5.0f0 * Unitful.m, "a comment"), 1.2345678901234567 * Unitful.m)
-    @test parse(Card, repr(verified)).comment == "[m] a comment"
+    @test parse(Card, repr(verified)).comment == "a comment"
+    @test parse(Card, repr(verified)).value == 1.2345678901234567
+    @test parse(Card, repr(verified)).units == Unitful.m
 
     #  setvalue! keeps the spacing of a card that was parsed from an image.
     card = parse(Card, rpad("KEY     =                    5   /    a comment", 80))
@@ -1284,18 +1291,23 @@
     @test occursin("/ [m] a comment", repr(card))
     @test occursin("ESO TEL SCALE = 1.489 ", repr(card))
     parsed = parse(Card, repr(card))
-    @test (parsed.value, parsed.comment) == (1.489f0, "[m] a comment")
+    @test (parsed.value, parsed.units, parsed.comment) == (1.489f0, Unitful.m, "a comment")
     @test repr(parsed) == repr(card)
 
     #  the units are written without a comment, and a value without units has no units field.
     card = Card("HIERARCH", "ESO TEL SCALE", 5 * Unitful.s, "")
-    @test parse(Card, repr(card)).comment == "[s]"
+    @test parse(Card, repr(card)).comment == ""
+    @test parse(Card, repr(card)).value === 5
+    @test parse(Card, repr(card)).units == Unitful.s
+    @test parse(Card, repr(card); units = false).comment == "[s]"
     @test repr(Card("HIERARCH", "ESO TEL SCALE", 5, "a comment")) ==
           rpad("HIERARCH ESO TEL SCALE = 5    / a comment", 80)
 
     #  a value that is set with units writes the units.
     card = FITSFiles.setvalue!(Card("HIERARCH", "ESO A", 5, "a comment"), 2.5f0 * Unitful.m)
-    @test parse(Card, repr(card)).comment == "[m] a comment"
+    @test parse(Card, repr(card)).comment == "a comment"
+    @test parse(Card, repr(card)).value === 2.5f0
+    @test parse(Card, repr(card)).units == Unitful.m
 
     ###  Regression tests: units in the comment of a parsed card  ###
 
@@ -1305,19 +1317,30 @@
     @test repr(card2) == rpad("KEY     =                  7.5 / [m]   a comment", 80)
     @test card2.comment == "a comment"
     @test (card2.format.ubeg, card2.format.uend) != (0, 0)
-    @test parse(Card, repr(card2)).comment == "[m]   a comment"
+    @test parse(Card, repr(card2)).comment == "a comment"
+    @test parse(Card, repr(card2); units = false).comment == "[m]   a comment"
 
-    #  the units of the new value replace the units of the comment.
+    #  the units of the new value replace the units of the card.
     card2 = FITSFiles.setvalue!(parse(Card, rpad("KEY     = 5 / [km] a comment", 80)), 7.5f0 * Unitful.m)
-    @test parse(Card, repr(card2)).comment == "[m] a comment"
+    @test parse(Card, repr(card2); units = false).comment == "[m] a comment"
 
     #  a comment of only units keeps the units.
     card2 = FITSFiles.setvalue!(parse(Card, rpad("KEY     = 5 / [m]", 80)), 7.5f0 * Unitful.m)
-    @test parse(Card, repr(card2)).comment == "[m]"
+    @test parse(Card, repr(card2); units = false).comment == "[m]"
 
-    #  a value without units keeps the comment, and a card with recorded units is unchanged.
+    #  a card that is parsed without units has the units in the comment, which the units of a
+    #  new value replace.
+    card2 = FITSFiles.setvalue!(parse(Card, rpad("KEY     = 5 / [m]   a comment", 80); units = false), 7.5f0 * Unitful.m)
+    @test parse(Card, repr(card2); units = false).comment == "[m]   a comment"
+    @test parse(Card, repr(card2)).value === 7.5f0
+    @test parse(Card, repr(card2)).units == Unitful.m
+
+    #  a number without units has the units of the card, which are written as before.
     card2 = FITSFiles.setvalue!(card, 7)
-    @test parse(Card, repr(card2)).comment == "[m]   a comment"
+    @test (card2.value, card2.units) === (7, Unitful.m)
+    @test (parse(Card, repr(card2)).value, parse(Card, repr(card2)).units) === (7, Unitful.m)
+    @test parse(Card, repr(card2); units = false).comment == "[m]   a comment"
+    @test repr(card2) == rpad("KEY     =                    7 / [m]   a comment", 80)
     card = Card("KEY", 5.0f0 * Unitful.m, "a comment"; upad = 3)
     @test repr(FITSFiles.setvalue!(card, 7.5f0 * Unitful.m)) ==
           repr(Card("KEY", 7.5f0 * Unitful.m, "a comment"; upad = 3))
@@ -1325,8 +1348,8 @@
     #  HIERARCH cards are treated the same way.
     card = parse(Card, rpad("HIERARCH ESO A = 5 / [m]  a comment", 80))
     card2 = FITSFiles.setvalue!(card, 7.5f0 * Unitful.m)
-    @test (card2.value, card2.comment) == (7.5f0 * Unitful.m, "a comment")
-    @test parse(Card, repr(card2)).comment == "[m]  a comment"
+    @test (card2.value, card2.units, card2.comment) == (7.5f0, Unitful.m, "a comment")
+    @test parse(Card, repr(card2); units = false).comment == "[m]  a comment"
 
     ###  Regression tests: records without a value indicator  ###
 

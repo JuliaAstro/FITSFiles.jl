@@ -310,9 +310,10 @@ end
 
 Read the specified HDU type from a file.
 """
-function Base.read(io::IO, ::Type{HDU}; type = nothing, strict::Bool = true, kwds...)::HDU
+function Base.read(io::IO, ::Type{HDU}; type = nothing, strict::Bool = true, units::Bool = true,
+    kwds...)::HDU
     #  Read cards
-    cards, mankeys, reskeys = read(io, Card; strict)
+    cards, mankeys, reskeys = read(io, Card; strict, units)
 
 	#  Read data
 	type_  = type === nothing ? typeofhdu(mankeys) : type
@@ -356,7 +357,7 @@ function Base.write(io::IO, hdu::HDU{<:AbstractHDU}; kwds...)
 	write(io, type, getfield(hdu, :data), format, fields; kwds...)
 end
 
-function Base.read(io::IO, ::Type{Card}; strict::Bool = true)
+function Base.read(io::IO, ::Type{Card}; strict::Bool = true, units::Bool = true)
     #  Read cards
     cards = Card{<:Any}[]
     N, M = BLOCKLEN÷CARDLENGTH, CARDLENGTH
@@ -366,7 +367,7 @@ function Base.read(io::IO, ::Type{Card}; strict::Bool = true)
     while !lastblok
         for j=1:N
             card = parse(Card, String(block[M*(j-1)+1:M*j]),
-                         isempty(cards) ? nothing : cards[end]; strict)
+                         isempty(cards) ? nothing : cards[end]; strict, units)
             if typename(card) == End
                 lastblok = true
                 break
@@ -614,6 +615,24 @@ card joined with the CONTINUE cards that follow it.
 joinvalue(cards::Cards, j::Integer) =
 	basetype(typename(cards[j])) == Value && continued(cards[j]) ?
 	join_cards(@view cards[j:end]).value : cards[j].value
+
+"""
+    units(card)
+    units(cards, key)
+
+Return the units of a card, or of the first card of a list of cards with the keyword, which are
+`nothing` if the value has no units. The units are not part of the value.
+"""
+units(card::Card) = card.units
+
+function units(cards::Cards, key::AbstractString)
+	for card in cards
+		if uppercase(card.key) == uppercase(key)
+			return card.units
+		end
+	end
+	throw(KeyError(key))
+end
 
 function Base.getindex(cards::Cards, key::AbstractString)
 	for (j, card) in enumerate(cards)
