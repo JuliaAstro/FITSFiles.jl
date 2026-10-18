@@ -45,7 +45,9 @@
     #  the format is kept when a value is set, if the kind of the value is the same.
     card = parse(Card, rpad("X       =                 1.50 / [km/s] c", 80))
     @test repr(FITSFiles.setvalue!(card, 12.25f0)) == rpad("X       =                12.25 / [km/s] c", 80)
-    @test repr(FITSFiles.setvalue!(card, 3)) == rpad("X       =                 3.00 / [km/s] c", 80)
+    #  an integer is not a float, so the format is not kept.
+    @test repr(FITSFiles.setvalue!(card, 3)) == rpad("X       =                    3 / [km/s] c", 80)
+    @test isempty(FITSFiles.setvalue!(card, 3).format.vfmt)
     @test repr(FITSFiles.setvalue!(card, 1.5e10)) == rpad("X       =       15000000000.00 / [km/s] c", 80)
     @test repr(FITSFiles.setvalue!(card, 2.5f0 * Unitful.m)) == rpad("X       =                 2.50 / [m] c", 80)
     @test repr(FITSFiles.setvalue!(card, "text")) == rpad("X       = 'text' / c", 80)[1:80] ||
@@ -96,4 +98,23 @@
     @test card.format.ufmt == " /d"
     @test repr(FITSFiles.setvalue!(card, 7)) == rpad("X       = 7 / [km/s] c", 80)
     @test repr(FITSFiles.setvalue!(card, 7 * u"m/s")) == rpad("X       = 7 / [m/s] c", 80)
+    #  the format is dropped when the value is not read as the value with the format, so that
+    #  digits are not lost.
+    card = parse(Card, rpad("X       = 1.50 / c", 80))
+    for value in (2.567, 1.2345678901234567, 1.5f-31, 12.345f0)
+        new = FITSFiles.setvalue!(card, value)
+        @test isempty(new.format.vfmt)
+        @test occursin(uppercase(replace(string(value), 'f' => 'e')), uppercase(repr(new)))
+    end
+    @test FITSFiles.setvalue!(card, 2.5).format.vfmt == "%.2f"
+    card = parse(Card, rpad("X       = 1.5D3", 80))
+    @test repr(FITSFiles.setvalue!(card, 800928))[1:20] == rpad("X       = 800928", 20)
+    @test isempty(FITSFiles.setvalue!(card, 800928).format.vfmt)
+    @test FITSFiles.setvalue!(card, 2.0e4).format.vfmt == card.format.vfmt
+    @test isempty(FITSFiles.setvalue!(card, 1.2345678e4).format.vfmt)
+    card = parse(Card, rpad("X       = (1.5, 2.5) / c", 80))
+    @test FITSFiles.setvalue!(card, 3.5f0 + 4.5f0im).format.vfmt == card.format.vfmt
+    @test isempty(FITSFiles.setvalue!(card, 3.25f0 + 4.5f0im).format.vfmt)
+    @test isempty(FITSFiles.setvalue!(card, 3 + 4im).format.vfmt)
+
 end

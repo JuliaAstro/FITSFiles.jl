@@ -349,4 +349,18 @@
             FITSFiles.typename(Card("COMMENT", "text"))
     end
 
+    #  setvalue! of a commentary card needs a string, and an END card has no value.
+    @testset "setvalue! of the wrong type" begin
+        @test_throws ArgumentError FITSFiles.setvalue!(Card("COMMENT", "a"), 1.5)
+        @test_throws ArgumentError FITSFiles.setvalue!(Card("HISTORY", "a"), true)
+        @test_throws ArgumentError FITSFiles.setvalue!(Card("COMMENT", "a"), 1 * Unitful.m)
+        continued = parse(Card, rpad("CONTINUE  'a'", 80))
+        @test_throws ArgumentError FITSFiles.setvalue!(continued, 5)
+        @test_throws ArgumentError FITSFiles.setvalue!(continued, missing)
+        @test_throws "END keyword has no value." FITSFiles.setvalue!(Card("END"), "x")
+        @test_throws ArgumentError FITSFiles.setvalue!(Card("END"), 1)
+        @test FITSFiles.setvalue!(Card("END"), missing) isa Card{FITSFiles.End}
+        @test repr(FITSFiles.setvalue!(Card("COMMENT", "a"), missing)) == rpad("COMMENT", 80)
+    end
+
 end

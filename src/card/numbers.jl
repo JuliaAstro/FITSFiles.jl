@@ -44,14 +44,37 @@ function complexfmt(text::AbstractString)
 	"(" * m[1] * replace(re, r"\|.*$" => "") * m[3] * replace(im, r"\|.*$" => "") * m[5] * ")" * tag
 end
 
-#  The printf format is kept for a new value of the same kind, and not for another kind.
+#  The printf format is kept for a new value of the same kind, i.e., an integer for an integer
+#  format and a float for a float format, and only if the text of the value is read as the value,
+#  so that the digits of the value are not lost.
 function keepfmt(vfmt::AbstractString, value)
 	isempty(vfmt) && return ""
 	spec = first(split(vfmt, '|'))
 	if last(spec) == ')'
-		value isa Complex && (!occursin('d', spec) || real(value) isa Integer) ? vfmt : ""
+		value isa Complex && (occursin('d', spec) ? real(value) isa Integer && imag(value) isa Integer :
+			real(value) isa AbstractFloat && imag(value) isa AbstractFloat) || return ""
 	else
-		value isa Real && !(value isa Bool) && (last(spec) != 'd' || value isa Integer) ? vfmt : ""
+		value isa Real && !(value isa Bool) &&
+			(last(spec) == 'd' ? value isa Integer : value isa AbstractFloat) || return ""
+	end
+	readsas(vfmt, value) ? vfmt : ""
+end
+
+#  Test that the text of the value with the format is read as the value.
+function readsas(vfmt::AbstractString, value)
+	text = try printfmt(vfmt, value) catch; return false end
+	number(text, x::Integer) = parse(BigInt, text) == x
+	number(text, x::Float32) = Float32(parse(Float64, uppercase(replace(text, 'D' => 'E')))) == x
+	number(text, x::AbstractFloat) = parse(Float64, uppercase(replace(text, 'D' => 'E'))) == x
+	try
+		if value isa Complex
+			m = match(r"^\(\s*(\S+?)\s*,\s*(\S+?)\s*\)$", text)
+			!isnothing(m) && number(m[1], real(value)) && number(m[2], imag(value))
+		else
+			number(text, value)
+		end
+	catch
+		false
 	end
 end
 

@@ -14,6 +14,15 @@ The string and the comment are split after the last `splitat` that fits, as in t
 of a card.
 """
 function setvalue!(card::Card, value::ValueType; splitat::Union{Char, Nothing} = ' ')
+	#  The value of a commentary card is a string, and an END card has no value.
+	T = basetype(typename(card))
+	if T == End
+		ismissing(value) || throw(ArgumentError("END keyword has no value."))
+		return card
+	elseif T == Continue ? !(value isa AbstractString) :
+		T in (Comment, History) && !(value isa Union{AbstractString, Missing})
+		throw(ArgumentError("value is not a string."))
+	end
 	value = value isa AbstractString ? format_xtension_value(card.key, value) : value
 	#  The units of a quantity are not part of the value. A number without units has the units of
 	#  the card, whereas a value of another type has none.
