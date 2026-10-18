@@ -440,7 +440,7 @@
 
     #  test long string value using fromstring.
     #  type of String Card having string with multiple single quotes with CONTINUE cards in fixed-format
-    card = Card("longcom", repeat("Kelley O'Hara ", 4), repeat("long comment ", 6), slash=43, lpad=1)
+    card = Card("longcom", repeat("Kelley O'Hara ", 4), repeat("long comment ", 6), slash=43, lpad=1, splitat=nothing)
     @test isequal(showfields(card[1]),
                   ("LONGCOM", "Kelley O'Hara Kelley O'Har", "long comment long comment long comme",
                    "LONGCOM = 'Kelley O''Hara Kelley O''Har&' / long comment long comment long comme"))
@@ -453,7 +453,7 @@
 
     #  type of String Card having string with multiple single quotes with CONTINUE cards in free-format
     card = Card("longcom", repeat("Kelley O'Hara ", 4), repeat("long comment ", 10), slash=42,
-                lpad=1, fixed=false)
+                lpad=1, fixed=false, splitat=nothing)
     @test isequal(showfields(card[1]),
                   ("LONGCOM", "Kelley O'Hara Kelley O'Ha", "long comment long comment long commen",
                    "LONGCOM = 'Kelley O''Hara Kelley O''Ha&' / long comment long comment long commen"))
@@ -468,7 +468,7 @@
                    "CONTINUE  ''                             / mment long comment                   "))
 
     #  Value Card with long string creates CONTINUE cards
-    card = Card("abc", repeat("long string value ", 10), repeat("long comment ", 10), slash=51)
+    card = Card("abc", repeat("long string value ", 10), repeat("long comment ", 10), slash=51, splitat=nothing)
     @test isequal(showfields(card[1]),
                   ("ABC", "long string value long string value ", "long comment long comment lo",
                    "ABC     = 'long string value long string value &' / long comment long comment lo"))
@@ -487,7 +487,7 @@
 
     #  Value Card with multiple long words
     card = Card("WHATEVER", "SuperCalibrationParameters_XXXX_YYYY_ZZZZZ_KK_01_02_03)-AAABBBCCC.n.h5 " *
-                "SuperNavigationParameters_XXXX_YYYY_ZZZZZ_KK_01_02_03)-AAABBBCCC.n.xml", slash=85)
+                "SuperNavigationParameters_XXXX_YYYY_ZZZZZ_KK_01_02_03)-AAABBBCCC.n.xml", slash=85, splitat=nothing)
     @test isequal(showfields(card[1]),
                   ("WHATEVER", "SuperCalibrationParameters_XXXX_YYYY_ZZZZZ_KK_01_02_03)-AAABBBCCC.n", "",
                    "WHATEVER= 'SuperCalibrationParameters_XXXX_YYYY_ZZZZZ_KK_01_02_03)-AAABBBCCC.n&'"))
@@ -499,7 +499,7 @@
                    "CONTINUE  'C.n.xml'                                                             "))
 
     #  Value Card with comment longer than value string
-    card = Card("longcom", repeat("long string value ", 6), repeat("long comment ", 10), slash=51)
+    card = Card("longcom", repeat("long string value ", 6), repeat("long comment ", 10), slash=51, splitat=nothing)
     @test isequal(showfields(card[1]),
                   ("LONGCOM", "long string value long string value ", "long comment long comment lo",
                    "LONGCOM = 'long string value long string value &' / long comment long comment lo"))

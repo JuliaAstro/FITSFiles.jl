@@ -59,14 +59,14 @@ function split_card(key::K, value::S, comment::C, kwds) where
 	slash, lpad, rpad = kwds[:slash], kwds[:lpad], kwds[:rpad]
 	vallen, comlen = value_length(slash, lpad) - 1, comment_length(slash, rpad)
 	#  Calculate number of cards, adjusting for ampersand and single quotes.
-	ncard = max(nslices(value, vallen),
-		comlen == 0 ? 1 : div(length(comment), comlen, RoundUp))
+	splitat = get(kwds, :splitat, nothing)
+	ncard = max(nslices(value, vallen, true, splitat), nslices(comment, comlen, false, splitat))
 	#  Create arrays of card types, keywords, values, comments, and formatting keywords
 	#  for each card. Ensure ampersand is appended to each value string, except last.
 	types    = (Value{String}, fill(Continue, ncard-1)...)
 	keys     = (key, fill("CONTINUE", ncard-1)...)
-	values   = Tuple(value[j1:j2] for (j1, j2) in slices(value, vallen, ncard, true))
-	comments = Tuple(comment[j1:j2] for (j1, j2) in slices(comment, comlen, ncard))
+	values   = Tuple(value[j1:j2] for (j1, j2) in slices(value, vallen, ncard, true, splitat))
+	comments = Tuple(comment[j1:j2] for (j1, j2) in slices(comment, comlen, ncard, false, splitat))
 	formats  = (Tuple(formatcard(t, v, c; merge(kwds, (; append = true))...) for (t, v, c) in
 		zip(types[1:(ncard-1)], values[1:(ncard-1)], comments[1:(ncard-1)]))...,
 		formatcard(types[ncard], values[ncard], comments[ncard]; kwds...))
@@ -99,38 +99,50 @@ end
 
 #  Last index of the slice of value that begins at index j1 and has at most slen
 #  characters. If single is true, the slice is limited to slen characters after each
-#  single quote is doubled, and a doubled single quote is never split.
-function lastndx(value::AbstractString, j1::Integer, slen::Integer, single::Bool)
+#  single quote is doubled, and a doubled single quote is never split. If splitat is a
+#  character, a slice that does not end the value ends after the last splitat that fits.
+function lastndx(value::AbstractString, j1::Integer, slen::Integer, single::Bool,
+	splitat::Union{Char, Nothing} = nothing)
+
 	vlen = length(value)
 	if !single
-		return min(j1 + slen - 1, vlen)
+		j2 = min(j1 + slen - 1, vlen)
+	else
+		j2, width = j1 - 1, 0
+		while j2 < vlen
+			w = value[j2+1] == '\'' ? 2 : 1
+			width + w > slen && break
+			width, j2 = width + w, j2 + 1
+		end
 	end
-	j2, width = j1 - 1, 0
-	while j2 < vlen
-		w = value[j2+1] == '\'' ? 2 : 1
-		width + w > slen && break
-		width, j2 = width + w, j2 + 1
+	if !isnothing(splitat) && j2 < vlen
+		k = findlast(==(splitat), value[j1:j2])
+		isnothing(k) || (j2 = j1 + k - 1)
 	end
 	j2
 end
 
-#  Number of slices needed to hold value.
-function nslices(value::AbstractString, slen::Integer)
+#  Number of slices needed to hold the text.
+function nslices(text::AbstractString, slen::Integer, single::Bool = true,
+	splitat::Union{Char, Nothing} = nothing)
+
+	slen <= 0 && return 1
 	j1, n = 1, 0
-	while j1 <= length(value)
-		j2 = lastndx(value, j1, slen, true)
+	while j1 <= length(text)
+		j2 = lastndx(text, j1, slen, single, splitat)
 		j2 < j1 && throw(ArgumentError("Value string does not fit on a card."))
 		j1, n = j2 + 1, n + 1
 	end
 	max(n, 1)
 end
 
-function slices(value::S, slen::I, ncard::I, single::B = false) where
+function slices(value::S, slen::I, ncard::I, single::B = false,
+	splitat::Union{Char, Nothing} = nothing) where
 {S <: AbstractString, I <: Integer, B <: Bool}
 	vals = Array{Tuple{Integer, Integer}}(undef, ncard)
 	j1 = 1
 	for j ∈ 1:ncard
-		j2 = lastndx(value, j1, slen, single)
+		j2 = lastndx(value, j1, slen, single, splitat)
 		vals[j] = (j1, j2)
 		j1 = j2 + 1
 	end

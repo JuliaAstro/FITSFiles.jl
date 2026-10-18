@@ -1,9 +1,3 @@
-#=   Improvements
-
- * add splitting of long strings at spaces
-
- =#
-
 include("card/syntax.jl")
 include("card/types.jl")
 include("card/numbers.jl")

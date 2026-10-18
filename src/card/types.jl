@@ -70,6 +70,8 @@ Value{T}.
 - `upad::Integer=1`: number of spaces after the units string
 - `truncate::Bool=true`: truncate comment at end of card
 - `warn::Bool=true`: warn when a keyword longer than 8 characters creates a HIERARCH card
+- `splitat::Union{Char, Nothing}=' '`: split a long string and its comment into the cards after
+  the last character that fits, instead of splitting at any character if `nothing`
 """
 struct Card{T <: AbstractCardType}  # make value a parameter
 	key::AbstractString

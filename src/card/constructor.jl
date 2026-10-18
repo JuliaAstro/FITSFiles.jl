@@ -1,6 +1,6 @@
 function Card(key::K = "", value::V = missing, comment::C = ""; fixed::B = true,
 	append::B = false, slash::I = 32, lpad::I = 1, rpad::I = 1, upad::I = 1,
-	truncate::B = true, warn::B = true) where
+	truncate::B = true, warn::B = true, splitat::Union{Char, Nothing} = ' ') where
 	{B <: Bool, I <: Integer, K <: AbstractString, V <: ValueType, C <: AbstractString}
 
 	#  Convert key to uppercase and remove trailing spaces.
@@ -66,7 +66,7 @@ function Card(key::K = "", value::V = missing, comment::C = ""; fixed::B = true,
 		#  Create a list of cards from from a long string.
 		type = Value{typeof(value)}
 		cards = split_card(upkey, value, comment,
-			(; fixed, slash, lpad, rpad, upad, append))
+			(; fixed, slash, lpad, rpad, upad, append, splitat))
 		cards = [Card(t, k, v, c, f) for (t, k, v, c, f) in cards]
 	elseif is_valid_key(upkey)
 		#  Create Value card that is not a long string.

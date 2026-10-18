@@ -190,4 +190,85 @@
     for value in ("FOO", "I", "", " IMAGE", "IMAGES", "A3DTABLE", "BIN")
         @test Card("XTENSION", value).value == value
     end
+    ###  Regression tests: long strings are split at a character  ###
+
+    text = "The quick brown fox jumps over the lazy dog while the weather stays cloudy overnight with a low of twenty one"
+    comment = "a comment about the observation of the object in the sky tonight"
+
+    #  by default the value and the comment are split after the last space that fits.
+    cards = collect(Card("OBJECT", text, comment))
+    @test [rstrip(repr(c)) for c in cards] == [
+        "OBJECT  = 'The quick brown &'  / a comment about the observation of the object",
+        "CONTINUE  'fox jumps over &'   / in the sky tonight",
+        "CONTINUE  'the lazy dog &'",
+        "CONTINUE  'while the &'",
+        "CONTINUE  'weather stays &'",
+        "CONTINUE  'cloudy overnight &'",
+        "CONTINUE  'with a low of &'",
+        "CONTINUE  'twenty one'"]
+    @test all(endswith(c.value, " ") for c in cards[1:end-1])
+    @test !endswith(cards[end].value, " ")
+    pieces = filter(!isempty, [c.comment for c in cards])
+    @test all(endswith(c, " ") for c in pieces[1:end-1])
+    @test all(length(repr(c)) == 80 for c in cards)
+    @test FITSFiles.join_cards(cards).value == text
+    @test join(c.comment for c in cards) == comment
+
+    #  the value is split at any character if splitat is nothing, as before.
+    cards = collect(Card("OBJECT", text, comment; splitat = nothing))
+    @test [rstrip(repr(c)) for c in cards][1:3] == [
+        "OBJECT  = 'The quick brown f&' / a comment about the observation of the object i",
+        "CONTINUE  'ox jumps over the&' / n the sky tonight",
+        "CONTINUE  ' lazy dog while t&'"]
+    @test FITSFiles.join_cards(cards).value == text
+    @test join(c.comment for c in cards) == comment
+
+    #  the value is split after another character.
+    commas = replace(text, " " => ",")
+    cards = collect(Card("OBJECT", commas, ""; splitat = ','))
+    @test all(endswith(c.value, ",") for c in cards[1:end-1])
+    @test cards[2].value == "fox,jumps,over,"
+    @test FITSFiles.join_cards(cards).value == commas
+    @test collect(Card("OBJECT", text, ""; splitat = ','))[1].value != "The quick brown "
+
+    #  a word that is longer than the card is split where it fits.
+    long = "short " * repeat("x", 90) * " end"
+    cards = collect(Card("OBJECT", long, ""))
+    @test cards[1].value == "short "
+    @test all(c.value == repeat("x", 17) for c in cards[2:5])
+    @test FITSFiles.join_cards(cards).value == long
+
+    #  the split keeps the single quotes together, the spaces at the ends, and the long values.
+    for value in (repeat("It's O'Hara's ", 6), " " * text, text * " ", replace(text, " " => "   "), repeat("'", 70),
+                  repeat("' ", 40), repeat("ab ", 60), "a " * repeat("b", 50) * " c " * repeat("d", 50))
+        for splitat in (' ', nothing, ',')
+            cards = collect(Card("OBJECT", value, comment; splitat))
+            @test FITSFiles.join_cards(cards).value == value
+            @test join(c.comment for c in cards) == comment
+            @test all(length(repr(c)) == 80 for c in cards)
+            @test all(count("'", repr(c)) % 2 == 0 for c in cards)
+        end
+    end
+
+    #  a string that fits on a card is not split, and a card that is read is not split again.
+    @test Card("OBJECT", "a short string", "a comment") isa Card
+    for img in (rstrip(repr(c)) for c in Card("OBJECT", text, comment; splitat = nothing))
+        card = parse(Card, rpad(img, 80), nothing)
+        @test rstrip(repr(card)) == img
+    end
+    images = [rpad(rstrip(repr(c)), 80) for c in Card("OBJECT", text, comment; splitat = nothing)]
+    parsed = Card{<:Any}[parse(Card, images[1])]
+    for img in images[2:end]
+        push!(parsed, parse(Card, img, parsed[end]))
+    end
+    @test [repr(c) for c in parsed] == images
+    @test FITSFiles.join_cards(parsed).value == text
+
+    #  the lengths of the slices and the number of slices follow the same rule.
+    for slen in (5, 10, 17, 30), splitat in (' ', nothing)
+        n = FITSFiles.nslices(text, slen, true, splitat)
+        @test length(FITSFiles.slices(text, slen, n, true, splitat)) == n
+        @test last(last(FITSFiles.slices(text, slen, n, true, splitat))) == length(text)
+    end
+
 end
