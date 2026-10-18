@@ -191,7 +191,7 @@ Create a card format descriptor.
 mutable struct CardFormat
 	#  The CardFormat descriptor provides a compact method to format a card by
 	#  storing the begin and end index of the value, separator, units, and
-	#  comment as an 8-bit integer.
+	#  comment as an 8-bit integer, and the formats of the value and the units.
 	fixd::Bool
 	vbeg::Union{Int8, Tuple{Int8, Int8}}
 	vend::Union{Int8, Tuple{Int8, Int8}}
@@ -201,7 +201,8 @@ mutable struct CardFormat
 	uend::Int8
 	cbeg::Int8
 	cend::Int8
-	# frmt::AbstractString
+	vfmt::String   # printf format of the number
+	ufmt::String   # style of the units string
 	function CardFormat(fixed::Bool = true, vbeg::I = 0, vend::I = 0,
 		amper::I = 0, slash::I = 0, ubeg::I = 0, uend::I = 0, cbeg::I = 0,
 		cend::I = 0) where I<:Integer
@@ -209,7 +210,7 @@ mutable struct CardFormat
 		begv = typeof(vbeg) <: Tuple ? Int8.(vbeg) : Int8(vbeg)
 		endv = typeof(vend) <: Tuple ? Int8.(vend) : Int8(vend)
 		new(Bool(fixed), begv, endv, Int8(amper), Int8(slash),
-			Int8(ubeg), Int8(uend), Int8(cbeg), Int8(cend))
+			Int8(ubeg), Int8(uend), Int8(cbeg), Int8(cend), "", "")
 	end
 end
 
@@ -452,7 +453,8 @@ function setvalue!(card::Card, value::ValueType)
 			end
 			args = T == Hierarch ? (card.key,) : ()
 			fmt = formatcard(type, args..., value, comment; fixed = f.fixd, append = false,
-				slash = f.slsh + TOKENLEN, lpad = 1, rpad, upad, units = unitstring(units))
+				slash = f.slsh + TOKENLEN, lpad = 1, rpad, upad, units = unitstring(units, f.ufmt),
+				vfmt = keepfmt(f.vfmt, value), ufmt = f.ufmt, vbeg = first(f.vbeg))
 			card = Card(type, card.key, value, units, comment, fmt)
 		else
 			card = Card(T, card.key, value, card.comment, f)
@@ -538,11 +540,18 @@ function formatcard(::Type{Value{V}}, value::V, comment::C; kwds...) where
 
 	#  Create appropriate CardFormat type
 	format = CardFormat(kwds[:fixed])
-	fmt = string(value)
-	vlen = typeof(value) <: Bool ? 1 : length(fmt)
-	vend = max(FIXEDINDEX, vlen)
-	format.vbeg, format.vend = Int8(max(1, FIXEDINDEX-vlen+1)), Int8(vend)
-	# format.frmt = fmt
+	format.vfmt, format.ufmt = get(kwds, :vfmt, ""), get(kwds, :ufmt, "")
+	if isempty(format.vfmt)
+		vlen = typeof(value) <: Bool ? 1 : length(string(value))
+		vend = max(FIXEDINDEX, vlen)
+		format.vbeg, format.vend = Int8(max(1, FIXEDINDEX-vlen+1)), Int8(vend)
+	else
+		#  The number has a printf format, and is in fixed-format or begins at the beginning index.
+		vlen = length(printfmt(format.vfmt, value))
+		vbeg = format.fixd ? max(1, FIXEDINDEX-vlen+1) : get(kwds, :vbeg, 1)
+		vend = format.fixd ? max(FIXEDINDEX, vlen) : vbeg+vlen-1
+		format.vbeg, format.vend = Int8(vbeg), Int8(vend)
+	end
 	#   Format comment, if necessary
 	formatcomment!(comment, vend, format; kwds...)
 end
@@ -552,10 +561,16 @@ function formatcard(::Type{Value{V}}, value::V, comment::C; kwds...) where
 
 	#  Create appropriate CardFormat type
 	format = CardFormat(false)
-	rlen, ilen = length(string(real(value))), length(string(imag(value)))
-	vend = 1+rlen+2+ilen
-	format.vbeg, format.vend = Int8.((2, 2+rlen+2)), Int8.((1+rlen+2, vend))
-	# format.frmt = fmt
+	format.vfmt, format.ufmt = get(kwds, :vfmt, ""), get(kwds, :ufmt, "")
+	if isempty(format.vfmt)
+		rlen, ilen = length(string(real(value))), length(string(imag(value)))
+		vend = 1+rlen+2+ilen
+		format.vbeg, format.vend = Int8.((2, 2+rlen+2)), Int8.((1+rlen+2, vend))
+	else
+		vbeg = get(kwds, :vbeg, 1)
+		vend = vbeg+length(printfmt(format.vfmt, value))-1
+		format.vbeg, format.vend = Int8(vbeg), Int8(vend)
+	end
 	#   Format comment, if necessary
 	formatcomment!(comment, vend, format; kwds...)
 end
@@ -571,16 +586,15 @@ end
 function formatcard(::Type{Hierarch{V}}, token::S, value::V, comment::C; kwds...) where
 {S <: AbstractString, V <: ValueType, C <: AbstractString}
 	format = CardFormat(kwds[:fixed])
-	fmt = value_image(value)
-	vlen = length(token) + 3 + length(fmt)
+	format.vfmt, format.ufmt = get(kwds, :vfmt, ""), get(kwds, :ufmt, "")
 	#  Use ampersand for '=' index
 	ampr = length(token) + 2
+	vlen = ampr + 1 + length(isempty(format.vfmt) ? value_image(value) : printfmt(format.vfmt, value))
 	vend = HIERINDEX+vlen
 	#  The keyword, value, and equal sign must fit on the card after "HIERARCH ".
 	vend > CARDLENGTH - KEYLENGTH - 1 &&
 		throw(ArgumentError("HIERARCH keyword and value do not fit on the card."))
 	format.vbeg, format.vend, format.ampr = Int8(0), Int8(vend), Int8(ampr)
-	# format.frmt = fmt
 	#  Format comment, if necessary
 	formatcomment!(comment, vend, format; kwds...)
 end
@@ -640,6 +654,65 @@ function comment_length(slash::I, rpad::I)::Integer where I <: Integer
 end
 
 rpad_key(key::AbstractString, n::Integer = 0) = rpad(key, KEYLENGTH + n)
+
+const PRINTF_FORMATS = Dict{String, Printf.Format}()
+
+"""
+	printfmt(vfmt, value)
+
+Return the text of a number with the printf format `vfmt`. The conversion `e` is for a number
+with a D exponent, which is written as a D. The format may end with `|-`, which writes the
+exponent with a sign only if it is negative and without leading zeros, e.g., `E6`.
+"""
+function printfmt(vfmt::AbstractString, value::Number)
+	spec, tag = occursin('|', vfmt) ? split(vfmt, '|'; limit = 2) : (vfmt, "")
+	format = get!(() -> Printf.Format(spec), PRINTF_FORMATS, String(spec))
+	text = value isa Complex ? Printf.format(format, real(value), imag(value)) :
+		Printf.format(format, value)
+	tag == "-" && (text = replace(text, r"([Ee])\+?(-?)0*(\d+)" => s"\1\2\3"))
+	occursin('e', text) ? replace(text, 'e' => 'D') : text
+end
+
+#  The printf format of the text of a real number.
+function realfmt(text::AbstractString)
+	m = match(r"^([+-]?)(\d*)(\.?)(\d*)(?:([DEde])([+-]?)(\d+))?$", text)
+	isnothing(m) && return ""
+	flags = (m[1] == "+" ? "+" : "") * (m[3] == "." && isempty(m[4]) ? "#" : "")
+	#  Zeros before the number are in the width.
+	width = length(m[2]) > 1 && m[2][1] == '0' ? "0" * string(length(text)) : ""
+	conv = !isnothing(m[5]) ? (uppercase(m[5]) == "D" ? "e" : "E") :
+		isempty(m[3]) ? "d" : "f"
+	prec = conv == "d" ? "" : "." * string(length(m[4]))
+	#  An exponent that has neither a plus sign nor leading zeros is the minimal exponent.
+	minimal = !isnothing(m[5]) && m[6] != "+" && !(length(m[7]) > 1 && m[7][1] == '0')
+	"%" * flags * width * prec * conv * (minimal ? "|-" : "")
+end
+
+#  The printf format of the text of a complex number.
+function complexfmt(text::AbstractString)
+	m = match(r"^\((\s*)(\S+?)(\s*,\s*)(\S+?)(\s*)\)$", text)
+	isnothing(m) && return ""
+	re, im = realfmt(m[2]), realfmt(m[4])
+	#  The tag of the format is for both numbers.
+	tag = occursin('|', re) || occursin('|', im) ? "|-" : ""
+	"(" * m[1] * replace(re, r"\|.*$" => "") * m[3] * replace(im, r"\|.*$" => "") * m[5] * ")" * tag
+end
+
+#  The printf format is kept for a new value of the same kind, and not for another kind.
+function keepfmt(vfmt::AbstractString, value)
+	isempty(vfmt) && return ""
+	spec = first(split(vfmt, '|'))
+	if last(spec) == ')'
+		value isa Complex && (!occursin('d', spec) || real(value) isa Integer) ? vfmt : ""
+	else
+		value isa Real && !(value isa Bool) && (last(spec) != 'd' || value isa Integer) ? vfmt : ""
+	end
+end
+
+#  The text of a number, which is aligned by the positions of the format. A number in fixed-format
+#  ends at the index 30, and otherwise begins at the beginning index.
+alignnumber(text::AbstractString, format::CardFormat) =
+	format.fixd ? lpad(text, FIXEDINDEX) : " "^(first(format.vbeg)-1) * text
 
 #  Last index of the slice of value that begins at index j1 and has at most slen
 #  characters. If single is true, the slice is limited to slen characters after each
@@ -759,12 +832,14 @@ function format_card(::Type{Hierarch}, key::K, value::V, units, comment::C,
 	format::F) where {K <: AbstractString, V <: ValueType, C <: AbstractString,
 	F <: CardFormat}
 
-	valu = rpad(key, format.ampr-1) * "=" * lpad(value_image(value), format.vend-format.ampr)
+	text = lpad(isempty(format.vfmt) ? value_image(value) : printfmt(format.vfmt, value),
+		format.vend-format.ampr)
+	valu = rpad(key, format.ampr-1) * "=" * text
 	padl = repeat(" ", max(0, (format.slsh-1) - format.vend))
 	slash = format.slsh > 0 ? "/" : " "
 	if format.ubeg > 0
 		padr = repeat(" ", max(0, format.ubeg-1 - format.slsh))
-		unts = "[$(formunit(units))]"
+		unts = "[$(formunit(units, format.ufmt))]"
 		padu = repeat(" ", max(0, format.cbeg-1 - format.uend))
 	else
 		padr = repeat(" ", max(0, (format.cbeg-1) - format.slsh))
@@ -832,7 +907,9 @@ function format_card(::Type{Value}, key::K, value::I, units, comment::C,
 	I <: Union{Integer, Quantity{<:Integer, <:Any, <:Any}},
 	C <: AbstractString, F <: CardFormat}
 
-	units = formunit(units)
+	units = formunit(units, format.ufmt)
+	isempty(format.vfmt) || return rpad_image(key, alignnumber(printfmt(format.vfmt, value), format),
+		units, comment, format)
 	#  Fixed format integer value ends at index 30
 	padlen = max(0, FIXEDINDEX - (format.vend-format.vbeg+1))
 	#  If fixed format, pad value string.
@@ -848,7 +925,9 @@ function format_card(::Type{Value}, key::K, value::V, units, comment::C,
 
 	#  Fixed format float value ends at index 30
 	#  Replace (lowercase) 'e' and 'f' with (uppercase) 'E'
-	units = formunit(units)
+	units = formunit(units, format.ufmt)
+	isempty(format.vfmt) || return rpad_image(key, alignnumber(printfmt(format.vfmt, value), format),
+		units, comment, format)
 	value = replace(string(value), "f" => "E", "e" => "E")
 	padlen = max(0, FIXEDINDEX - length(value))
 	#  If fixed format, pad value string.
@@ -864,7 +943,9 @@ function format_card(::Type{Value}, key::K, value::V, units, comment::C,
 
 	#  Fixed format float value ends at index 30
 	#  Replace (lowercase) 'e' with (uppercase) 'D'.
-	units = formunit(units)
+	units = formunit(units, format.ufmt)
+	isempty(format.vfmt) || return rpad_image(key, alignnumber(printfmt(format.vfmt, value), format),
+		units, comment, format)
 	value = replace(string(value), "e" => "D")
 	#  Truncate mantissa, so value contains 20 characters.
 	if format.fixd && length(value) > FIXEDINDEX
@@ -885,7 +966,9 @@ function format_card(::Type{Value}, key::K, value::V, units, comment::C,
 
 	#   Fixed format complex values do not exist.
 	#   ???  Can there be spaces between the paratheses?
-	units = formunit(units)
+	units = formunit(units, format.ufmt)
+	isempty(format.vfmt) || return rpad_image(key, alignnumber(printfmt(format.vfmt, value), format),
+		units, comment, format)
 	value = "($(string(real(value))), $(string(imag(value))))"
 	rpad_image(key, value, units, comment, format)
 end
@@ -898,7 +981,9 @@ function format_card(::Type{Value}, key::K, value::V, units, comment::C,
 
 	#  Fixed format complex values do not exist.
 	#  Replace (lowercase) 'e' and 'f' with (uppercase) 'E'.
-	units = formunit(units)
+	units = formunit(units, format.ufmt)
+	isempty(format.vfmt) || return rpad_image(key, alignnumber(printfmt(format.vfmt, value), format),
+		units, comment, format)
 	real_ = replace(string(real(value)), "f" => "E", "e" => "E")
 	imag_ = replace(string(imag(value)), "f" => "E", "e" => "E")
 	#  Add paretheses.
@@ -915,7 +1000,9 @@ function format_card(::Type{Value}, key::K, value::V, units, comment::C,
 
 	#  Fixed format complex values do no exist.
 	#  Replace (lowercase) 'e' with (uppercase) 'D'.
-	units = formunit(units)
+	units = formunit(units, format.ufmt)
+	isempty(format.vfmt) || return rpad_image(key, alignnumber(printfmt(format.vfmt, value), format),
+		units, comment, format)
 	real_ = replace(string(real(value)), "e" => "D")
 	imag_ = replace(string(imag(value)), "e" => "D")
 	#  Add paretheses
@@ -1108,7 +1195,7 @@ function parse_value(::Type{Real}, valus::RegexMatch,
 	numr, nlen = offsets[:numr], length(valus[:numr])
 	format.fixd = (numr+nlen-1) == FIXEDINDEX ? true : false
 	format.vbeg, format.vend = Int8(numr), Int8(numr+nlen-1)
-	# format.frmt = valus[:numr]
+	format.vfmt = realfmt(valus[:numr])
 	(value, format)
 end
 
@@ -1117,11 +1204,10 @@ function parse_value(::Type{Complex}, valus::RegexMatch,
 
 	format = CardFormat()
 	value = parse_complex(valus[:real], valus[:imag])
-	real_, imag_ = offsets[:real], offsets[:imag]
-	rlen, ilen = length(string(real(value))), length(string(imag(value)))
+	cplx, clen = offsets[:cplx], length(valus[:cplx])
 	format.fixd = false
-	format.vbeg, format.vend = Int8.((real_, real_+rlen+2)), Int8.((real_+rlen-1, real_+rlen+2+ilen-1))
-	# format.frmt = valus[:cplx]
+	format.vbeg, format.vend = Int8(cplx), Int8(cplx+clen-1)
+	format.vfmt = complexfmt(valus[:cplx])
 	(value, format)
 end
 
@@ -1150,14 +1236,14 @@ function parse_value_comment(::Type{Hierarch}, image::AbstractString; strict::Bo
 	elseif !isnothing(values[:numr])
 		value = parse_number(values[:numr])
 		format.vend = Int8(offsets[:numr]+length(values[:numr])-1)
-		# format.frmt = values[:numr]
+		format.vfmt = realfmt(values[:numr])
 	elseif !isnothing(values[:cplx])
 		value = parse_complex(values[:real], values[:imag])
 		### real_, imag_ = offsets[:real], offsets[:imag]
 		### rlen, ilen = length(values[:real]), length(values[:imag])
 		### format.vbeg, format.vend = Int8.((real_, imag_)), Int8.((real_+rlen-1, imag_+ilen-1))
 		format.vend = Int8(offsets[:cplx]+length(values[:cplx])-1)
-		# format.frmt = values[:cplx]
+		format.vfmt = complexfmt(values[:cplx])
 	else
 		value = missing
 	end
@@ -1196,6 +1282,7 @@ function parse_comment!(format::F, values::R, offsets::N; units::Bool = true) wh
 			if parsed isa Unitful.Units
 				unit, comment = parsed, comment[(length(m.match)+1):end]
 				format.ubeg, format.uend = Int8(cbeg), Int8(cbeg+length(m.match)-length(m[2])-1)
+				format.ufmt = unitstyle(m[1])
 				format.cbeg, format.cend = isempty(comment) ? (Int8(0), Int8(0)) :
 					(Int8(cbeg+length(m.match)), Int8(cbeg+clen-1))
 			end

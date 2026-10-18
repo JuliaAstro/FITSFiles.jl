@@ -476,13 +476,13 @@
     @test isequal(showfields(parse(Card,
                    "FLOAT_64=   1.23456789012345E6                                                  ")),
                   ("FLOAT_64", 1.23456789012345e6, "",
-                   "FLOAT_64=   1.23456789012345D6                                                  "))
+                   "FLOAT_64=   1.23456789012345E6                                                  "))
 
     #  parse Value Card with 64-bit float value having high exponent, fixed-format
     @test isequal(showfields(parse(Card,
                    "FLOAT_64=            1.2345E39                                                  ")),
                   ("FLOAT_64", 1.2345e39, "",
-                   "FLOAT_64=            1.2345D39                                                  "))
+                   "FLOAT_64=            1.2345E39                                                  "))
 
     #  test Value Card with complex 64-bit integer value
     @test typeof(Card("CPLX_INT", 8 + 9im)) <: Card{Value{Complex{Int64}}}
@@ -587,7 +587,7 @@
     @test isequal(showfields(parse(Card,
                    "CPLX_F64= (8.1, 9)                                                              ")),
                   ("CPLX_F64", 8.1f0 + 9.0f0im, "",
-                   "CPLX_F64= (8.1, 9.0)                                                            "))
+                   "CPLX_F64= (8.1, 9)                                                              "))
 
     #  create Value Card with complex 64-bit float and integer value
     @test isequal(showfields(Card("CPLX_F64", 8.1 + 9im, "a comment string")),
@@ -598,7 +598,7 @@
     @test isequal(showfields(parse(Card,
                    "CPLX_F64= (8.1, 9)             / a comment string                               ")),
                   ("CPLX_F64", 8.1f0 + 9.0f0im, "a comment string",
-                   "CPLX_F64= (8.1, 9.0)           / a comment string                               "))
+                   "CPLX_F64= (8.1, 9)             / a comment string                               "))
 
     #  test Value Card with complex integer and 64-bit float value
     @test typeof(Card("CPLX_F64", 8 + 9.2im)) <: Card{Value{Complex{Float64}}}
@@ -615,7 +615,7 @@
     @test isequal(showfields(parse(Card,
                    "CPLX_F64= (8, 9.2)                                                              ")),
                   ("CPLX_F64", 8.0f0 + 9.2f0im, "",
-                   "CPLX_F64= (8.0, 9.2)                                                            "))
+                   "CPLX_F64= (8, 9.2)                                                              "))
 
     #  create Value Card with complex integer and 64-bit float value
     @test isequal(showfields(Card("CPLX_F64", 8 + 9.2im, "a comment string")),
@@ -626,7 +626,7 @@
     @test isequal(showfields(parse(Card,
                    "CPLX_F64= (8, 9.2)             / a comment string                               ")),
                   ("CPLX_F64", 8.0f0 + 9.2f0im, "a comment string",
-                   "CPLX_F64= (8.0, 9.2)           / a comment string                               "))
+                   "CPLX_F64= (8, 9.2)             / a comment string                               "))
 
     ###  Test String Card constructor
 

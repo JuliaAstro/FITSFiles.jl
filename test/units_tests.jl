@@ -189,7 +189,7 @@
     @test withunits(FITSFiles.setvalue!(card, 7.5f0)) === 7.5f0 * u"m"
     @test withunits(FITSFiles.setvalue!(card, 2.0 + 1.0im)) === (2.0 + 1.0im) * u"m"
     @test FITSFiles.setvalue!(card, 5) === card
-    @test repr(FITSFiles.setvalue!(card, 7)) == rpad("K       = 7                    / [m]   a comment", 80)
+    @test repr(FITSFiles.setvalue!(card, 7)) == rpad("K       = 7 / [m]   a comment", 80)
     #  a value of another type has no units.
     for value in ("a string", true, missing)
         @test isequal(FITSFiles.setvalue!(card, value).value, value)

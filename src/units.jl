@@ -37,27 +37,49 @@ const FITS_UNIT_NAMES = Dict(
 	"minute" => "min", "Gauss" => "G", "μ" => "u", "µ" => "u")
 
 """
-	formunit(unit)
+	formunit(unit[, ufmt])
 
-Return the ASCII string of a unit in the FITS standard (Sect. 4.3), where the units are
-separated by spaces and the integer powers follow the unit, e.g., `km s-1`.
+Return the ASCII string of a unit in the FITS standard (Sect. 4.3). The style of the string is
+`ufmt`, which has three characters: the separator of the units, a space, `.`, or `*`; `/` if
+a unit with a negative power follows a slash, or `-` if it has the negative power; and the style
+of a power, `d` for digits following the unit, `^`, or `*` for `**`. The default is ` -d`.
 """
-formunit(unit::Unitful.Units) = join(formfactor.(typeof(unit).parameters[1]), " ")
+function formunit(unit::Unitful.Units, ufmt::AbstractString = "")
+	sep, div, pow = isempty(ufmt) ? (' ', '-', 'd') : (ufmt[1], ufmt[2], ufmt[3])
+	factors = typeof(unit).parameters[1]
+	numer = filter(f -> f.power > 0, collect(factors))
+	denom = filter(f -> f.power < 0, collect(factors))
+	if div == '/' && !isempty(numer) && !isempty(denom)
+		#  The units with negative powers follow a slash.
+		join(formfactor.(numer, pow), sep) * join(["/" * formfactor(typeof(f)(f.tens, -f.power), pow)
+			for f in denom])
+	else
+		join(formfactor.(factors, pow), sep)
+	end
+end
+
+#  The style of a unit string, which is the format that is used to write the string again.
+function unitstyle(text::AbstractString)
+	stars = replace(text, "**" => "")
+	(occursin('.', text) ? '.' : occursin('*', stars) ? '*' : ' ') * (occursin('/', text) ? '/' : '-') *
+		(occursin("**", text) ? '*' : occursin('^', text) ? '^' : 'd')
+end
 
 #  The standard has no affine units, e.g., degrees Celsius.
-formunit(unit::Unitful.AffineUnits) =
+formunit(unit::Unitful.AffineUnits, ufmt::AbstractString = "") =
 	throw(ArgumentError("The affine unit $unit has no FITS name."))
 
-formunit(::Nothing) = ""
+formunit(::Nothing, ufmt::AbstractString = "") = ""
 
 #  The units of the writers of a card format, where no units are missing.
-unitstring(::Nothing) = missing
-unitstring(unit) = formunit(unit)
+unitstring(::Nothing, ufmt::AbstractString = "") = missing
+unitstring(unit, ufmt::AbstractString = "") = formunit(unit, ufmt)
 
-function formfactor(unit::Unitful.Unit)
+function formfactor(unit::Unitful.Unit, pow::Char = 'd')
 	name = get(FITS_UNIT_NAMES, Unitful.abbr(unit), Unitful.abbr(unit))
 	prefix = get(FITS_UNIT_NAMES, Unitful.prefix(unit), Unitful.prefix(unit))
-	power = unit.power.den == 1 ? (unit.power.num == 1 ? "" : string(unit.power.num)) :
+	power = unit.power.den == 1 ? (unit.power.num == 1 ? "" :
+		(pow == '^' ? "^" : pow == '*' ? "**" : "") * string(unit.power.num)) :
 		"**($(unit.power.num)/$(unit.power.den))"
 	text = prefix * name * power
 	isascii(text) || throw(ArgumentError("The unit $(Unitful.abbr(unit)) has no FITS name."))
