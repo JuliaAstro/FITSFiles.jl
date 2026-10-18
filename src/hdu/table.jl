@@ -150,9 +150,9 @@ function FieldFormat(::Type{Table}, format::DataFormat, reskeys::Dict{S, V},
         unit  = get(reskeys, "TUNIT$j", "")
         form  = fmt.match
         disp  = get(reskeys, "TDISP$j", "")
-        tzero = least_float_type(get(reskeys, "TZERO$j",
+        tzero = leastfloat(get(reskeys, "TZERO$j",
             type <: String ? nothing : 0.0f0))
-        tscal = least_float_type(get(reskeys, "TSCAL$j",
+        tscal = leastfloat(get(reskeys, "TSCAL$j",
             type <: String ? nothing : 1.0f0))
         null  = get(reskeys, "TNULL$j", nothing)
         dmin  = parse_string(get(reskeys, "TDMIN$j", nothing))
@@ -199,9 +199,9 @@ function FieldFormat(::Type{Table}, format::DataFormat, reskeys::Dict{S, V},
         unit  = get(reskeys, "TUNIT$j", "")
         form  = fmt.match
         disp  = get(reskeys, "TDISP$j", "")
-        tzero = least_float_type(get(reskeys, "TZERO$j",
+        tzero = leastfloat(get(reskeys, "TZERO$j",
             type <: String ? nothing : 0.0f0))
-        tscal = least_float_type(get(reskeys, "TSCAL$j",
+        tscal = leastfloat(get(reskeys, "TSCAL$j",
             type <: String ? nothing : 1.0f0))
         null  = get(reskeys, "TNULL$j", nothing)
         dmin  = parse_string(get(reskeys, "TDMIN$j", nothing))
@@ -248,9 +248,9 @@ function FieldFormat(::Type{Table}, format::DataFormat, reskeys::Dict{S, V},
         unit  = get(reskeys, "TUNIT$j", "")
         form  = fmt.match
         disp  = get(reskeys, "TDISP$j", "")
-        tzero = least_float_type(get(reskeys, "TZERO$j",
+        tzero = leastfloat(get(reskeys, "TZERO$j",
             type <: String ? nothing : 0.0f0))
-        tscal = least_float_type(get(reskeys, "TSCAL$j",
+        tscal = leastfloat(get(reskeys, "TSCAL$j",
             type <: String ? nothing : 1.0f0))
         null  = get(reskeys, "TNULL$j", nothing)
         dmin  = parse_string(get(reskeys, "TDMIN$j", nothing))

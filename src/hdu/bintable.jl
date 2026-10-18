@@ -188,9 +188,9 @@ function FieldFormat(::Type{Bintable}, mankeys::DataFormat, reskeys::Dict{S, V},
         unit_ = get(reskeys, "TUNIT$j", "")
         disp  = get(reskeys, "TDISP$j", "")
         dims  = eval(Meta.parse(get(reskeys, "TDIM$j", "")))
-        zero_ = least_float_type(get(reskeys, "TZERO$j",
+        zero_ = leastfloat(get(reskeys, "TZERO$j",
             type <: Union{Bool, BitVector, String} ? nothing : 0.0f0))
-        scale = least_float_type(get(reskeys, "TSCAL$j",
+        scale = leastfloat(get(reskeys, "TSCAL$j",
             type <: Union{Bool, BitVector, String} ? nothing : 1.0f0))
         null  = get(reskeys, "TNULL$j", nothing)
         dmin  = parse_string(get(reskeys, "TDMIN$j", nothing))
@@ -235,9 +235,9 @@ function FieldFormat(::Type{Bintable}, mankey::DataFormat, reskeys::Dict{S, V},
         unit_ = get(reskeys, "TUNIT$j", "")
         disp  = get(reskeys, "TDISP$j", "")
         dims  = eval(Meta.parse(get(reskeys, "TDIM$j", "")))
-        zero_ = least_float_type(get(reskeys, "TZERO$j",
+        zero_ = leastfloat(get(reskeys, "TZERO$j",
             type <: Union{Bool, BitVector, String} ? nothing : 0.0f0))
-        scale = least_float_type(get(reskeys, "TSCAL$j",
+        scale = leastfloat(get(reskeys, "TSCAL$j",
             type <: Union{Bool, BitVector, String} ? nothing : 1.0f0))
         null  = get(reskeys, "TNULL$j", nothing)
         dmin  = get(reskeys, "TDMIN$j", nothing)
@@ -284,9 +284,9 @@ function FieldFormat(::Type{Bintable}, mankey::DataFormat, reskeys::Dict{S, V},
         unit_ = get(reskeys, "TUNIT$j", "")
         disp  = get(reskeys, "TDISP$j", "")
         dims  = eval(Meta.parse(get(reskeys, "TDIM$j", "")))
-        zero_ = least_float_type(get(reskeys, "TZERO$j",
+        zero_ = leastfloat(get(reskeys, "TZERO$j",
             type <: Union{Bool, BitVector, String} ? nothing : 0.0f0))
-        scale = least_float_type(get(reskeys, "TSCAL$j",
+        scale = leastfloat(get(reskeys, "TSCAL$j",
             type <: Union{Bool, BitVector, String} ? nothing : 1.0f0))
         null  = get(reskeys, "TNULL$j", nothing)
         dmin  = get(reskeys, "TDMIN$j", nothing)

@@ -401,6 +401,24 @@ function Base.write(io::IO, cards::Cards)
 end
 
 ####    Utility functions
+"""
+	leastfloat(real::Union{Real, Nothing})
+
+Convert an integer the minimum float type of Float32, Float64, and BigFloat.
+"""
+function leastfloat(value::Union{Real, Nothing})
+	if typeof(value) <: Integer
+		if typemin(Int32) <= value <= typemax(Int32)
+			return convert(Float32, value)
+		elseif typemin(Int64) <= value <= typemax(Int64)
+			return convert(Float64, value)
+		else
+			return convert(BigFloat, value)
+		end
+	end
+	value
+end
+
 function get_reserved_keys(cards::Cards)
 	mankeys = Dict{AbstractString, ValueType}()
 	reskeys = Dict{AbstractString, ValueType}()
