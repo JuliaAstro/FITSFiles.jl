@@ -747,4 +747,16 @@
     #  test to fix invalid equal sign.
 
     #  test raw keyword
+    #  Invalid characters are rejected in the value string and the comment.
+    @testset "invalid characters" begin
+        @test_throws "Value string contains invalid characters." Card("ABC", "caf\u00e9")
+        @test_throws "Value string contains invalid characters." Card("ABC", "a\nb", "c")
+        @test_throws "Comment contains invalid characters." Card("ABC", 1, "caf\u00e9")
+        @test_throws "Comment contains invalid characters." Card("ABC", "x", "caf\u00e9")
+        @test_throws "Keyword contains invalid characters." Card("A\x01", "ESO A", 1, "")
+        @test_throws "Value string contains invalid characters." Card("HIERARCH", "ESO A", "caf\u00e9", "")
+        @test_throws "Comment contains invalid characters." Card("HIERARCH", "ESO A", 1, "caf\u00e9")
+        @test_throws "Invalid card" Card("ABC", "ESO A", 1, "")
+    end
+
 end
