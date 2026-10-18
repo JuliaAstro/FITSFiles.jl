@@ -84,7 +84,6 @@ end
 #  Free-format value field of a HIERARCH card: strings are quoted, logicals are T or F,
 #  and floats use an E (single precision) or D (double precision) exponent.
 function value_image(value::ValueType)
-	value = value isa Quantity ? ustrip(value) : value
 	if ismissing(value)
 		""
 	elseif value isa AbstractString

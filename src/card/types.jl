@@ -1,4 +1,4 @@
-ValueType = Union{AbstractString, Missing, Number, Quantity}
+ValueType = Union{AbstractString, Missing, Number}
 
 abstract type AbstractCardType end
 abstract type CommentCardType <: AbstractCardType end

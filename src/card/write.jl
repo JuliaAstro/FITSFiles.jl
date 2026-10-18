@@ -125,7 +125,7 @@ end
 #  Format Value card for integer value.
 function format_card(::Type{Value}, key::K, value::I, units, comment::C,
 	format::F) where {K <: AbstractString,
-	I <: Union{Integer, Quantity{<:Integer, <:Any, <:Any}},
+	I <: Integer,
 	C <: AbstractString, F <: CardFormat}
 
 	units = formunit(units, format.ufmt)
@@ -141,7 +141,7 @@ end
 #  Format Value card for 32-bit float value.
 function format_card(::Type{Value}, key::K, value::V, units, comment::C,
 	format::F) where {K <: AbstractString,
-	V <: Union{Float32, Quantity{Float32, <:Any, <:Any}},
+	V <: Float32,
 	C <: AbstractString, F <: CardFormat}
 
 	#  Fixed format float value ends at index 30
@@ -159,7 +159,7 @@ end
 #  Format Value card for non-32-bit float values.
 function format_card(::Type{Value}, key::K, value::V, units, comment::C,
 	format::F) where {K <: AbstractString,
-	V <: Union{AbstractFloat, Quantity{<:AbstractFloat, <:Any, <:Any}},
+	V <: AbstractFloat,
 	C <: AbstractString, F <: CardFormat}
 
 	#  Fixed format float value ends at index 30
@@ -182,7 +182,7 @@ end
 #  Format Value card for complex integer value.
 function format_card(::Type{Value}, key::K, value::V, units, comment::C,
 	format::F) where {K <: AbstractString,
-	V <: Union{Complex{<:Integer}, Quantity{<:Complex{<:Integer}, <:Any, <:Any}},
+	V <: Complex{<:Integer},
 	C <: AbstractString, F <: CardFormat}
 
 	#   Fixed format complex values do not exist.
@@ -197,7 +197,7 @@ end
 #  Format Value card for complex 32-bit float value.
 function format_card(::Type{Value}, key::K, value::V, units, comment::C,
 	format::F) where {K <: AbstractString,
-	V <: Union{Complex{Float32}, Quantity{Complex{Float32}, <:Any, <:Any}},
+	V <: Complex{Float32},
 	C <: AbstractString, F <: CardFormat}
 
 	#  Fixed format complex values do not exist.
@@ -215,8 +215,7 @@ end
 #  Format Value card for all other complex float values.
 function format_card(::Type{Value}, key::K, value::V, units, comment::C,
 	format::F) where {K <: AbstractString,
-	V <: Union{Complex{<:AbstractFloat},
-		Quantity{<:Complex{<:AbstractFloat}, <:Any, <:Any}},
+	V <: Complex{<:AbstractFloat},
 	C <: AbstractString, F <: CardFormat}
 
 	#  Fixed format complex values do no exist.
@@ -264,5 +263,3 @@ end
 function rpad_image(card::AbstractString)
 	length(card) < CARDLENGTH ? rpad(card, CARDLENGTH) : card[1:CARDLENGTH]
 end
-
-#  Format Date value

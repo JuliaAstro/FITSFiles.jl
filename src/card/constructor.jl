@@ -8,10 +8,6 @@ function Card(key::K = "", value::V = missing, comment::C = ""; fixed::B = true,
 	#  Mandatory keywords are always in fixed format.
 	fixed = fixed || is_fixed_key(upkey)
 
-	### if slash <= TOKENLEN+FIXEDINDEX
-	###     error("Comment separator postion must be >$")
-	### end
-
 	#  A keyword that is longer than 8 characters is the tokens of a HIERARCH keyword.
 	if length(upkey) > KEYLENGTH
 		tokens = replace(upkey, r"^HIERARCH +" => "")
@@ -96,10 +92,6 @@ function Card(key::K, tokens::T, value::V, comment::C;
 	#  The units of a quantity are not part of the value.
 	value, units = splitunits(value)
 
-	### if slash <= TOKENLEN+FIXEDINDEX
-	###     error("Comment separator postion must be >$FIXEDINDEX")
-	### end
-
 	#  Check for invalid characters in key, value string, and comment.
 	if !is_hierarch(upkey) && occursin(NON_KEY_TEXT, upkey)
 		error("Keyword contains invalid characters.")
@@ -133,7 +125,6 @@ end
 is_end_key(key::AbstractString)      = key == "END"
 is_continue_key(key::AbstractString) = key == "CONTINUE"
 is_comment_key(key::AbstractString)  = haskey(COMMENTKEY, key)
-### is_hierarch_key(key::AbstractString) = key == "HIERARCH"
 is_valid_key(key::AbstractString) = length(key) <= KEYLENGTH && occursin(KEY_FSC, key)
 
 function is_string(value::ValueType)

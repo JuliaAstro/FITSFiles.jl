@@ -1,7 +1,5 @@
 ###  Parse functions
 
-#  orphaned CONTINUE cards become COMMENT cards.
-
 """
     Base.parse(::Type{Card}, image::AbstractString; strict = true, units = true)
 
@@ -82,8 +80,6 @@ function Base.parse(::Type{Card}, image::AbstractString, previous; strict::Bool 
 	end
 	card
 end
-
-#  implement joincards() function. This functionality may need to be moved to hdu.jl
 
 const NUMBER_FORMAT_STR = "(?<i>\\d+)?(?:(?<p>\\.)(?<f>\\d*))?(?:(?<x>[DE])(?<n>[+-]?\\d+))?"
 
@@ -191,9 +187,6 @@ function parse_value_comment(::Type{Hierarch}, image::AbstractString; strict::Bo
 		format.vfmt = realfmt(values[:numr])
 	elseif !isnothing(values[:cplx])
 		value = parse_complex(values[:real], values[:imag])
-		### real_, imag_ = offsets[:real], offsets[:imag]
-		### rlen, ilen = length(values[:real]), length(values[:imag])
-		### format.vbeg, format.vend = Int8.((real_, imag_)), Int8.((real_+rlen-1, imag_+ilen-1))
 		format.vend = Int8(offsets[:cplx]+length(values[:cplx])-1)
 		format.vfmt = complexfmt(values[:cplx])
 	else
@@ -204,17 +197,6 @@ function parse_value_comment(::Type{Hierarch}, image::AbstractString; strict::Bo
 	(key, value, unit, comment, format)
 end
 
-#=
-function parsevalue!(::Type{AbstractString}, format::F, values::N, offsets::N) where
-	{F<:CardFormat, N<:NamedTuple}
-	format = CardFormat()
-	value = string(values[:strg])
-	vbeg, vend = offsets[:strg], offsets[:strg]+length(value)-1
-	format.vbeg, format.vend, format.ampr = Int8(vbeg), Int8(vend), Int8(offsets[:ampr])
-	value = replace(value[2:vend-1-(offsets[:ampr] > 0 ? 1 : 0)], "''" => "'")
-	(value, format)
-end
-=#
 function parse_comment!(format::F, values::R, offsets::N; units::Bool = true) where
 {F <: CardFormat, R <: RegexMatch, N <: NamedTuple}
 
