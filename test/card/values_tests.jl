@@ -63,8 +63,8 @@
     end
 
     #  setvalue! moves the comment when the new value is longer than the old value.
-    for value in ("a string longer than the old", 1.2345678901234567 + 1.2345678901234567im,
-                  "O'HARA O'HARA O'HARA O'HARA", 123456789012345678901234)
+    for value in (1.2345678901234567 + 1.2345678901234567im, 123456789012345678901234,
+                  12345678901234567890123456789012345678901234567890)
         verified = FITSFiles.setvalue!(card, value)
         parsed = parse(Card, repr(verified))
         @test length(repr(verified)) == 80
@@ -270,5 +270,66 @@
         @test length(FITSFiles.slices(text, slen, n, true, splitat)) == n
         @test last(last(FITSFiles.slices(text, slen, n, true, splitat))) == length(text)
     end
+
+    ###  Regression tests: setvalue! splits a long string  ###
+
+    text = "The quick brown fox jumps over the lazy dog while the weather stays cloudy overnight with a low of twenty one"
+    img(s) = rpad(s, 80)
+
+    #  a string that passes the separator of a card with a comment is split into the cards of a long string.
+    card = parse(Card, img("OBJECT  = 'old' / the object"))
+    cards = FITSFiles.setvalue!(card, text)
+    @test cards isa Vector
+    @test [FITSFiles.typename(c) for c in cards] == [Value{String}; fill(Continue, length(cards)-1)]
+    @test [c.key for c in cards] == ["OBJECT"; fill("CONTINUE", length(cards)-1)]
+    @test rstrip(repr(cards[1])) == "OBJECT  = 'The quick brown &'  / the object"
+    @test rstrip(repr(cards[2])) == "CONTINUE  'fox jumps over &'"
+    @test all(endswith(c.value, " ") for c in cards[1:end-1])
+    @test all(length(repr(c)) == 80 for c in cards)
+    @test FITSFiles.join_cards(cards).value == text
+    @test cards[1].comment == "the object"
+
+    #  the string and the comment are split at any character if splitat is nothing, or after another character.
+    cards = FITSFiles.setvalue!(card, text; splitat = nothing)
+    @test cards[1].value == "The quick brown f"
+    @test FITSFiles.join_cards(cards).value == text
+    cards = FITSFiles.setvalue!(card, replace(text, " " => ","); splitat = ',')
+    @test cards[1].value == "The,quick,brown,"
+    @test FITSFiles.join_cards(cards).value == replace(text, " " => ",")
+    cards = FITSFiles.setvalue!(parse(Card, img("OBJECT  = 'old' / " * join(fill("long comment", 4), " "))), text)
+    @test join(c.comment for c in cards) == join(fill("long comment", 4), " ")
+    @test all(endswith(c.comment, " ") for c in filter(c -> !isempty(c.comment), cards)[1:end-1])
+
+    #  a string that fits is not split, and a string without a comment fits until the end of the card.
+    @test FITSFiles.setvalue!(card, "a short string") isa Card
+    @test FITSFiles.setvalue!(card, "a short string").value == "a short string"
+    card0 = parse(Card, img("OBJECT  = 'old'"))
+    @test FITSFiles.setvalue!(card0, repeat("word ", 12)) isa Card
+    @test length(rstrip(repr(FITSFiles.setvalue!(card0, repeat("word ", 12))))) == 72
+    cards = FITSFiles.setvalue!(card0, repeat("word ", 30))
+    @test length(cards) == 3
+    @test rstrip(repr(cards[1])) == "OBJECT  = '" * repeat("word ", 13) * "&'"
+    @test FITSFiles.join_cards(cards).value == repeat("word ", 30)
+
+    #  the separator of the card is not before the default index, and a card with a later separator keeps it.
+    narrow = parse(Card, img("OBJECT  = 'old' / c"))
+    @test narrow.format.slsh < 20
+    @test length(repr(FITSFiles.setvalue!(narrow, repeat("a", 17)))) == 80
+    @test FITSFiles.setvalue!(narrow, repeat("a", 17)) isa Card
+    @test length(FITSFiles.setvalue!(narrow, repeat("a", 30))) > 1
+    wide = Card("OBJECT", "old", "c"; slash = 60)
+    @test FITSFiles.setvalue!(wide, repeat("a", 40)) isa Card
+    @test length(FITSFiles.setvalue!(wide, repeat("a", 60))) > 1
+    for value in (repeat("It's O'Hara's ", 6), " " * text, text * " ", repeat("'", 70), repeat("x", 90))
+        cards = FITSFiles.setvalue!(card, value)
+        @test FITSFiles.join_cards(cards).value == value
+        @test all(length(repr(c)) == 80 for c in cards)
+    end
+
+    #  a number never splits, and a long string of a HIERARCH card is an error.
+    @test FITSFiles.setvalue!(card, 123456789012345678901234567890123456789) isa Card
+    hier = parse(Card, img("HIERARCH ESO A = 'old' / c"))
+    @test FITSFiles.setvalue!(hier, "a string") isa Card
+    @test_throws ArgumentError FITSFiles.setvalue!(hier, repeat("long ", 20))
 
 end

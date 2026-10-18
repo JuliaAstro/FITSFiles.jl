@@ -695,14 +695,37 @@ function Base.findfirst(key::AbstractString, cards::Cards)
 	missing
 end
 
+"""
+    setvalue!(cards, key, value; splitat = ' ')
+
+Replace the value of the first card with the keyword `key`. A string that does not fit on a card
+is split into the cards of a long string, and the CONTINUE cards of a string that is replaced
+are removed. The cards are always replaced, which is the way to split the value again.
+"""
+function setvalue!(cards::Cards, key::AbstractString, value::ValueType;
+	splitat::Union{Char, Nothing} = ' ')
+
+	j = Base.findfirst(key, cards)
+	ismissing(j) && throw(KeyError(key))
+	#  The cards of the old value are the card and the CONTINUE cards that continue its string.
+	n = j
+	while n < length(cards) && continued(cards[n]) && basetype(typename(cards[n+1])) == Continue
+		n += 1
+	end
+	new = setvalue!(cards[j], value; splitat)
+	splice!(cards, j:n, new isa Card ? [new] : new)
+	cards
+end
+
+#  Setting the value that the cards have leaves the cards as they are, including the pieces
+#  of a long string.
 function Base.setindex!(cards::Cards, value::ValueType, key::AbstractString)
-    for (j, card) in enumerate(cards)
-        if uppercase(card.key) == uppercase(key)
-            cards[j] = setvalue!(card, value)
-            return
-        end
-    end
-    throw(KeyError(key))
+	j = Base.findfirst(key, cards)
+	ismissing(j) && throw(KeyError(key))
+	old = joinvalue(cards, j)
+	same = old isa AbstractString && value isa AbstractString && trimvalue(old) == trimvalue(value)
+	same || setvalue!(cards, key, value)
+	return
 end
 
 function Base.popat!(cards::Cards, key::AbstractString, default=Card())

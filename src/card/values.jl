@@ -3,8 +3,17 @@ splitunits(value::Quantity) = unit(value) === NoUnits ? (ustrip(value), nothing)
 	(ustrip(value), unit(value))
 splitunits(value) = (value, nothing)
 
-#  modify card value
-function setvalue!(card::Card, value::ValueType)
+"""
+	setvalue!(card, value; splitat = ' ')
+
+Return the card with the value `value`, and the units, format, and comment of the card. A number
+without units has the units of the card. A string that does not fit on the card, i.e., that
+passes the comment separator, or the end of the card if there is no comment, is split into the
+cards of a long string, the first card and the CONTINUE cards, which are returned as a vector.
+The string and the comment are split after the last `splitat` that fits, as in the constructor
+of a card.
+"""
+function setvalue!(card::Card, value::ValueType; splitat::Union{Char, Nothing} = ' ')
 	value = value isa AbstractString ? format_xtension_value(card.key, value) : value
 	#  The units of a quantity are not part of the value. A number without units has the units of
 	#  the card, whereas a value of another type has none.
@@ -31,6 +40,16 @@ function setvalue!(card::Card, value::ValueType)
 			if !isnothing(units) && f.ubeg == 0 &&
 				(m = match(r"^\[[^\]]*\]( *)", comment)) !== nothing
 				comment, upad = comment[(length(m.match)+1):end], length(m[1])
+			end
+			#  A string does not fit if it passes the separator of a card with a comment, which is not
+			#  before the default index, or the end of a card without a comment. It is split into the
+			#  cards of a long string.
+			slash = isempty(comment) ? CARDLENGTH + 2 : max(f.slsh + TOKENLEN, 32)
+			if T == Value && value isa AbstractString &&
+				is_long_string(value, comment, slash, 1, rpad, true)
+				cards = split_card(card.key, value, comment,
+					(; fixed = f.fixd, slash, lpad = 1, rpad, upad, append = false, splitat))
+				return [Card(t, k, v, c, f) for (t, k, v, c, f) in cards]
 			end
 			args = T == Hierarch ? (card.key,) : ()
 			fmt = formatcard(type, args..., value, comment; fixed = f.fixd, append = false,
