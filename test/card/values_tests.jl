@@ -332,4 +332,21 @@
     @test FITSFiles.setvalue!(hier, "a string") isa Card
     @test_throws ArgumentError FITSFiles.setvalue!(hier, repeat("long ", 20))
 
+    #  setvalue! on a COMMENT or HISTORY card replaces the text and keeps the type.
+    @testset "setvalue! of Comment and History" begin
+        for key in ("COMMENT", "HISTORY")
+            card = Card(key, "old")
+            new = FITSFiles.setvalue!(card, "new text")
+            @test FITSFiles.typename(new) == FITSFiles.typename(card)
+            @test new.key == key && new.value == "new text"
+            @test repr(new) == rpad("$key new text", 80)
+            #  A value that is the same except for trailing spaces is not replaced.
+            @test FITSFiles.setvalue!(card, "old  ") === card
+            #  A missing value gives an empty card.
+            @test repr(FITSFiles.setvalue!(card, missing)) == rpad(key, 80)
+        end
+        @test FITSFiles.typename(FITSFiles.setvalue!(Card("COMMENT", missing), "text")) ==
+            FITSFiles.typename(Card("COMMENT", "text"))
+    end
+
 end
