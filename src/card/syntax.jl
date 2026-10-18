@@ -30,9 +30,7 @@ const NON_KEY_TEXT = Regex("[^A-Z0-9_-]")
 const HIERARCH_TOKENS = r"^[A-Z0-9_-]+(?: +[A-Z0-9_-]+)*$"
 
 #  regex for FSC real number substring.
-const DIGITS_FSC_STR = "(\\.\\d+|\\d+(\\.\\d*)?)([DE][+-]?\\d+)?"
 const DIGITS_FSC_STR_2 = "(?:\\.\\d+|\\d+(?:\\.\\d*)?)(?:[DE][+-]?\\d+)?"
-const NUMBER_FSC_STR = "[+-]?" * DIGITS_FSC_STR
 #  regex for non-FSC (NFSC) real number substring.
 #  (NFSC allows lower case of DE for exponent, space between sign,
 #  digits, exponent sign, and exponents.)
@@ -41,14 +39,11 @@ const NUMBER_NFSC_STR = "[+-]?" * DIGITS_NFSC_STR
 
 const NUMBER_FSC_STR_2 = "[+-]?" * DIGITS_FSC_STR_2
 const NUMBER_NFSC      = Regex("(?P<sign>[+-])? *0*?(?P<digt>" * DIGITS_NFSC_STR * ")")
-const NUMBER_FORMAT    = "(?<i>\\d+)?(?:(?<p>\\.)(?<f>\\d+)?)?(?:(?<x>[DE])(?<n>[+-]?\\d+))?"
 
 #  use in cards having the CONTINUE convention which expects a string
 #  followed by an optional comment.
 const STRING_FIELD_STR = "\\'(?P<strg>([ -~]+?|\\'\\'|) *?)\\'(?=\$|/| )"
-const STRING_FIELD_STR_2 = "(?:[ -~]|''|)"
 const COMMENT_FIELD_STR = "(?P<comm_field>(?P<sepr>/ *)(?P<comm>(.|\\n)*))"
-const STRING_COMMENT = Regex("(" * STRING_FIELD_STR * ")? *" * COMMENT_FIELD_STR * "?")
 
 #  FSC commentary card string which must contain printable ASCII
 #  characters.

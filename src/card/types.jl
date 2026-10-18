@@ -50,10 +50,10 @@ end
 	Card([key, [value, [comment]]]; <keywords>)
 	Card("HIERARCH", key, [key, [value, [comment]]]; <keywords>)
 
-Create a card type, where type is Comment, End, Hierarch, History, Invalid, or
+Create a card type, where type is Comment, Continue, End, Hierarch, History, Invalid, or
 Value{T}.
 
-# Argments
+# Arguments
 
 - `key::AbstractString=""`: keyword string
 - `value::U=missing`: keyword value, where U is Bool, Number, Quantity, or String. The units of
@@ -73,7 +73,7 @@ Value{T}.
 - `splitat::Union{Char, Nothing}=' '`: split a long string and its comment into the cards after
   the last character that fits, instead of splitting at any character if `nothing`
 """
-struct Card{T <: AbstractCardType}  # make value a parameter
+struct Card{T <: AbstractCardType}
 	key::AbstractString
 	value::ValueType
 	units::Any

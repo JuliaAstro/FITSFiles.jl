@@ -9,16 +9,12 @@ The units of a number, i.e., a unit string in square brackets at the beginning o
 are the units of the value, unless `units` is false or the keyword is mandatory.
 """
 function Base.parse(::Type{Card}, image::AbstractString; strict::Bool = true, units::Bool = true)
-	#
-	#  !!! Currently, checks are for 'strict' standard
-	#
 	#  Parse Card image for keys, values, and comments. Construct Card.
 	#
 	#  Card is a parametric type containing Comment, Continue, End, Hierarch, History, and
 	#  Value types. The Hierarch and Value types are parametric types of Missing, Number, and
 	#  String types.
 	#
-	card = Card()
 	if length(image) == CARDLENGTH
 		key = rstrip(image[1:KEYLENGTH])
 		if image == END_IMAGE
@@ -80,10 +76,6 @@ function Base.parse(::Type{Card}, image::AbstractString, previous; strict::Bool 
 	end
 	card
 end
-
-const NUMBER_FORMAT_STR = "(?<i>\\d+)?(?:(?<p>\\.)(?<f>\\d*))?(?:(?<x>[DE])(?<n>[+-]?\\d+))?"
-
-const NUMBER_FORMAT_RE = Regex(NUMBER_FORMAT_STR)
 
 function named_offsets(match::RegexMatch)
 	(; (Symbol.(keys(match)) .=> match.offsets[1:length(keys(match))])...)

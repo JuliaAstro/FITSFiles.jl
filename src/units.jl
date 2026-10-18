@@ -1,34 +1,3 @@
-const unit_conversions = (
-    "Ohm"    => "Ω",          "Ω" => "Ohm",
-    "deg"    => "°",          "°" => "deg",
-    "arcmin" => "arcminute",  "arcminute" => "arcmin",
-    "arscec" => "arcsecond",  "arcsecond" => "arcsec",
-    "min"    => "minute",     "minute" => "min",
-    "h" => "hr",              "hr" => "h",
-    "a" => "yr",              "yr" => "a",
-    "solMass" => "Msun",      "Msun" => "solMass",
-    "Angstrom" => "angstrom", "angstrom" => "Angstrom",
-    "solRad" => "Rsun",       "Rsun" => "solRad",
-    "lyr" => "ly",            "ly" => "lyr",
-    # "count" => "",          "" => "count",
-    # "ct" => "",             "" => "ct",
-    # "photon" => "",         "" => "photon",
-    # "ph" => "",             "" => "ph",
-    # "R" => "Rayleigh",      "Rayleigh" => "R",
-    "G" => "Gauss",           "Gauss" => "G",
-    # "pixel" => "pix",       "pix" => "pixel",
-    # "pix" => "pix",         "pix" => "pix",
-    # "barn" => "barn",       "barn" => "barn",
-    # "D" => "debye",         "debye" => "D",
-    # "chan" => "",           "" => "chan",
-    # "bin => "",             "" => "bin",
-    # "voxel" => "",          "" => "voxel",
-    # "bit" => "",            "" => "bit",
-    # "byte" => "",           "" => "byte",
-    # "adu" => "",            "" => "adu",
-    # "beam" => "",           "" => "beam"
-)
-
 #  ASCII names of the units that are not ASCII or are named differently in the FITS standard
 #  (Tables 3 and 4), and of the prefixes, that are the keys of the Unitful abbreviations.
 const FITS_UNIT_NAMES = Dict(

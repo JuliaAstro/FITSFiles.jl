@@ -185,8 +185,7 @@ function format_card(::Type{Value}, key::K, value::V, units, comment::C,
 	V <: Complex{<:Integer},
 	C <: AbstractString, F <: CardFormat}
 
-	#   Fixed format complex values do not exist.
-	#   ???  Can there be spaces between the paratheses?
+	#  Fixed format complex values do not exist.
 	units = formunit(units, format.ufmt)
 	isempty(format.vfmt) || return rpad_image(key, alignnumber(printfmt(format.vfmt, value), format),
 		units, comment, format)
@@ -207,7 +206,7 @@ function format_card(::Type{Value}, key::K, value::V, units, comment::C,
 		units, comment, format)
 	real_ = replace(string(real(value)), "f" => "E", "e" => "E")
 	imag_ = replace(string(imag(value)), "f" => "E", "e" => "E")
-	#  Add paretheses.
+	#  Add parentheses.
 	value = "($real_, $imag_)"
 	rpad_image(key, value, units, comment, format)
 end
@@ -218,14 +217,14 @@ function format_card(::Type{Value}, key::K, value::V, units, comment::C,
 	V <: Complex{<:AbstractFloat},
 	C <: AbstractString, F <: CardFormat}
 
-	#  Fixed format complex values do no exist.
+	#  Fixed format complex values do not exist.
 	#  Replace (lowercase) 'e' with (uppercase) 'D'.
 	units = formunit(units, format.ufmt)
 	isempty(format.vfmt) || return rpad_image(key, alignnumber(printfmt(format.vfmt, value), format),
 		units, comment, format)
 	real_ = replace(string(real(value)), "e" => "D")
 	imag_ = replace(string(imag(value)), "e" => "D")
-	#  Add paretheses
+	#  Add parentheses.
 	value = "($real_, $imag_)"
 	rpad_image(key, value, units, comment, format)
 end

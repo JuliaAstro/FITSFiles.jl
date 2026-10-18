@@ -68,14 +68,13 @@ function Card(key::K = "", value::V = missing, comment::C = ""; fixed::B = true,
 		cards = split_card(upkey, value, comment,
 			(; fixed, slash, lpad, rpad, upad, append, splitat))
 		cards = [Card(t, k, v, c, f) for (t, k, v, c, f) in cards]
-	elseif is_valid_key(upkey)
-		#  Create Value card that is not a long string.
+	else
+		#  Create Value card that is not a long string. The key is valid, because the
+		#  characters of the key are checked above and a long key is a HIERARCH key.
 		type = Value{typeof(value)}
 		value = format_xtension_value(upkey, value)
 		format = formatcard(type, value, comment; fixed, append,
 			slash, lpad, rpad, upad, truncate, units = unitstring(units))
-	else
-		error("Invalid card")
 	end
 
 	typeof(cards) <: AbstractArray ? cards :
