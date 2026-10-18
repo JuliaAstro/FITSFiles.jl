@@ -63,7 +63,10 @@ Value{T}.
 # Keywords
 
 - `append::Bool=false`: append CONTINUE cards for long strings (>68 characters)
-- `fixed::Bool=true`: use fixed format
+- `fixed::Bool=true`: use fixed format. A fixed-format number ends at byte 30, so a `Float64`
+  that has more than 20 characters is written with fewer digits of the mantissa, which are
+  truncated, e.g., `1.2345678901234567e-100` is written as `1.2345678901234D-100`. Use
+  `fixed=false` to keep all of the digits.
 - `slash::Integer=32`: index of comment separator (/)
 - `lpad::Integer=1`: number of spaces before comment separator
 - `rpad::Integer=1`: number of spaces after comment separator
