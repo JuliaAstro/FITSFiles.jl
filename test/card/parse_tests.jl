@@ -708,4 +708,19 @@
         end
     end
 
+    #  A doubled single quote in a HIERARCH string is never the end of the string.
+    @testset "HIERARCH string quotes" begin
+        for (image, value, comment) in (("HIERARCH ESO A = 'a''//b' / c", "a'//b", "c"),
+            ("HIERARCH ESO A = 'x''/' / c", "x'/", "c"), ("HIERARCH ESO A = 'x''' / c", "x'", "c"),
+            ("HIERARCH ESO A = 'a / b'", "a / b", ""), ("HIERARCH ESO A = '''' / c", "'", "c"))
+            card = parse(Card, rpad(image, 80))
+            @test card.value == value && card.comment == comment
+            @test repr(card) == rpad(image, 80)
+        end
+        for value in ("a''//b", "x'/", "a / b", "''", "it's")
+            card = Card("HIERARCH", "ESO A", value, "cm")
+            @test parse(Card, repr(card)).value == value
+        end
+    end
+
 end
