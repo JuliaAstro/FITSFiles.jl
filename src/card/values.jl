@@ -158,7 +158,7 @@ end
 function slices(value::S, slen::I, ncard::I, single::B = false,
 	splitat::Union{Char, Nothing} = nothing) where
 {S <: AbstractString, I <: Integer, B <: Bool}
-	vals = Array{Tuple{Integer, Integer}}(undef, ncard)
+	vals = Vector{Tuple{Int, Int}}(undef, ncard)
 	j1 = 1
 	for j ∈ 1:ncard
 		j2 = lastndx(value, j1, slen, single, splitat)
