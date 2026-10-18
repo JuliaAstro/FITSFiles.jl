@@ -1,4 +1,7 @@
+#  The compiled printf formats, which are cached by the format string. The lock makes the cache
+#  safe when cards are formatted by several threads.
 const PRINTF_FORMATS = Dict{String, Printf.Format}()
+const PRINTF_LOCK = ReentrantLock()
 
 """
 	printfmt(vfmt, value)
@@ -9,7 +12,7 @@ exponent with a sign only if it is negative and without leading zeros, e.g., `E6
 """
 function printfmt(vfmt::AbstractString, value::Number)
 	spec, tag = occursin('|', vfmt) ? split(vfmt, '|'; limit = 2) : (vfmt, "")
-	format = get!(() -> Printf.Format(spec), PRINTF_FORMATS, String(spec))
+	format = @lock PRINTF_LOCK get!(() -> Printf.Format(spec), PRINTF_FORMATS, String(spec))
 	text = value isa Complex ? Printf.format(format, real(value), imag(value)) :
 		Printf.format(format, value)
 	tag == "-" && (text = replace(text, r"([Ee])\+?(-?)0*(\d+)" => s"\1\2\3"))
