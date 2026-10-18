@@ -83,8 +83,8 @@ end
 
 function value_type(valus::RegexMatch)
 	types = (strg = String, bool = Bool, numr = Real, cplx = Complex, miss = Missing)
-	keys  = (:strg, :bool, :numr, :cplx, :miss)
-	basetype(Tuple(types[k] for k in keys if valus[k] !== nothing)[1])
+	names = (:strg, :bool, :numr, :cplx, :miss)
+	basetype(Tuple(types[k] for k in names if valus[k] !== nothing)[1])
 end
 
 #  A value field is malformed if it does not match, or if text follows the value without a
