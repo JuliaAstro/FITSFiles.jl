@@ -635,4 +635,17 @@
             @test parse(Card, rpad(img, 80); strict) isa Card{Invalid}
         end
     end
+    #  A HIERARCH card with an empty value field has a missing value.
+    @testset "HIERARCH with undefined value" begin
+        for image in ("HIERARCH ESO A =", "HIERARCH ESO A =                  ")
+            card = parse(Card, rpad(image, 80))
+            @test FITSFiles.typename(card) == Hierarch{Missing}
+            @test card.key == "ESO A" && ismissing(card.value) && isempty(card.comment)
+            @test repr(card) == rpad(image, 80)
+        end
+        card = parse(Card, rpad("HIERARCH ESO A = / a comment", 80))
+        @test FITSFiles.typename(card) == Hierarch{Missing}
+        @test ismissing(card.value) && card.comment == "a comment"
+    end
+
 end
