@@ -1,3 +1,4 @@
+include("card/syntax_tests.jl")
 include("card/numbers_tests.jl")
 include("card/constructor_tests.jl")
 include("card/values_tests.jl")
