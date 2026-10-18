@@ -45,7 +45,7 @@ function Card(key::K = "", value::V = missing, comment::C = ""; fixed::B = true,
 	elseif is_continue_key(upkey) && is_string(value)
 		#  Create CONTINUE card
 		type = Continue
-		format = formatcard(type, value, comment; append, fixed,
+		format = layout_card(type, value, comment; append, fixed,
 			slash, lpad, rpad, upad)
 	elseif is_comment_key(upkey)
 		#  Create COMMENT card
@@ -59,7 +59,7 @@ function Card(key::K = "", value::V = missing, comment::C = ""; fixed::B = true,
 	elseif is_valid_key(upkey) && !(typeof(value) <: AbstractString)
 		#  Create Value card
 		type = Value{typeof(value)}
-		format = formatcard(type, value, comment; fixed, append,
+		format = layout_card(type, value, comment; fixed, append,
 			slash, lpad, rpad, upad, truncate, units = unitstring(units))
 	elseif is_valid_key(upkey) && is_long_string(String(value), comment, slash, lpad,
 		rpad, truncate)
@@ -73,7 +73,7 @@ function Card(key::K = "", value::V = missing, comment::C = ""; fixed::B = true,
 		#  characters of the key are checked above and a long key is a HIERARCH key.
 		type = Value{typeof(value)}
 		value = format_xtension_value(upkey, value)
-		format = formatcard(type, value, comment; fixed, append,
+		format = layout_card(type, value, comment; fixed, append,
 			slash, lpad, rpad, upad, truncate, units = unitstring(units))
 	end
 
@@ -112,7 +112,7 @@ function Card(key::K, tokens::T, value::V, comment::C;
 			error("HIERARCH keyword contains invalid characters.")
 		end
 		type = Hierarch{typeof(value)}
-		format = formatcard(type, uptoken, value, comment; fixed, slash, lpad, rpad, upad,
+		format = layout_card(type, uptoken, value, comment; fixed, slash, lpad, rpad, upad,
 			units = unitstring(units))
 	else
 		error("Invalid card")

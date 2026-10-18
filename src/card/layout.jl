@@ -1,6 +1,6 @@
 ####  Format Card  ####
 
-function formatcard(::Type{Value{S}}, value::S, comment::C; kwds...) where
+function layout_card(::Type{Value{S}}, value::S, comment::C; kwds...) where
 {S <: AbstractString, C <: AbstractString}
 	#   Create CardFormat for string type
 	format = CardFormat(kwds[:fixed])
@@ -17,7 +17,7 @@ function formatcard(::Type{Value{S}}, value::S, comment::C; kwds...) where
 	formatcomment!(comment, vend, format; kwds...)
 end
 
-function formatcard(::Type{Value{V}}, value::V, comment::C; kwds...) where
+function layout_card(::Type{Value{V}}, value::V, comment::C; kwds...) where
 {V <: ValueType, C <: AbstractString}
 
 	#  Create appropriate CardFormat type
@@ -38,7 +38,7 @@ function formatcard(::Type{Value{V}}, value::V, comment::C; kwds...) where
 	formatcomment!(comment, vend, format; kwds...)
 end
 
-function formatcard(::Type{Value{V}}, value::V, comment::C; kwds...) where
+function layout_card(::Type{Value{V}}, value::V, comment::C; kwds...) where
 {V <: Complex, C <: AbstractString}
 
 	#  Create appropriate CardFormat type
@@ -57,15 +57,15 @@ function formatcard(::Type{Value{V}}, value::V, comment::C; kwds...) where
 	formatcomment!(comment, vend, format; kwds...)
 end
 
-function formatcard(::Type{Continue}, value::S, comment::C; kwds...) where
+function layout_card(::Type{Continue}, value::S, comment::C; kwds...) where
 {S <: AbstractString, C <: AbstractString}
 
 	#  Format CONTINUE record
 	#  data: fixed, amper, slash, lpad, rpad, truncate
-	formatcard(Value{AbstractString}, value, comment; kwds...)
+	layout_card(Value{AbstractString}, value, comment; kwds...)
 end
 
-function formatcard(::Type{Hierarch{V}}, token::S, value::V, comment::C; kwds...) where
+function layout_card(::Type{Hierarch{V}}, token::S, value::V, comment::C; kwds...) where
 {S <: AbstractString, V <: ValueType, C <: AbstractString}
 	format = CardFormat(kwds[:fixed])
 	format.vfmt, format.ufmt = get(kwds, :vfmt, ""), get(kwds, :ufmt, "")

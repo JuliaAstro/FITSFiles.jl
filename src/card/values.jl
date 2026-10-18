@@ -52,7 +52,7 @@ function setvalue!(card::Card, value::ValueType; splitat::Union{Char, Nothing} =
 				return [Card(t, k, v, c, f) for (t, k, v, c, f) in cards]
 			end
 			args = T == Hierarch ? (card.key,) : ()
-			fmt = formatcard(type, args..., value, comment; fixed = f.fixd, append = false,
+			fmt = layout_card(type, args..., value, comment; fixed = f.fixd, append = false,
 				slash = f.slsh + TOKENLEN, lpad = 1, rpad, upad, units = unitstring(units, f.ufmt),
 				vfmt = keepfmt(f.vfmt, value), ufmt = f.ufmt, vbeg = first(f.vbeg))
 			card = Card(type, card.key, value, units, comment, fmt)
@@ -86,9 +86,9 @@ function split_card(key::K, value::S, comment::C, kwds) where
 	keys     = (key, fill("CONTINUE", ncard-1)...)
 	values   = Tuple(value[j1:j2] for (j1, j2) in slices(value, vallen, ncard, true, splitat))
 	comments = Tuple(comment[j1:j2] for (j1, j2) in slices(comment, comlen, ncard, false, splitat))
-	formats  = (Tuple(formatcard(t, v, c; merge(kwds, (; append = true))...) for (t, v, c) in
+	formats  = (Tuple(layout_card(t, v, c; merge(kwds, (; append = true))...) for (t, v, c) in
 		zip(types[1:(ncard-1)], values[1:(ncard-1)], comments[1:(ncard-1)]))...,
-		formatcard(types[ncard], values[ncard], comments[ncard]; kwds...))
+		layout_card(types[ncard], values[ncard], comments[ncard]; kwds...))
 
 	zip(types, keys, values, comments, formats)
 end
