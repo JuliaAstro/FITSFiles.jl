@@ -58,7 +58,7 @@ struct A3DTable <: AbstractHDU end
 struct Foreign <: AbstractHDU end
 struct Dump <: AbstractHDU end
 
-Cards = Union{Vector{Card}, Vector{Card{<:Any}}}
+const Cards = Union{Vector{Card}, Vector{Card{<:Any}}}
 
 #   HDU type
 """

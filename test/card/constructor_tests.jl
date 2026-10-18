@@ -759,4 +759,13 @@
         @test_throws "Invalid card" Card("ABC", "ESO A", 1, "")
     end
 
+    #  A HIERARCH keyword with a string only is a commentary card, not a HIERARCH card.
+    @testset "HIERARCH commentary" begin
+        card = Card("HIERARCH", "some text")
+        @test FITSFiles.typename(card) == FITSFiles.Comment
+        @test card.key == "HIERARCH" && card.value == "some text"
+        @test repr(parse(Card, repr(card))) == repr(card)
+        @test FITSFiles.typename(Card("HIERARCH")) == FITSFiles.Comment
+    end
+
 end

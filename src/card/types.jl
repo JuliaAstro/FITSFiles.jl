@@ -1,4 +1,4 @@
-ValueType = Union{AbstractString, Missing, Number}
+const ValueType = Union{AbstractString, Missing, Number}
 
 abstract type AbstractCardType end
 abstract type CommentCardType <: AbstractCardType end
@@ -12,7 +12,7 @@ struct Comment <: CommentCardType end
 struct Hierarch{T} <: CommentCardType where T <: ValueType end
 struct History <: CommentCardType end
 
-const COMMENTKEY = Dict(""=>Comment, "COMMENT"=>Comment, "HIERARCH"=>Hierarch, "HISTORY"=>History)
+const COMMENTKEY = Dict(""=>Comment, "COMMENT"=>Comment, "HIERARCH"=>Comment, "HISTORY"=>History)
 
 """
 	CardFormat(fixd, vbeg, vend, ampr, slsh, ubeg, uend, cbeg, cend)
