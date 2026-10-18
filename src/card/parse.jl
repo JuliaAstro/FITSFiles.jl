@@ -21,7 +21,7 @@ function Base.parse(::Type{Card}, image::AbstractString; strict::Bool = true, un
 		key = rstrip(image[1:KEYLENGTH])
 		if image == END_IMAGE
 			card = Card(End, "END", missing, "", CardFormat())
-		elseif (m = match(Regex("^"*VALUE_CARD*"\$"), image[1:TOKENLEN])) !== nothing
+		elseif key != "END" && (m = match(Regex("^"*VALUE_CARD*"\$"), image[1:TOKENLEN])) !== nothing
 			#  The mandatory keywords have no units.
 			parsed = parse_value_comment(Value, image[(TOKENLEN+1):end]; strict,
 				units = units && !is_fixed_key(key))
@@ -176,8 +176,10 @@ function parse_value_comment(::Type{Hierarch}, image::AbstractString; strict::Bo
 	key = uppercase(values[:key])
 	if !isnothing(values[:strg])
 		strg = string(values[:strg])
-		format.vend = Int8(offsets[:strg]+length(strg)-1)
-		value = replace(strg[2:(end-1)], "''" => "'")
+		#  The beginning of the string is kept to restore the trailing spaces, which are not
+		#  significant, when the card is written.
+		format.vbeg, format.vend = Int8(offsets[:strg]), Int8(offsets[:strg]+length(strg)-1)
+		value = trimvalue(replace(strg[2:(end-1)], "''" => "'"))
 	elseif !isnothing(values[:bool])
 		value = values[:bool] == "T" ? true : false
 		format.vend = Int8(offsets[:bool])

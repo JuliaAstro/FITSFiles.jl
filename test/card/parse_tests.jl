@@ -688,4 +688,24 @@
         @test FITSFiles.rpad_key("a\tb") == "a\tb" * " "^5
     end
 
+    #  The END keyword has no value.
+    @testset "END with a value" begin
+        @test FITSFiles.typename(parse(Card, rpad("END", 80))) == FITSFiles.End
+        @test FITSFiles.typename(parse(Card, rpad("END     = 1", 80))) == FITSFiles.Invalid
+        @test FITSFiles.typename(parse(Card, rpad("END     = 'a' / c", 80))) == FITSFiles.Invalid
+        @test FITSFiles.typename(parse(Card, rpad("END     abc", 80))) == FITSFiles.Invalid
+    end
+
+    #  The trailing spaces of a HIERARCH string are not significant, and are restored on write.
+    @testset "HIERARCH string spaces" begin
+        for (image, value) in (("HIERARCH ESO A = 'ab  ' / c", "ab"), ("HIERARCH ESO A =   '  ab' / c", "  ab"),
+            ("HIERARCH ESO A = ' '", " "), ("HIERARCH ESO A = '' / c", ""),
+            ("HIERARCH ESO A = 'a''b  '", "a'b"),
+            ("HIERARCH ESO INS OPTI-3 ID = 'ESO#427 ' / Optical element identifier", "ESO#427"))
+            card = parse(Card, rpad(image, 80))
+            @test card.value == value
+            @test repr(card) == rpad(image, 80)
+        end
+    end
+
 end

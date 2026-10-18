@@ -132,8 +132,9 @@ end
 
 Parse a unit string of the FITS standard (Sect. 4.3) and return the unit, or `nothing` if the
 string is not a valid unit string or has a unit that is not known. Units are multiplied by a
-space, `.`, or `*`, and divided by `/`. A unit is raised to a power by an integer following the
-unit, or by `**` or `^` followed by an integer, a decimal number, or a ratio in parentheses.
+space, `.`, or `*`, and divided by `/`, which may begin the string. A unit is raised to a power by
+an integer following the unit, by a decimal number or a ratio in parentheses following the unit,
+or by `**` or `^` followed by an integer, a decimal number, or a ratio in parentheses.
 A scale factor, `10**k`, `10^k`, or `10+k`, is followed by a unit and returns a quantity.
 """
 function parseunit(str::AbstractString)
@@ -146,7 +147,14 @@ end
 #  Parse a unit string from the index `i`, and return the unit and the index after the unit.
 #  Products and quotients are evaluated from the left to the right.
 function parse_units(str::AbstractString, i::Integer)
-	unit, i = parse_factor(str, i)
+	#  A unit string may begin with a division, e.g., /m3.
+	j = skipspaces(str, i)
+	if j <= lastindex(str) && str[j] == '/'
+		unit, i = parse_factor(str, skipspaces(str, j + 1))
+		isnothing(unit) || (unit = inv(unit))
+	else
+		unit, i = parse_factor(str, i)
+	end
 	while !isnothing(unit)
 		j = skipspaces(str, i)
 		op = j <= lastindex(str) ? str[j] : ' '
@@ -197,10 +205,14 @@ function parse_factor(str::AbstractString, i::Integer)
 	end
 end
 
-#  Parse an optional power, ** or ^, of a unit.
+#  Parse an optional power of a unit, which follows ** or ^, or is a number in parentheses.
 function parse_power(str::AbstractString, i::Integer, unit)
 	m = match(r"^(?:\*\*|\^)", str[i:end])
-	isnothing(m) && return unit, i
+	if isnothing(m)
+		isnothing(match(r"^\([+-]?\d+(?:\.\d+)?(?:/\d+)?\)", str[i:end])) && return unit, i
+		power, j = parse_exponent(str, i)
+		return unit^power, j
+	end
 	power, j = parse_exponent(str, i + ncodeunits(m.match))
 	isnothing(power) ? (nothing, i) : (unit^power, j)
 end

@@ -571,11 +571,11 @@
     @test card.key == "HIERARCH"
     @test repr(card) == img
 
-    #  a HIERARCH string value is unquoted and unescaped when parsed.
+    #  a HIERARCH string value is unquoted and unescaped when parsed, and its trailing spaces are not significant.
     img = rpad("HIERARCH ESO INS OPTI-3 ID = 'ESO#427 ' / Optical element", 80)
     card = parse(Card, img)
     @test (card.key, card.value, card.comment) ==
-          ("ESO INS OPTI-3 ID", "ESO#427 ", "Optical element")
+          ("ESO INS OPTI-3 ID", "ESO#427", "Optical element")
     @test repr(card) == img
     @test parse(Card, rpad("HIERARCH ESO A = 'O''HARA'", 80)).value == "O'HARA"
 

@@ -93,8 +93,21 @@
         @test Unitful.unit(quantity) == expected
     end
 
+    #  a division may begin the string, and a power may be a number in parentheses without ** or ^.
+    @test FITSFiles.parseunit("/m3") == u"m^-3"
+    @test FITSFiles.parseunit("/ m") == u"m^-1"
+    @test FITSFiles.parseunit("/m3 s") == u"s/m^3"
+    @test FITSFiles.parseunit("/(m s)") == u"m^-1*s^-1"
+    @test FITSFiles.parseunit("m(2)") == u"m^2"
+    @test FITSFiles.parseunit("m(-2)") == u"m^-2"
+    @test FITSFiles.parseunit("m(1.5)") == u"m^(3//2)"
+    @test FITSFiles.parseunit("m(3/2)") == u"m^(3//2)"
+    @test FITSFiles.parseunit("J(m s)") === nothing
+    @test FITSFiles.parseunit("m(3/") === nothing
+    @test FITSFiles.parseunit("m (2)") === nothing
+
     #  a string that is not a unit string, or has an unknown unit, is nothing.
-    for text in ("", " ", "foo", "m/", "/m", "m**", "m-", "m 2", "m s-", "log(m)", "ln(m)", "exp(m)", "mag", "D",
+    for text in ("", " ", "foo", "m/", "/", "m**", "m-", "m 2", "m s-", "log(m)", "ln(m)", "exp(m)", "mag", "D",
                  "Sun", "c", "%", "m/s2/", "m**(1/", "m**(a)", "(m", "m)", "m s)", "10", "10**", "10**3", "m,s",
                  "m[s]", "m_s", "1 m", "m\$s", "m;s", "pc.", ".pc", "Mpc/", "m s -1", "k", "da")
         @test FITSFiles.parseunit(text) === nothing

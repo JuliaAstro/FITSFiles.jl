@@ -53,8 +53,15 @@ function format_card(::Type{Hierarch}, key::K, value::V, units, comment::C,
 	format::F) where {K <: AbstractString, V <: ValueType, C <: AbstractString,
 	F <: CardFormat}
 
-	text = lpad(isempty(format.vfmt) ? value_image(value) : printfmt(format.vfmt, value),
-		format.vend-format.ampr)
+	if value isa AbstractString && format.vbeg > 0
+		#  The string is padded to the end of the value field, which restores the spaces that
+		#  are not part of the string.
+		text = " "^(format.vbeg-format.ampr-1) * "'" *
+			rpad(replace(value, "'" => "''"), format.vend-format.vbeg-1) * "'"
+	else
+		text = lpad(isempty(format.vfmt) ? value_image(value) : printfmt(format.vfmt, value),
+			format.vend-format.ampr)
+	end
 	valu = rpad(key, format.ampr-1) * "=" * text
 	padl = repeat(" ", max(0, (format.slsh-1) - format.vend))
 	slash = format.slsh > 0 ? "/" : " "
