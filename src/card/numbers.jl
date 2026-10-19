@@ -81,7 +81,7 @@ end
 #  The text of a number, which is aligned by the positions of the format. A number in fixed-format
 #  ends at the index 30, and otherwise begins at the beginning index.
 alignnumber(text::AbstractString, format::CardFormat) =
-	format.fixd ? lpad(text, FIXEDINDEX) : " "^(first(format.vbeg)-1) * text
+	format.fixd ? lpad(text, FIXEDINDEX) : " "^(format.vbeg-1) * text
 
 """
 	parse_number(real::AbstractString)

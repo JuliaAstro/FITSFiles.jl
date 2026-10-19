@@ -64,7 +64,7 @@ function setvalue!(card::Card, value::ValueType; splitat::Union{Char, Nothing} =
 			args = T == Hierarch ? (card.key,) : ()
 			fmt = layout_card(type, args..., value, comment; fixed = f.fixd, append = false,
 				slash = f.slsh + TOKENLEN, lpad = 1, rpad, upad, units = unitstring(units, f.ufmt),
-				vfmt = keepfmt(f.vfmt, value), ufmt = f.ufmt, vbeg = first(f.vbeg))
+				vfmt = keepfmt(f.vfmt, value), ufmt = f.ufmt, vbeg = f.vbeg)
 			card = Card(type, card.key, value, units, fitcomment(comment, fmt), fmt)
 		else
 			card = Card(T, card.key, value, card.comment, f)

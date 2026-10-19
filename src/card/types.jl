@@ -24,8 +24,8 @@ mutable struct CardFormat
 	#  storing the begin and end index of the value, separator, units, and
 	#  comment as an 8-bit integer, and the formats of the value and the units.
 	fixd::Bool
-	vbeg::Union{Int8, Tuple{Int8, Int8}}
-	vend::Union{Int8, Tuple{Int8, Int8}}
+	vbeg::Int8
+	vend::Int8
 	ampr::Int8
 	slsh::Int8
 	ubeg::Int8
@@ -38,9 +38,7 @@ mutable struct CardFormat
 		amper::I = 0, slash::I = 0, ubeg::I = 0, uend::I = 0, cbeg::I = 0,
 		cend::I = 0) where I<:Integer
 
-		begv = typeof(vbeg) <: Tuple ? Int8.(vbeg) : Int8(vbeg)
-		endv = typeof(vend) <: Tuple ? Int8.(vend) : Int8(vend)
-		new(Bool(fixed), begv, endv, Int8(amper), Int8(slash),
+		new(Bool(fixed), Int8(vbeg), Int8(vend), Int8(amper), Int8(slash),
 			Int8(ubeg), Int8(uend), Int8(cbeg), Int8(cend), "", "")
 	end
 end

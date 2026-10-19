@@ -243,15 +243,8 @@ function rpad_image(key::K, value::V, units::U, comment::C, format::F) where
 
 	#  Ensure value and comment are properly padded.
 	equal = key == "CONTINUE" ? "  " : EQUAL_TOKEN
-	if typeof(format.vend) <: Tuple
-		valu = rpad(value, max(0, (format.vend[2]+1 > CARDLENGTH ?
-		CARDLENGTH : format.vend[2]) - 2))
-		padl = repeat(" ", max(0, (format.slsh-1) - (format.vend[2]+1)))
-	else
-		valu = rpad(value, max(0, (format.vend > CARDLENGTH ?
-		CARDLENGTH : format.vend)))
-		padl = repeat(" ", max(0, (format.slsh-1) - format.vend))
-	end
+	valu = rpad(value, max(0, (format.vend > CARDLENGTH ? CARDLENGTH : format.vend)))
+	padl = repeat(" ", max(0, (format.slsh-1) - format.vend))
 	slash = format.slsh > 0 ? "/" : " "
 	if format.ubeg > 0
 		padr = repeat(" ", max(0, format.ubeg-1 - format.slsh))
