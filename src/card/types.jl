@@ -92,3 +92,24 @@ Card(T, key, value, comment::AbstractString, format::CardFormat) =
 	Card(T, key, splitunits(value)..., comment, format)
 
 typename(::Card{T}) where T = T
+
+#  Two cards are equal if they are the same card image, i.e., a card is equal to the card that is
+#  parsed from its image. A card is a scalar in a broadcast.
+Base.:(==)(a::Card, b::Card) = repr(a) == repr(b)
+Base.isequal(a::Card, b::Card) = a == b
+Base.hash(card::Card, h::UInt) = hash(repr(card), hash(:Card, h))
+Base.broadcastable(card::Card) = Ref(card)
+
+function Base.copy(format::CardFormat)
+	copied = CardFormat(format.fixd)
+	copied.vbeg, copied.vend, copied.ampr, copied.slsh = format.vbeg, format.vend, format.ampr,
+		format.slsh
+	copied.ubeg, copied.uend, copied.cbeg, copied.cend = format.ubeg, format.uend, format.cbeg,
+		format.cend
+	copied.vfmt, copied.ufmt = format.vfmt, format.ufmt
+	copied
+end
+
+#  The copy has its own format, since the format of a card is mutable.
+Base.copy(card::Card) = Card(typename(card), card.key, card.value, card.units, card.comment,
+	copy(card.format))
