@@ -41,15 +41,16 @@ function Base.parse(::Type{Card}, image::AbstractString; strict::Bool = true, un
 				parse_value_comment(Hierarch, image[TOKENLEN:end]; strict, units) : nothing
 			if !isnothing(hier)
 				card = Card(Hierarch{typeof(hier[2])}, hier...)
+			elseif m[:key] == "HIERARCH" && occursin(HIERARCH_ASSIGN_RE, image)
+				#  A HIERARCH record that assigns a value, which is malformed, is not commentary text.
+				card = Card(Invalid, key, comment, "", CardFormat())
 			else
 				card = Card(m[:key] == "HISTORY " ? History : Comment, rstrip(m[:key]),
 					rstrip(comment), "", CardFormat(true, 1, length(comment)))
 			end
 		elseif (m = match(CONTINUE_CARD_RE, image[1:TOKENLEN])) !== nothing
 			parsed = parse_value_comment(Value, image[(TOKENLEN+1):end]; strict, units = false)
-			if isnothing(parsed)
-				card = Card(Invalid, key, image[(KEYLENGTH+1):end], "", CardFormat())
-			elseif parsed[1] isa AbstractString
+			if !isnothing(parsed) && parsed[1] isa AbstractString
 				card = Card(Continue, m[:key], parsed...)
 			else
 				#  A CONTINUE card without a string is commentary text.

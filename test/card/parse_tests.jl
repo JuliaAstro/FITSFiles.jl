@@ -493,7 +493,7 @@
     for img in ("KEY     = 'unterminated", "KEY     = abc", "KEY     = (1, 2", "KEY     = 1 2 3",
                 "KEY     = 1.5.5 / c", "KEY     = T F", "KEY     = 'a' 'b'", "KEY     = 'a' b",
                 "KEY     = 5 6 / c", "KEY     = 1,5", "KEY     = é", "KEY     = 'é'",
-                "CONTINUE  'a' b", "CONTINUE  abc", "BITPIX  = sixteen")
+                "BITPIX  = sixteen")
         img = rpad(img, 80)
         card = parse(Card, img)
         @test card isa Card{Invalid}
@@ -516,12 +516,42 @@
         @test card.comment == comment
     end
 
-    #  a HIERARCH record with a malformed value is commentary text.
-    for img in ("HIERARCH ESO A = 'unterminated", "HIERARCH ESO A = abc", "HIERARCH ESO A = 1 2 3")
+    #  a HIERARCH record with a malformed value is an invalid card that keeps its text.
+    for img in ("HIERARCH ESO A = 'unterminated", "HIERARCH ESO A = abc", "HIERARCH ESO A = 1 2 3",
+                "HIERARCH ESO A = 'a' b", "HIERARCH ESO A = (1, 2", "HIERARCH ESO A = 1.5e3 / c",
+                "HIERARCH THIS IS A NOTE = SEE BELOW", "HIERARCH ESO A = 5 6 / c")
+        img = rpad(img, 80)
+        card = parse(Card, img)
+        @test card isa Card{Invalid}
+        @test card.key == "HIERARCH"
+        @test repr(card) == img
+    end
+
+    #  a HIERARCH record without an assignment of a value to legal tokens is commentary text.
+    for img in ("HIERARCH some text", "HIERARCH ESO A 1", "HIERARCH eso a = 1", "HIERARCH ESO.A = 1",
+                "HIERARCH", "HIERARCH    ")
         img = rpad(img, 80)
         card = parse(Card, img)
         @test FITSFiles.typename(card) == Comment
         @test card.key == "HIERARCH"
+        @test repr(card) == img
+    end
+    @test FITSFiles.typename(parse(Card, rpad("HIERARCH ESO A = 1 2 3", 80); strict = false)) == Invalid
+    @test FITSFiles.typename(parse(Card, rpad("HIERARCH ESO A = 1.5e3", 80); strict = false)) == Hierarch{Float32}
+
+    #  a CONTINUE record has spaces in bytes 9 and 10, and a string, otherwise it is commentary text.
+    for img in ("CONTINUE  'a' b", "CONTINUE  abc", "CONTINUE  12", "CONTINUE  'a", "CONTINUE   [abc", "CONTINUEx 'a'",
+                "CONTINUE ='a'", "CONTINUE 'a'", "CONTINUE", "CONTINUE  / a comment")
+        img = rpad(img, 80)
+        card = parse(Card, img)
+        @test FITSFiles.typename(card) == Comment
+        @test card.key == "CONTINUE"
+        @test repr(card) == img
+    end
+    for img in ("CONTINUE  'a'", "CONTINUE  'a&' / c", "CONTINUE     'a'", "CONTINUE  ''")
+        img = rpad(img, 80)
+        card = parse(Card, img)
+        @test FITSFiles.typename(card) == Continue
         @test repr(card) == img
     end
 
@@ -591,7 +621,7 @@
         end
     end
     @test parse(Card, rpad("K       = 1.0e3", 80)) isa Card{Invalid}
-    @test FITSFiles.typename(parse(Card, rpad("HIERARCH ESO A = 1.0e3", 80))) == Comment
+    @test FITSFiles.typename(parse(Card, rpad("HIERARCH ESO A = 1.0e3", 80))) == Invalid
 
     #  the numbers of a card that is not strict have the types of the numbers with upper case letters.
     for (img, value) in (("K       = 1.0e3", 1000.0f0), ("K       = 1.0d3", 1000.0), ("K       = 1e3", 1000.0f0),

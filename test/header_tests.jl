@@ -65,10 +65,10 @@
     images = ["SIMPLE  =                    T", "BITPIX  =                   16", "NAXIS   =                    0",
               "BZERO   = 1.0e1", "EXPTIME = 1.5d0 / seconds", "HIERARCH ESO A = 2.5e0"]
 
-    #  the default is strict, so a lower case exponent letter is an invalid card.
+    #  the default is strict, so a lower case exponent letter is an invalid card, including a HIERARCH card.
     cards, mankeys, reskeys = read(header(images...), Card)
     @test FITSFiles.typename.(cards[4:5]) == [Invalid, Invalid]
-    @test FITSFiles.typename(cards[6]) == Comment
+    @test FITSFiles.typename(cards[6]) == Invalid
     cards, mankeys, reskeys = read(header(images...), Card; strict = true)
     @test FITSFiles.typename.(cards[4:5]) == [Invalid, Invalid]
 

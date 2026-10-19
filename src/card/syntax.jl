@@ -17,13 +17,16 @@ const COMMENT_KEY = COMMENTARY_KEY*"|HIERARCH"
 const CONTINUE_KEY = "CONTINUE"
 
 const VALUE_CARD = "(?!"*COMMENTARY_KEY*")(?="*VALUE_TOKEN*")(?<key>"*VALUE_KEY*") *= "
-const CONTINUE_CARD = "(?<key>"*CONTINUE_KEY*")"*ASCII_CHARS*"{2}"
+#  A CONTINUE keyword has spaces in bytes 9 and 10 (Sect. 4.2.1.2).
+const CONTINUE_CARD = "(?<key>"*CONTINUE_KEY*")  "
 const COMMENT_CARD = "(?<key>"*COMMENT_KEY*")"*ASCII_CHARS*"{2}"
 
 #  regexes for the first 10 bytes of the cards that have a value, commentary, or a CONTINUE keyword.
 const VALUE_CARD_RE    = Regex("^" * VALUE_CARD * "\$")
 const COMMENT_CARD_RE  = Regex("^" * COMMENT_CARD * "\$")
 const CONTINUE_CARD_RE = Regex("^" * CONTINUE_CARD * "\$")
+#  regex for a HIERARCH record with an equals sign after tokens that are legal in a keyword.
+const HIERARCH_ASSIGN_RE = r"^HIERARCH [A-Z0-9_ -]*="
 
 const END_IMAGE = "END"*repeat(' ', 77)
 
