@@ -105,4 +105,33 @@
         end
     end
 
+    #  The text of a value with a format is read as the value only if no digits are lost.
+    @testset "readsas" begin
+        #  the text is read as the value.
+        for (vfmt, value) in (("%.2f", 2.5), ("%d", 12), ("%03d", 7), ("%+d", 5), ("%5.1f", 2.5), ("%e", 1.5), ("%s", 1.5),
+            ("%.2E|-", 1.5e10), ("%.3E", 1.234e-5), ("%.2f", 1.5f0), ("%.1f", 0.1f0), ("%.2e", 1.5), ("%.1e|-", 3.0e8),
+            ("%d", big(10)^30), ("%d", Int128(10)^20), ("%.3f", Float16(1.5)), ("%x", 5),
+            ("(%d, %d)", 1 + 2im), ("(%.1f, %.1f)", 1.5 + 2.5im), ("( %.1f , %.1f )", 1.5f0 + 2.5f0im))
+            @test FITSFiles.readsas(vfmt, value)
+        end
+        #  the text is another value, since digits are lost.
+        for (vfmt, value) in (("%.1f", 2.567), ("%.0f", 2.5), ("%.2f", 1.2345678901234567), ("%o", 8), ("%.1E", 1.25e10),
+            ("%.1f", 0.12f0), ("(%.1f, %.1f)", 1.55 + 2.5im), ("(%.1f, %.1f)", 1.5 + 2.55im), ("%.2f", 1.0e-5))
+            @test !FITSFiles.readsas(vfmt, value)
+        end
+        #  the format cannot be written for the value.
+        for (vfmt, value) in (("%d", 2.5), ("%d", 1.5f0), ("(%d, %d)", 1.5 + 2im), ("%q", 1))
+            @test !FITSFiles.readsas(vfmt, value)
+        end
+        #  the text is not a number.
+        for (vfmt, value) in (("%x", 255), ("%c", 65), ("%x", 3735928559), ("(%x, %x)", 255 + 10im), ("(%c, %c)", 65 + 66im))
+            @test !FITSFiles.readsas(vfmt, value)
+        end
+        #  a complex format that does not give two numbers in parentheses is not a number.
+        @test !FITSFiles.readsas("(%.1f)", 1.5 + 2.5im)
+        #  the format is kept for a value that is read as the value, and is dropped for another value.
+        @test FITSFiles.keepfmt("%.2f", 2.5) == "%.2f" && FITSFiles.keepfmt("%.2f", 2.567) == ""
+        @test FITSFiles.keepfmt("%x", 255) == "" && FITSFiles.keepfmt("%d", 255) == "%d"
+    end
+
 end
