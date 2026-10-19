@@ -26,7 +26,11 @@ function layout_card(::Type{Value{V}}, value::V, comment::C; kwds...) where
 	if isempty(format.vfmt)
 		vlen = typeof(value) <: Bool ? 1 : length(string(value))
 		vend = max(FIXEDINDEX, vlen)
-		format.vbeg, format.vend = Int8(max(1, FIXEDINDEX-vlen+1)), Int8(vend)
+		#  A free-format value begins at the beginning index, or at the index of the logical value
+		#  that is set, which ends at the beginning index.
+		vbeg = format.fixd ? max(1, FIXEDINDEX-vlen+1) : get(kwds, :vbeg, 1)
+		value isa Bool && !format.fixd && haskey(kwds, :vbeg) && (vend = vbeg)
+		format.vbeg, format.vend = Int8(vbeg), Int8(vend)
 	else
 		#  The number has a printf format, and is in fixed-format or begins at the beginning index.
 		vlen = length(printfmt(format.vfmt, value))

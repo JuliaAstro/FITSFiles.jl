@@ -117,4 +117,33 @@
     @test isempty(FITSFiles.setvalue!(card, 3.25f0 + 4.5f0im).format.vfmt)
     @test isempty(FITSFiles.setvalue!(card, 3 + 4im).format.vfmt)
 
+    #  the value of a number is not changed when a card is read and written.
+    for image in ("X       =    56.53E+13", "NAXIS1  =            33.65D-31", "X       =       -99E+15    / c",
+        "ABC     = (3.00, -22D-27 )     / c", "HIERARCH ESO A = -16D+1 / c", "X       = (1.5, 3847950226)")
+        card = parse(Card, rpad(image, 80))
+        @test parse(Card, repr(card)).value == card.value
+    end
+    @test repr(parse(Card, rpad("X       = 56.53E+13", 80))) == rpad("X       = 5.653E+14", 80)
+
+    #  a logical value keeps its position in free-format.
+    for image in ("DATE-OBS=      T", "KEY     =  T/ [ct s-1] c", "KEY     = F / c", "KEY     =                    T / c",
+        "HIERARCH ESO A =    T / c", "HIERARCH ESO A = F", "KEY     =T")
+        @test repr(parse(Card, rpad(image, 80))) == rpad(image, 80)
+    end
+    card = parse(Card, rpad("KEY     =    T / c", 80))
+    @test repr(FITSFiles.setvalue!(card, false)) == rpad("KEY     =    F / c", 80)
+    @test repr(FITSFiles.setvalue!(card, 5)) == rpad("KEY     = 5               / c", 80)[1:80] ||
+          startswith(repr(FITSFiles.setvalue!(card, 5)), "KEY     = 5")
+    @test repr(Card("KEY", true; fixed = false)) == rpad("KEY     = T", 80)
+    @test repr(Card("KEY", true, "c"; fixed = false)) == repr(Card("KEY", 1, "c"; fixed = false))[1:10] * "T" *
+          repr(Card("KEY", 1, "c"; fixed = false))[12:80]
+    @test repr(FITSFiles.setvalue!(Card("KEY", 12, "c"; fixed = false), true)) == repr(Card("KEY", true, "c"; fixed = false))
+
+    #  a value that is longer than the value of the image takes the spaces before the comment separator,
+    #  but keeps one space, and a comment separator that follows the value stays there.
+    @test repr(parse(Card, rpad("X       = .5      / c", 80))) == rpad("X       = 0.5     / c", 80)
+    @test repr(parse(Card, rpad("X       = .5 / c", 80))) == rpad("X       = 0.5 / c", 80)
+    @test repr(parse(Card, rpad("X       = .5/ c", 80))) == rpad("X       = 0.5/ c", 80)
+    @test repr(parse(Card, rpad("HIERARCH ESO A = .5   / c", 80))) == rpad("HIERARCH ESO A = 0.5  / c", 80)
+
 end

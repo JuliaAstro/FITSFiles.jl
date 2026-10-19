@@ -53,17 +53,21 @@ function format_card(::Type{Hierarch}, key::K, value::V, units, comment::C,
 	format::F) where {K <: AbstractString, V <: ValueType, C <: AbstractString,
 	F <: CardFormat}
 
-	if value isa AbstractString && format.vbeg > 0
+	if value isa AbstractString && format.vbeg > format.ampr
 		#  The string is padded to the end of the value field, which restores the spaces that
 		#  are not part of the string.
 		text = " "^(format.vbeg-format.ampr-1) * "'" *
 			rpad(replace(value, "'" => "''"), format.vend-format.vbeg-1) * "'"
+	elseif format.vbeg > format.ampr && !ismissing(value)
+		#  The value begins at the index of the image.
+		text = " "^(format.vbeg-format.ampr-1) *
+			(isempty(format.vfmt) ? value_image(value) : printfmt(format.vfmt, value))
 	else
 		text = lpad(isempty(format.vfmt) ? value_image(value) : printfmt(format.vfmt, value),
 			format.vend-format.ampr)
 	end
 	valu = rpad(key, format.ampr-1) * "=" * text
-	padl = repeat(" ", max(0, (format.slsh-1) - format.vend))
+	padl = repeat(" ", gaplength(format.slsh, format.vend, format.ampr + length(text)))
 	slash = format.slsh > 0 ? "/" : " "
 	if format.ubeg > 0
 		padr = repeat(" ", max(0, format.ubeg-1 - format.slsh))
@@ -122,10 +126,9 @@ function format_card(::Type{Value}, key::K, value::V, units, comment::C,
 	format::F) where {K <: AbstractString, V <: Bool, C <: AbstractString,
 	F <: CardFormat}
 
-	#  Fixed format boolean value is at index 30
-	padlen = FIXEDINDEX - 1
-	#  If fixed format, pad value string
-	value = (format.fixd ? repeat(" ", padlen) : "") * (value == true ? "T" : "F")
+	#  Fixed format boolean value is at index 30, and a free format value is at the beginning index.
+	padlen = format.fixd ? FIXEDINDEX - 1 : max(0, format.vbeg - 1)
+	value = repeat(" ", padlen) * (value == true ? "T" : "F")
 	rpad_image(key, value, "", comment, format)
 end
 
@@ -236,6 +239,14 @@ function format_card(::Type{Value}, key::K, value::V, units, comment::C,
 	rpad_image(key, value, units, comment, format)
 end
 
+#  The number of spaces between the value and the comment separator. A value that is longer than the
+#  value of the image, e.g., 0.5 for .5, takes the spaces of the gap, and not the comment, but a gap of
+#  one space or more is never less than one space, and a gap of no spaces is kept.
+function gaplength(slash::Integer, vend::Integer, extent::Integer)
+	gap = max(0, (slash-1) - vend)
+	max(min(1, gap), gap - max(0, extent - vend))
+end
+
 #  Format card for key, value, and comment arguments
 function rpad_image(key::K, value::V, units::U, comment::C, format::F) where
 {K <: AbstractString, V <: AbstractString, U <: AbstractString,
@@ -244,7 +255,7 @@ function rpad_image(key::K, value::V, units::U, comment::C, format::F) where
 	#  Ensure value and comment are properly padded.
 	equal = key == "CONTINUE" ? "  " : EQUAL_TOKEN
 	valu = rpad(value, max(0, (format.vend > CARDLENGTH ? CARDLENGTH : format.vend)))
-	padl = repeat(" ", max(0, (format.slsh-1) - format.vend))
+	padl = repeat(" ", gaplength(format.slsh, format.vend, length(value)))
 	slash = format.slsh > 0 ? "/" : " "
 	if format.ubeg > 0
 		padr = repeat(" ", max(0, format.ubeg-1 - format.slsh))

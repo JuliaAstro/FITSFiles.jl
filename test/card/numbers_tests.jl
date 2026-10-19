@@ -63,4 +63,46 @@
     #  a complex number can have large integer parts.
     @test FITSFiles.parse_complex("12345678901234567890123456789012345678901234567890", "1") ==
           complex(big"12345678901234567890123456789012345678901234567890", 1)
+    #  A mantissa with more than one integer digit is written with all of its digits, since the
+    #  exponent form has one digit before the decimal point.
+    @testset "exponent precision" begin
+        for (text, vfmt) in (("56.53E+13", "%.3E"), ("33.65D-31", "%.3e|-"), ("-99E+15", "%.1E"), ("0.5E3", "%.1E|-"),
+            (".5E3", "%.1E|-"), ("1.500E3", "%.3E|-"), ("0.00E0", "%.2E|-"), ("12E3", "%.1E|-"), ("123.456E+10", "%.5E"),
+            ("0012.5D1", "%08.2e|-"), ("1.5E+3", "%.1E"))
+            @test FITSFiles.realfmt(text) == vfmt
+        end
+        for text in ("56.53E+13", "33.65D-31", "-99E+15", "-16D+1", "123.456E+10", "99.99999E-5", "0012.5D1", "-52.25D-8",
+            "66.55D+25", "-68.24D+35", "12E3", "999.9E-9")
+            value = FITSFiles.parse_number(text)
+            written = FITSFiles.printfmt(FITSFiles.realfmt(text), value)
+            @test FITSFiles.parse_number(written) == value
+            @test FITSFiles.parse_number(FITSFiles.printfmt(FITSFiles.complexfmt("(" * text * ", " * text * ")"), complex(value, value))[2:(end-1)] |>
+                  x -> first(split(x, ",")) |> strip) == value
+        end
+    end
+
+    #  The parts of a complex number are integers only if both are integers, and otherwise floats that hold the
+    #  integer parts exactly.
+    @testset "complex parts" begin
+        @test FITSFiles.parse_complex("1", "2") === Complex(1, 2)
+        @test FITSFiles.parse_complex("1.5", "2.5") === ComplexF32(1.5, 2.5)
+        @test FITSFiles.parse_complex("1", "2.5") === ComplexF32(1, 2.5)
+        @test FITSFiles.parse_complex("1.5D0", "2") === ComplexF64(1.5, 2)
+        @test FITSFiles.parse_complex("756478251", "121.804") === ComplexF64(756478251, 121.804f0)
+        @test real(FITSFiles.parse_complex("756478251", "121.804")) == 756478251
+        @test FITSFiles.parse_complex("2.5", "3847950226") isa ComplexF64
+        @test FITSFiles.parse_complex("16777216", "1.5") isa ComplexF32
+        @test FITSFiles.parse_complex("16777217", "1.5") isa ComplexF64
+        @test real(FITSFiles.parse_complex("9007199254740993", "1.5")) == 9007199254740993
+        @test FITSFiles.parse_complex("9007199254740993", "1.5") isa Complex{BigFloat}
+        @test FITSFiles.parse_complex("12345678901234567890123456789012345678901234567890", "1") isa Complex{BigInt}
+        @test FITSFiles.parse_complex("123456789012345678901234567890", "1") isa Complex{Int128}
+        for image in ("KEY     = (756478251, 121.804)", "KEY     = (+3847950226 ,-348.731) / c",
+            "HIERARCH ESO A = (756478251, 121.804)")
+            card = parse(Card, rpad(image, 80))
+            @test real(card.value) == parse(Int, match(r"\(\+?(\d+)", image)[1])
+            @test repr(card) == rpad(image, 80)
+        end
+    end
+
 end

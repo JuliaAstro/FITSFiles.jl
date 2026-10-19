@@ -28,7 +28,10 @@ function realfmt(text::AbstractString)
 	width = length(m[2]) > 1 && m[2][1] == '0' ? "0" * string(length(text)) : ""
 	conv = !isnothing(m[5]) ? (uppercase(m[5]) == "D" ? "e" : "E") :
 		isempty(m[3]) ? "d" : "f"
-	prec = conv == "d" ? "" : "." * string(length(m[4]))
+	#  The precision is the digits after the decimal point, and in an exponent form the significant
+	#  digits less the one digit before the point, since a mantissa such as 56.53 is written as 5.653.
+	sig = length(lstrip(m[2] * m[4], '0'))
+	prec = conv == "d" ? "" : "." * string(isnothing(m[5]) ? length(m[4]) : max(length(m[4]), sig - 1))
 	#  An exponent that has neither a plus sign nor leading zeros is the minimal exponent.
 	minimal = !isnothing(m[5]) && m[6] != "+" && !(length(m[7]) > 1 && m[7][1] == '0')
 	"%" * flags * width * prec * conv * (minimal ? "|-" : "")
@@ -113,8 +116,18 @@ end
 """
 	parse_complex(real::AbstractString, imag::AbstractString)
 
-Determine the type of a complex number as the smallest type that holds both parts.
+Determine the type of a complex number as the smallest type that holds both parts. The parts are
+integers if both are integers, and otherwise floats, where an integer is a float of a type that
+holds the integer exactly, i.e., a Float32, a Float64, or a BigFloat.
 """
 function parse_complex(real::AbstractString, imag::AbstractString)
-	complex(parse_number(real), parse_number(imag))
+	re, im = parse_number(real), parse_number(imag)
+	re isa Integer && im isa Integer && return complex(re, im)
+	T = promote_type(re isa AbstractFloat ? typeof(re) : Float32, im isa AbstractFloat ? typeof(im) : Float32)
+	for part in (re, im)
+		part isa Integer || continue
+		T(part) == part && continue
+		T = Float64(part) == part ? Float64 : BigFloat
+	end
+	complex(T(re), T(im))
 end

@@ -7,6 +7,12 @@ Parse 80 character card image from string buffer. A number with a lower case exp
 (d or e) is not allowed by the standard, so it is an invalid card, unless `strict` is false.
 The units of a number, i.e., a unit string in square brackets at the beginning of the comment,
 are the units of the value, unless `units` is false or the keyword is mandatory.
+
+The card is written as it is read, with the following exceptions, where the value is not changed:
+a number without an integer digit has a zero, e.g., `.5` is `0.5`; an exponent has at least two
+digits and a mantissa has one integer digit, e.g., `E+007` is `E+07` and `56.53E+13` is `5.653E+14`;
+the sign of an integer zero is lost; and a number that is longer than before takes the spaces before
+the comment, but may move the comment, and the end of the comment of a full card is lost.
 """
 function Base.parse(::Type{Card}, image::AbstractString; strict::Bool = true, units::Bool = true)
 	#  Parse Card image for keys, values, and comments. Construct Card.
@@ -190,14 +196,14 @@ function parse_value_comment(::Type{Hierarch}, image::AbstractString; strict::Bo
 		value = trimvalue(replace(strg[2:(end-1)], "''" => "'"))
 	elseif !isnothing(values[:bool])
 		value = values[:bool] == "T" ? true : false
-		format.vend = Int8(offsets[:bool])
+		format.vbeg, format.vend = Int8(offsets[:bool]), Int8(offsets[:bool])
 	elseif !isnothing(values[:numr])
 		value = parse_number(values[:numr])
-		format.vend = Int8(offsets[:numr]+length(values[:numr])-1)
+		format.vbeg, format.vend = Int8(offsets[:numr]), Int8(offsets[:numr]+length(values[:numr])-1)
 		format.vfmt = realfmt(values[:numr])
 	elseif !isnothing(values[:cplx])
 		value = parse_complex(values[:real], values[:imag])
-		format.vend = Int8(offsets[:cplx]+length(values[:cplx])-1)
+		format.vbeg, format.vend = Int8(offsets[:cplx]), Int8(offsets[:cplx]+length(values[:cplx])-1)
 		format.vfmt = complexfmt(values[:cplx])
 	else
 		value = missing
