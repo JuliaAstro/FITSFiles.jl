@@ -8,7 +8,7 @@ FITS files are composed of an array of header-data units (HDUs).
 """
 module FITSFiles
 
-export CardType, CommentCard, Comment, Continue, End, Hierarch, History
+export Comment, Continue, End, Hierarch, History
 export Invalid, Value
 export Primary, Conform, Random, Image, Table, Bintable, ZImage, ZTable
 export IUEImage, A3DTable, Foreign, Dump
