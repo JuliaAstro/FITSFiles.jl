@@ -817,4 +817,17 @@
         end
     end
 
+    #  The key and the comment of a card are Strings, even if they are another type of string.
+    @testset "String key and comment" begin
+        card = Card(SubString("xxABCDxx", 3, 6), 1, SubString("a comment here", 3, 9))
+        @test card.key isa String && card.comment isa String
+        @test card.key == "ABCD" && card.comment == "comment"
+        card = Card("HIERARCH", SubString("xxESO Axx", 3, 7), 1, SubString("a comment", 3, 9))
+        @test card.key isa String && card.comment isa String && card.key == "ESO A"
+        for card in (parse(Card, rpad("KEY     = 1 / c", 80)), parse(Card, rpad("COMMENT text", 80)),
+            parse(Card, rpad("HIERARCH ESO A = 1 / c", 80)), parse(Card, rpad("END", 80)), parse(Card, "short"))
+            @test card.key isa String && card.comment isa String
+        end
+    end
+
 end

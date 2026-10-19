@@ -84,13 +84,13 @@ Value{T}.
   the last character that fits, instead of splitting at any character if `nothing`
 """
 struct Card{T <: AbstractCardType}
-	key::AbstractString
+	key::String
 	value::ValueType
 	units::Any
-	comment::AbstractString
+	comment::String
 	format::CardFormat
 	function Card(T, key, value, units, comment, format)
-		new{T}(key, value, units, comment, format)
+		new{T}(String(key), value, units, String(comment), format)
 	end
 end
 
