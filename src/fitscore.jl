@@ -9,7 +9,7 @@
 
 Open and read a FITS file, returning a vector of header-data units (HDUs).
 
-The default data stucture for Random and Bintable HDUs is a named tuple of arrays.
+The default data structure for Random and Bintable HDUs is a named tuple of arrays.
 
 # Keywords
 

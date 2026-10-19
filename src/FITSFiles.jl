@@ -2,9 +2,12 @@
 FITSFiles.jl is a Julia implementation of the Flexible Image Transport System (FITS) file
 format.
 
-FITS files are composed of an array of header-data units (HDUs).
+FITS files are composed of a vector of header-data units (HDUs), where an HDU is a header, which
+is a vector of cards, followed by data.
 
-* fits: is the most common function for reading a file.
+- [`fits`](@ref) is the most common function for reading a file, and `write` writes it.
+- [`HDU`](@ref) creates a header-data unit.
+- [`Card`](@ref) creates, and `parse` reads, a card of a header.
 """
 module FITSFiles
 
@@ -25,13 +28,13 @@ using Printf, Unitful, UnitfulAngles, UnitfulAstro, UnitfulAtomic
 #         Groups.
 #  V0.3   Implement lazy array
 #  V0.4   Implement compression
-#  V0.5   Implement units, inluding date and time
+#  V0.5   Implement units, including date and time
 #  V0.6   Implement verification
 #  V0.7   Implement World-coordinate system
 #  V0.8   Implement checksums
 #  V0.9   Implement Conforming extensions
 #  V0.10  Implement optimizations
-#  V1.11  Verify implementation meets current standard
+#  V1.0   Verify implementation meets current standard
 
 include("card.jl")
 include("field.jl")
