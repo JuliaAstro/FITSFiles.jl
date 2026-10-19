@@ -40,8 +40,6 @@ function makecard(upkey::AbstractString, value, units, comment::AbstractString, 
 	#  Check for invalid characters in key, value string, and comment.
 	if !is_hierarch(upkey) && occursin(NON_KEY_TEXT, upkey)
 		throw(ArgumentError("Keyword contains invalid characters."))
-	elseif has_zero_index(upkey)
-		throw(ArgumentError("The index of the keyword has leading zeros."))
 	elseif !ismissing(value) && typeof(value) <: AbstractString && occursin(NON_ASCII_TEXT, value)
 		throw(ArgumentError("Value string contains invalid characters."))
 	elseif !ismissing(comment) && occursin(NON_ASCII_TEXT, comment)
@@ -175,7 +173,7 @@ is_supported(value) = false
 
 function is_fixed_key(key::AbstractString)
 	key in ("SIMPLE", "XTENSION", "BITPIX", "NAXIS", "PCOUNT", "GCOUNT", "END") ||
-		occursin(r"^NAXIS[1-9]\d{0,2}$", key)
+		occursin(r"^NAXIS\d{1,3}$", key)
 end
 
 #  The indexes of the comment separators of the first card and of the CONTINUE cards of a long
@@ -205,14 +203,6 @@ function long_string_slash(value::AbstractString, comment::AbstractString,
 	else
 		isempty(comment) ? (CARDLENGTH + 2, CARDLENGTH + 2) : (slash, slash2)
 	end
-end
-
-#  An indexed keyword of the standard has an index that is a positive integer without leading zeros
-#  (Sect. 4.1.2.1), so an index that begins with 0 is not valid.
-function has_zero_index(key::AbstractString)
-	'0' in key || return false
-	m = match(INDEXED_KEY, key)
-	!isnothing(m) && any(i -> !isnothing(i) && startswith(i, '0'), m.captures)
 end
 
 function is_hierarch(key::AbstractString)

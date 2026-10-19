@@ -27,7 +27,7 @@ function Base.parse(::Type{Card}, image::AbstractString; strict::Bool = true, un
 		key = rstrip(image[1:KEYLENGTH])
 		if image == END_IMAGE
 			card = Card(End, "END", missing, "", CardFormat())
-		elseif key != "END" && !has_zero_index(key) && (m = match(VALUE_CARD_RE, image[1:TOKENLEN])) !== nothing
+		elseif key != "END" && (m = match(VALUE_CARD_RE, image[1:TOKENLEN])) !== nothing
 			#  The mandatory keywords have no units.
 			parsed = parse_value_comment(Value, image[(TOKENLEN+1):end]; strict,
 				units = units && !is_fixed_key(key))

@@ -68,10 +68,7 @@ Other values, e.g., a `Rational` or `Complex{Bool}`, are an `ArgumentError`, and
 not finite is a `DomainError`, since the FITS Standard has no such values. The text of a string
 and of a comment is the printable ASCII characters, 32 to 126.
 
-A keyword is converted to upper case. The index of an indexed keyword of the Standard, e.g., `NAXIS2`,
-`TFORM3`, `CTYPE1A`, and `PC1_2`, is a positive integer without leading zeros (Sect. 4.1.2.1), so
-`NAXIS01` or `TFORM001` is an `ArgumentError`, and a record with such a keyword and a value is an
-`Invalid` card when it is parsed. A keyword with the characters `A`-`Z`, `0`-`9`, `-`, and `_`
+A keyword is converted to upper case. A keyword with the characters `A`-`Z`, `0`-`9`, `-`, and `_`
 and at most 8 characters is a regular keyword. A longer keyword is a [HIERARCH](#HIERARCH-keywords)
 keyword.
 
@@ -488,7 +485,6 @@ A card is a scalar in a broadcast, e.g., `cards .== a`.
 | Error                                         | Cause                                                              |
 |:----------------------------------------------|:-------------------------------------------------------------------|
 | `ArgumentError`                               | a keyword, a string, or a comment with characters that are not allowed |
-| `ArgumentError`                               | an indexed keyword of the Standard with an index that has leading zeros, e.g., `NAXIS01` |
 | `ArgumentError`                               | a value of a type that cannot be written                           |
 | `ArgumentError`                               | a string value for a number, or a value that is not a string for a commentary or CONTINUE card |
 | `ArgumentError`                               | a comment, units, or a HIERARCH keyword and value that do not fit on the card |

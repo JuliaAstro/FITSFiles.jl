@@ -1060,28 +1060,4 @@
         @test Card("KEY", 1, "  [m] x").units == Unitful.m
     end
 
-    #  The index of an indexed keyword of the standard is a positive integer without leading zeros (Sect. 4.1.2.1).
-    @testset "keyword index" begin
-        for key in ("NAXIS01", "NAXIS001", "NAXIS0", "TFORM01", "TTYPE001", "TUNIT0", "TSCAL02", "TZERO03", "TNULL004", "TDISP05",
-            "TDIM06", "TBCOL07", "TLMIN08", "TLMAX09", "TDMIN010", "TDMAX011", "PTYPE01", "PSCAL01", "PZERO01", "ZNAXIS01",
-            "ZTILE01", "ZNAME01", "ZVAL01", "ZFORM01", "ZCTYP01", "CTYPE01", "CRVAL01", "CRPIX01", "CDELT01", "CROTA01",
-            "CUNIT01", "CTYPE01A", "CRVAL01A", "PC01_1", "PC1_01", "CD01_01", "PV01_1", "PS1_01", "TCTYP01", "TCRVL01")
-            @test_throws "The index of the keyword has leading zeros." Card(key, 1)
-            @test_throws ArgumentError Card(key, "string", "comment"; fixed = false)
-            @test !FITSFiles.is_fixed_key(key)
-        end
-        for key in ("NAXIS1", "NAXIS2", "NAXIS10", "NAXIS999", "TFORM1", "TTYPE12", "TDISP100", "ZNAXIS3", "CTYPE1", "CTYPE1A",
-            "CRVAL3Z", "PC1_1", "PC2_3", "CD12_13", "PV1_10", "TCTYP5", "NAXIS", "BITPIX")
-            @test Card(key, 1) isa Card
-            @test !FITSFiles.has_zero_index(key)
-        end
-        #  The keywords that are not indexed keywords of the standard, and HIERARCH keywords, may have zeros.
-        for key in ("KEY001", "ABC01", "A0", "DATE-OBS", "RA_0001", "X0000001", "PCOUNT", "GCOUNT", "TFORM", "NAXISN", "CD01")
-            @test Card(key, 1) isa Card
-        end
-        @test Card("HIERARCH", "ESO TFORM01 NAXIS001", 1, "") isa Card
-        @test Card("NAXIS", 2).format.fixd && Card("NAXIS12", 2).format.fixd && Card("NAXIS999", 2).format.fixd
-        @test !FITSFiles.is_fixed_key("NAXIS01") && !FITSFiles.is_fixed_key("NAXIS1000") && !FITSFiles.is_fixed_key("NAXIS0")
-    end
-
 end
