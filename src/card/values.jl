@@ -96,7 +96,7 @@ function setvalue!(card::Card, value::ValueInput; fixed::Union{Bool, Nothing} = 
 				(m = match(r"^\[[^\]]*\]( *)", comment)) !== nothing
 				comment = comment[(length(m.match)+1):end]
 				upad = something(upad_given, length(m[1]))
-			elseif isnothing(units)
+			elseif isnothing(units) && startswith(comment, '[')
 				#  The units at the beginning of the comment of a number are the units of the number.
 				units, comment, nspaces, style = commentunits(card.key, value, units, comment, upad)
 				if !isnothing(units)
