@@ -74,8 +74,11 @@ Value{T}.
   that has more than 20 characters is written with fewer digits of the mantissa, which are
   truncated, e.g., `1.2345678901234567e-100` is written as `1.2345678901234D-100`. Use
   `fixed=false` to keep all of the digits.
-- `slash::Integer=32`: index of the comment separator (/). A string that passes the separator moves
-  the separator to the right. A comment, and the units, must end at or before the end of the card.
+- `slash::Integer=32`: index of the comment separator (/). A value that passes the separator moves
+  the separator to the right. A number in fixed format ends at the index 30, so the separator is at
+  the index 32 or later. A comment, and the units, must end at or before the end of the card. If
+  there is no space for the comment after the separator, the comment is dropped, or is continued at
+  the index 32 on the CONTINUE cards of a string if `truncate` is false.
 - `lpad::Integer=1`: number of spaces before comment separator
 - `rpad::Integer=1`: number of spaces after comment separator
 - `upad::Integer=1`: number of spaces after the units string

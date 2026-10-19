@@ -449,8 +449,10 @@
         "CONTINUE  'ara Kelley O''Hara Kelley O&'  / mment",
         "CONTINUE  '''Hara '"]
     @test isequal(showfields(card[1])[1:3], ("LONGCOM", "Kelley O'Hara Kelley O'Har", "long comment long comment long comme"))
-    @test isequal(showfields(card[3])[1:3], ("CONTINUE", "ara Kelley O'Hara Kelley O", "mment "))
-    @test FITSFiles.join_cards(card).value == value && FITSFiles.join_cards(card).comment == comment
+    @test isequal(showfields(card[3])[1:3], ("CONTINUE", "ara Kelley O'Hara Kelley O", "mment"))
+    #  the pieces of a comment that is split at any character are joined with a space, as are the pieces of an image.
+    @test FITSFiles.join_cards(card).value == value
+    @test replace(FITSFiles.join_cards(card).comment, " " => "") == replace(comment, " " => "")
 
     #  type of String Card having string with multiple single quotes with CONTINUE cards in free-format
     value, comment = repeat("Kelley O'Hara ", 6), repeat("long comment ", 10)
@@ -460,7 +462,8 @@
         "CONTINUE  'ra Kelley O''Hara Kelley O&'  / t long comment long comment long comm",
         "CONTINUE  '''Hara Kelley O''Hara Kelle&' / ent long comment long comment long co",
         "CONTINUE  'y O''Hara '                   / mment long comment"]
-    @test FITSFiles.join_cards(card).value == value && FITSFiles.join_cards(card).comment == comment
+    @test FITSFiles.join_cards(card).value == value
+    @test replace(FITSFiles.join_cards(card).comment, " " => "") == replace(comment, " " => "")
 
     #  a string that fits on a card is not split, and moves the comment to the right of the string,
     #  and the comment is truncated, if truncate is true.
@@ -524,7 +527,7 @@
                   ("CONTINUE", "long string value long string value ", "omment long comment long com",
                    "CONTINUE  'long string value long string value &' / omment long comment long com"))
     @test isequal(showfields(card[5]),
-                  ("CONTINUE", "long string value long string value ", "ment long comment ",
+                  ("CONTINUE", "long string value long string value ", "ment long comment",
                    "CONTINUE  'long string value long string value '  / ment long comment           "))
 
     #  Value Card with multiple long words
@@ -555,7 +558,7 @@
                   ("CONTINUE", "", "omment long comment long com",
                    "CONTINUE  '&'                                     / omment long comment long com"))
     @test isequal(showfields(card[5]),
-                  ("CONTINUE", "", "ment long comment ",
+                  ("CONTINUE", "", "ment long comment",
                    "CONTINUE  ''                                      / ment long comment           "))
 
     ###  test Mandatory keywords
@@ -932,6 +935,59 @@
         @test card.value === 1.5 && card.units == Unitful.m
         for card in (parse(Card, rpad("KEY     = 1.5 / [m] c", 80)), Card("KEY", q))
             @test !(card.value isa Quantity) && card.units == Unitful.m
+        end
+    end
+
+    #  The comment separator of a value in free-format is at the index of the keyword, if the value is before it.
+    @testset "slash of a free-format value" begin
+        for value in (1, 1.5, 12345678, true, "abc", 1 + 2im, missing, 2.5f0)
+            for slash in (14, 20, 26, 32, 40)
+                card = Card("KEY", value, "c"; fixed = false, slash)
+                image = repr(card)
+                @test findfirst('/', image) >= slash
+                @test card.comment == parse(Card, image).comment == "c"
+            end
+        end
+        @test findfirst('/', repr(Card("KEY", 1, "c"; fixed = false, slash = 14))) == 14
+        @test findfirst('/', repr(Card("KEY", 1.5, "c"; fixed = false, slash = 20))) == 20
+        @test findfirst('/', repr(Card("KEY", true, "c"; fixed = false, slash = 20))) == 20
+        @test findfirst('/', repr(Card("KEY", "abc", "c"; fixed = false, slash = 20))) == 20
+        @test findfirst('/', repr(Card("KEY", 1, "c"; fixed = false))) == 32
+        #  A value in fixed-format ends at byte 30, so the separator is at byte 32 or later.
+        @test findfirst('/', repr(Card("KEY", 1, "c"; slash = 14))) == 32
+        @test findfirst('/', repr(Card("KEY", 1, "c"; slash = 40))) == 40
+    end
+
+    #  A comment that does not fit is continued at the default index, if the comment separator is at the end of the card.
+    @testset "comment with a separator at the end of the card" begin
+        comment = repeat("word ", 8)
+        cards = Card("K", "aaaaa", comment; slash = 79, truncate = false)
+        @test cards isa Vector && FITSFiles.join_cards(cards).comment == strip(comment)
+        @test rstrip.(repr.(cards)) == ["K       = 'aaaaa&'", "CONTINUE  ''                   / " * strip(comment)]
+        cards = Card("K", repeat("x", 100), comment; slash = 79, truncate = false)
+        @test FITSFiles.join_cards(cards).comment == strip(comment) && FITSFiles.join_cards(cards).value == repeat("x", 100)
+        card = Card("K", "aaaaa", comment; slash = 79)
+        @test card isa Card && isempty(card.comment) && repr(card) == rpad("K       = 'aaaaa'", 80)
+        @test_throws "Comment does not fit on the card." Card("K", "a", "c"; slash = 79, truncate = false, rpad = 60)
+        #  A string that fits is a card, and a list has more than one card.
+        for kw in (NamedTuple(), (; truncate = false), (; slash = 79, truncate = false))
+            @test Card("K", "abc"; kw...) isa Card
+        end
+        @test Card("K", repeat("x", 69)) isa Vector && length(Card("K", repeat("x", 69))) == 2
+    end
+
+    #  The spaces at the ends of a comment are not significant, so the comment is the comment of the image.
+    @testset "spaces of a comment" begin
+        for comment in ("  spaced comment  ", " lead", "trail  ", "  ", "")
+            for value in (1, "abc", 1.5, true, missing, 1 + 2im, repeat("x", 60), repeat("word ", 40))
+                cards = Card("KEY", value, comment)
+                cards = cards isa Card ? [cards] : cards
+                @test startswith(strip(comment), cards[1].comment)
+                value isa AbstractString && length(value) > 68 && continue
+                @test cards[1].comment == parse(Card, repr(cards[1])).comment
+            end
+            @test Card("HIERARCH", "ESO A", 1, comment).comment == strip(comment)
+            @test FITSFiles.setvalue!(Card("KEY", 1, "c"), 2; slash = 40).comment == "c"
         end
     end
 

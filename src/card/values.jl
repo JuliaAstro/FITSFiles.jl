@@ -91,7 +91,8 @@ function setvalue!(card::Card, value::ValueInput; fixed::Union{Bool, Nothing} = 
 			if !isnothing(splitslash)
 				cards = split_card(card.key, value, comment,
 					(; fixed, slash = splitslash[1], slash2 = splitslash[2], lpad, rpad, upad, append, splitat))
-				return [Card(t, k, v, c, f) for (t, k, v, c, f) in cards]
+				cards = [Card(t, k, v, c, f) for (t, k, v, c, f) in cards]
+				return length(cards) == 1 ? cards[1] : cards
 			end
 			args = T == Hierarch ? (card.key,) : ()
 			fmt = layout_card(type, args..., value, comment; fixed, append,
@@ -144,7 +145,9 @@ end
 	join_cards(cards)
 
 Join CONTINUE cards to initial long string card to create a long value and comment card.
-Cards after the end of the continued string are ignored.
+Cards after the end of the continued string are ignored. The comments of the cards are joined with
+a space, unless a comment ends with a space, since the spaces at the end of the comment of an image
+are not read, e.g., a comment that is split at any character has a space at the split.
 """
 function join_cards(cards::AbstractVector)
 	#  Cards are joined while the preceding card ends with an ampersand and the next card is a
@@ -157,7 +160,13 @@ function join_cards(cards::AbstractVector)
 	end
 	joined = cards[1:n]
 	value = join((c.value for c in joined)) * (joined[n].format.ampr > 0 ? "&" : "")
-	comment = join((c.comment for c in joined))
+	#  The comments of the cards are joined with a space, unless a comment ends with a space, since the
+	#  spaces at the ends of the comment of an image are not read.
+	comment = ""
+	for c in joined
+		isempty(c.comment) && continue
+		comment *= (isempty(comment) || endswith(comment, ' ') || startswith(c.comment, ' ') ? "" : " ") * c.comment
+	end
 	format = deepcopy(cards[1].format)
 	format.ampr = 0
 	Card(typename(cards[1]), cards[1].key, value, comment, format)

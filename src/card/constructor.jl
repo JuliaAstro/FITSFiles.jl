@@ -3,8 +3,10 @@ function Card(key::K = "", value::V = missing, comment::C = ""; fixed::B = true,
 	truncate::B = true, warn::B = true, splitat::Union{Char, Nothing} = ' ') where
 	{B <: Bool, I <: Integer, K <: AbstractString, V <: ValueInput, C <: AbstractString}
 
-	#  Convert key to uppercase and remove trailing spaces.
+	#  Convert key to uppercase and remove trailing spaces. The spaces at the ends of a comment are
+	#  not significant, since they are not read.
 	upkey = uppercase(strip(key))
+	comment = strip(comment)
 	#  Mandatory keywords are always in fixed format.
 	fixed = fixed || is_fixed_key(upkey)
 
@@ -70,6 +72,8 @@ function Card(key::K = "", value::V = missing, comment::C = ""; fixed::B = true,
 		cards = split_card(upkey, value, comment,
 			(; fixed, slash = splitslash[1], slash2 = splitslash[2], lpad, rpad, upad, append, splitat))
 		cards = [Card(t, k, v, c, f) for (t, k, v, c, f) in cards]
+		#  A string that is not split is a card, and not a list of one card.
+		length(cards) == 1 && return cards[1]
 	else
 		#  Create Value card that is not a long string. The key is valid, because the
 		#  characters of the key are checked above and a long key is a HIERARCH key.
@@ -92,6 +96,7 @@ function Card(key::K, tokens::T, value::V, comment::C;
 
 	#  Convert key to uppercase and remove trailing SPECIAL_KEYS
 	upkey, uptoken = uppercase(strip(key)), uppercase(strip(tokens))
+	comment = strip(comment)
 	#  The units of a quantity are not part of the value.
 	value, units = splitunits(value)
 	is_supported(value) || throw(ArgumentError("Value type $(typeof(value)) is not supported."))
@@ -154,14 +159,21 @@ function long_string_slash(value::AbstractString, comment::AbstractString,
 	slash::I, lpad::I, rpad::I, truncate::Bool) where I <: Integer
 
 	vlen = length(replace(value, "'" => "''"))
+	#  The comment separator of the CONTINUE cards is the separator of the card, unless there is no space
+	#  for the comment after it, where it is the default separator, if the comment is continued.
+	slash2 = slash
+	if !truncate && !isempty(comment) && comment_length(slash, rpad) <= 0
+		slash2 = 32
+		comment_length(slash2, rpad) <= 0 && throw(ArgumentError("Comment does not fit on the card."))
+	end
 	if vlen <= value_length(slash, lpad)
-		(truncate || length(comment) <= comment_length(slash, rpad)) ? nothing : (slash, slash)
+		(truncate || length(comment) <= comment_length(slash, rpad)) ? nothing : (slash, slash2)
 	elseif vlen <= CARDLENGTH - TOKENLEN - 2
 		#  The comment separator follows the string, and the continued string has an ampersand.
 		next = vlen + lpad + TOKENLEN + 3
-		(truncate || length(comment) <= comment_length(next, rpad)) ? nothing : (next + 1, slash)
+		(truncate || length(comment) <= comment_length(next, rpad)) ? nothing : (next + 1, slash2)
 	else
-		isempty(comment) ? (CARDLENGTH + 2, CARDLENGTH + 2) : (slash, slash)
+		isempty(comment) ? (CARDLENGTH + 2, CARDLENGTH + 2) : (slash, slash2)
 	end
 end
 

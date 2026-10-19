@@ -81,7 +81,7 @@ of the card, and the layout of a card that is parsed is read from the image.
 | Keyword    | Default | Function                                                                                   |
 |:-----------|:--------|:-------------------------------------------------------------------------------------------|
 | `fixed`    | `true`  | Use the fixed format, where a number ends at byte 30 and a string begins at byte 11. The free format has the value anywhere after byte 10. The mandatory keywords are always in fixed format. See [Fixed and free format](#Fixed-and-free-format). |
-| `slash`    | `32`    | The index, in bytes, of the comment separator `/`. A value that passes the index moves the separator and the comment to the right, and a separator at the end of the card has no comment. |
+| `slash`    | `32`    | The index, in bytes, of the comment separator `/`. A value that passes the index moves the separator and the comment to the right, and a separator at the end of the card has no comment, unless `truncate = false`, where the comment is continued at index 32. A number in fixed format ends at byte 30, so its separator is at byte 32 or later. |
 | `lpad`     | `1`     | The least number of spaces between the value and the comment separator.                    |
 | `rpad`     | `1`     | The number of spaces between the comment separator and the units or the comment.           |
 | `upad`     | `1`     | The number of spaces between the units and the comment.                                    |
@@ -234,6 +234,10 @@ julia> foreach(show_, cards)
 KEY     = 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx&' / a
 CONTINUE  ''                   / comment that is continued
 ```
+
+The spaces at the ends of a comment are not significant, so they are not part of the comment of a
+card. The comments of the cards of a long string are joined by `join_cards` with a space, unless a
+comment ends with a space.
 
 A string that does not fit on one card is split into the cards of a long string, a card and
 the `CONTINUE` cards (Sect. 4.2.1.2), which are returned as a vector. Every card but the last
@@ -397,7 +401,7 @@ julia> show_(setvalue!(card, 2.5))
 KEY     = 2.50 / c
 
 julia> show_(setvalue!(card, 2.567))
-KEY     = 2.567                / c
+KEY     = 2.567 / c
 ```
 
 A string that does not fit is split into the cards of a long string, as by `Card`. The value of

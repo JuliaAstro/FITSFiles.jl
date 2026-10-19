@@ -438,4 +438,38 @@
         @test_throws MethodError FITSFiles.setvalue!(list, "KEY", "bbb"; unknown = 1)
     end
 
+    #  The comments of the CONTINUE cards of an image are joined with a space, since the spaces at the
+    #  ends of a comment are not read (Sect. 4.2.1.2).
+    @testset "join the comments of an image" begin
+        images = ["STRKEY  = 'This keyword value is continued &'", "CONTINUE  ' over multiple keyword records.&'",
+                  "CONTINUE  '&' / The comment field for this", "CONTINUE  '&' / keyword is also continued",
+                  "CONTINUE  '' / over multiple records."]
+        cards = Card{<:Any}[]
+        previous = nothing
+        for image in images
+            card = parse(Card, rpad(image, 80), previous)
+            push!(cards, card)
+            previous = card
+        end
+        joined = FITSFiles.join_cards(cards)
+        @test joined.value == "This keyword value is continued  over multiple keyword records."
+        @test joined.comment == "The comment field for this keyword is also continued over multiple records."
+        #  a comment that is split by the constructor is joined again, and the image of the cards is joined in the same way.
+        comment = repeat("comment words ", 12)
+        cards = Card("K", repeat("word ", 30), comment)
+        @test FITSFiles.join_cards(cards).comment == strip(comment)
+        parsed = Card{<:Any}[]
+        previous = nothing
+        for card in cards
+            card = parse(Card, repr(card), previous)
+            push!(parsed, card)
+            previous = card
+        end
+        @test FITSFiles.join_cards(parsed).comment == strip(comment)
+        @test FITSFiles.join_cards(parsed).value == strip(repeat("word ", 30))
+        #  empty comments are not joined, and a comment that ends with a space is not given another space.
+        one = Card{<:Any}[Card("K", "a&"; append = false), parse(Card, rpad("CONTINUE  'b'", 80), Card("K", "a&"))]
+        @test isempty(FITSFiles.join_cards(one).comment)
+    end
+
 end
