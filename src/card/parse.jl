@@ -85,14 +85,22 @@ function Base.parse(::Type{Card}, image::AbstractString, previous; strict::Bool 
 	card
 end
 
-function named_offsets(match::RegexMatch)
-	(; (Symbol.(keys(match)) .=> match.offsets[1:length(keys(match))])...)
+#  The indexes of the named groups of a regex, which are found once and not for each match.
+function group_indexes(regex::Regex)
+	Base.compile(regex)
+	(; (Symbol(name) => index for (index, name) in sort!(collect(Base.PCRE.capture_names(regex.regex))))...)
 end
 
+const VALUE_GROUPS = group_indexes(VALUE_FSC_2)
+const HIERARCH_GROUPS = group_indexes(HIERARCH_FSC)
+
+#  The offsets of the named groups of a match, where the groups are the indexes of the regex.
+named_offsets(match::RegexMatch, groups::NamedTuple) = map(index -> match.offsets[index], groups)
+
+#  The type of the value is the type of the first group that matches.
 function value_type(valus::RegexMatch)
-	types = (strg = String, bool = Bool, numr = Real, cplx = Complex, miss = Missing)
-	names = (:strg, :bool, :numr, :cplx, :miss)
-	basetype(Tuple(types[k] for k in names if valus[k] !== nothing)[1])
+	!isnothing(valus[:strg]) ? String : !isnothing(valus[:bool]) ? Bool :
+	!isnothing(valus[:numr]) ? Real : !isnothing(valus[:cplx]) ? Complex : Missing
 end
 
 #  A value field is malformed if it does not match, or if text follows the value without a
@@ -104,7 +112,7 @@ function parse_value_comment(::Type{Value}, image::AbstractString; strict::Bool 
 	units::Bool = true)
 	valus = match(strict ? VALUE_FSC_2 : VALUE_LOWER, image)
 	ismalformed(valus) && return nothing
-	offsets = named_offsets(valus)
+	offsets = named_offsets(valus, VALUE_GROUPS)
 	value, format = parse_value(value_type(valus), valus, offsets)
 	unit, comment, format = parse_comment!(format, valus, offsets; units)
 	(value, unit, String(comment), format)
@@ -170,7 +178,7 @@ function parse_value_comment(::Type{Hierarch}, image::AbstractString; strict::Bo
 	units::Bool = true)
 	values = match(strict ? HIERARCH_FSC : HIERARCH_LOWER, image)
 	ismalformed(values) && return nothing
-	offsets = named_offsets(values)
+	offsets = named_offsets(values, HIERARCH_GROUPS)
 
 	format = CardFormat(false, offsets[:key], 0, offsets[:equal])
 	key = uppercase(values[:key])

@@ -274,4 +274,19 @@
     @test get(cards, ("A", "B", "NONE"), (0.0f0, 0, 0)) == (1.5f0, 2, 0)
     @test cards["A"] * units(cards, "A") === 1.5f0 * u"km/s"
 
+    #  the unit of a string is cached, including a string that is not a unit string, and the cache is bounded.
+    @testset "parseunit cache" begin
+        empty!(FITSFiles.PARSEUNIT_CACHE)
+        unit = FITSFiles.parseunit("km/s")
+        @test FITSFiles.PARSEUNIT_CACHE["km/s"] === unit && FITSFiles.parseunit(" km/s ") === unit
+        @test FITSFiles.parseunit("foo") === nothing && haskey(FITSFiles.PARSEUNIT_CACHE, "foo")
+        @test FITSFiles.parseunit("foo") === nothing
+        @test FITSFiles.parseunit("km/s") == u"km/s"
+        for i in 1:(FITSFiles.PARSEUNIT_CACHE_SIZE + 5)
+            @test FITSFiles.parseunit("m$(i)") == u"m"^i
+        end
+        @test length(FITSFiles.PARSEUNIT_CACHE) <= FITSFiles.PARSEUNIT_CACHE_SIZE
+        @test FITSFiles.parseunit("km/s") == u"km/s"
+    end
+
 end

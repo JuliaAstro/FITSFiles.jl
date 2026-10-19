@@ -723,4 +723,19 @@
         end
     end
 
+    #  The offsets of a match are found by the indexes of the named groups, which are the same for
+    #  the regexes of the standard and of the lenient (strict = false) parser.
+    @testset "regex groups" begin
+        @test FITSFiles.group_indexes(FITSFiles.VALUE_LOWER) == FITSFiles.VALUE_GROUPS
+        @test FITSFiles.group_indexes(FITSFiles.HIERARCH_LOWER) == FITSFiles.HIERARCH_GROUPS
+        @test Set(keys(FITSFiles.VALUE_GROUPS)) ==
+            Set((:strg, :ampr, :bool, :numr, :cplx, :real, :imag, :miss, :slash, :comment))
+        @test Set(keys(FITSFiles.HIERARCH_GROUPS)) ==
+            Set((:key, :equal, :strg, :bool, :numr, :cplx, :real, :imag, :miss, :slash, :comment))
+        for strict in (true, false), image in ("KEY     = 1.5 / [m] c", "KEY     = 'a&' / c", "KEY     = (1, 2)",
+            "HIERARCH ESO A B = 1.5 / c", "HIERARCH ESO A B = 'x'")
+            @test FITSFiles.typename(parse(Card, rpad(image, 80); strict)) != FITSFiles.Invalid
+        end
+    end
+
 end

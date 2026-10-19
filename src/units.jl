@@ -127,6 +127,13 @@ function unitname(name::AbstractString)
 	end
 end
 
+#  The units of the strings that are parsed, since the same strings are in many cards. The result of
+#  a string that is not a unit string is nothing. The cache is emptied when it is full, since the
+#  comment of a card may be any text.
+const PARSEUNIT_CACHE = Dict{String, Any}()
+const PARSEUNIT_LOCK = ReentrantLock()
+const PARSEUNIT_CACHE_SIZE = 1000
+
 """
 	parseunit(string)
 
@@ -138,9 +145,15 @@ or by `**` or `^` followed by an integer, a decimal number, or a ratio in parent
 A scale factor, `10**k`, `10^k`, or `10+k`, is followed by a unit and returns a quantity.
 """
 function parseunit(str::AbstractString)
-	str = strip(str)
+	str = String(strip(str))
+	cached = @lock PARSEUNIT_LOCK get(PARSEUNIT_CACHE, str, missing)
+	ismissing(cached) || return cached
 	unit, i = parse_units(str, firstindex(str))
-	isnothing(unit) || i <= lastindex(str) && return nothing
+	unit = isnothing(unit) || i <= lastindex(str) ? nothing : unit
+	@lock PARSEUNIT_LOCK begin
+		length(PARSEUNIT_CACHE) >= PARSEUNIT_CACHE_SIZE && empty!(PARSEUNIT_CACHE)
+		PARSEUNIT_CACHE[str] = unit
+	end
 	unit
 end
 
