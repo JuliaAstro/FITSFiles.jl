@@ -30,7 +30,7 @@ struct Random <: AbstractHDU end
 """
 	Image header-data unit (HDU)
 
-An Image HDU consists of a vector cards and optionally a multidimensional array
+An Image HDU consists of a vector of cards and optionally a multidimensional array
 (<=999 dimensions).
 """
 struct Image <: AbstractHDU end
@@ -68,33 +68,38 @@ const Cards = Union{Vector{Card}, Vector{Card{<:Any}}}
 	HDU(type, missing, [cards]; <keywords>)
 	HDU(type, data, [cards]; <keywords>)
 
-Create an header-data unit described by data and cards of type AbstractHDU.
+Create a header-data unit described by data and cards of type AbstractHDU.
 
 The HDU function tries to determine the HDU type based on the data and cards.
 If only data is provided, then an array is interpreted as a Primary HDU and a
-Tuple or NamedTuple as a BinaryTable. If mandatory cards are provided, then
+Tuple or NamedTuple as a Bintable. If mandatory cards are provided, then
 they are used to determine the HDU type. Otherwise, the HDU type must be
 specified.
 
 HDU types are: Primary, Random, Image, Table, Bintable, and Conform.
 
-# arguments
+# Arguments
 
 - `data::U=missing`: the binary or ASCII data, where `U <: Union{AbstractArray,
    Tuple, NamedTuple, Missing}`
-- `cards::U=missing`: the list of cards, where `U <: Union{Card, Vector{Card}, Missing}`
+- `cards::U=missing`: the list of cards, where `U <: Union{Card, Vector{Card}, Vector{Card{<:Any}},
+  Missing}`
 
 # Keywords
 
 - `record::Bool=false`: structure the data as a list of records
 - `scale::Bool=true`: apply the scale and zero keywords to the data
-- `append::Bool=false`: append CONTINUE cards for long strings (>68 characters)
+
+The following keywords format the cards that are created, and are those of [`Card`](@ref), which
+describes them.
+
+- `append::Bool=false`: append an ampersand to a string that is continued by a CONTINUE card
 - `fixed::Bool=true`: create fixed format cards
-- `slash::Integer=32`: character index of the comment separator (/)
+- `slash::Integer=32`: index of the comment separator (/)
 - `lpad::Integer=1`: number of spaces before the comment separator
 - `rpad::Integer=1`: number of spaces after the comment separator
 - `upad::Integer=1`: number of spaces after the units
-- `truncate::Bool=true`: truncate the comment string at the end of the card
+- `truncate::Bool=true`: truncate a comment that is longer than the space at the end of the card
 """
 struct HDU{S <: AbstractHDU}
 	"The vector of cards."
@@ -306,9 +311,22 @@ function Base.getproperty(hdu::HDU, name::Symbol)
 end
 
 """
-    Base.read(io, type; <keywords>)
+    Base.read(io::IO, ::Type{HDU}; <keywords>)
 
-Read the specified HDU type from a file.
+Read the next header-data unit (HDU) from `io` and return it. The data of an HDU that is read
+from a file is a lazy array, which is read when the data is accessed, and the data of an HDU that
+is read from another stream is read at once.
+
+# Keywords
+
+- `type=nothing`: the HDU type, e.g., `Image`, which is otherwise determined by the mandatory
+  keywords of the header
+- `strict::Bool=true`: numbers with a lower case exponent letter (d or e) are invalid cards,
+  unless false
+- `units::Bool=true`: the units in the comment of a number are the units of the value, unless
+  false
+- `record::Bool=false`: structure the data as a list of records
+- `scale::Bool=true`: apply the scale and zero keywords to the data
 """
 function Base.read(io::IO, ::Type{HDU}; type = nothing, strict::Bool = true, units::Bool = true,
     kwds...)::HDU
@@ -338,9 +356,10 @@ function Base.read(io::IO, ::Type{HDU}; type = nothing, strict::Bool = true, uni
 end
 
 """
-    Base.write(io, hdu; <keywords>)
+    Base.write(io::IO, hdu::HDU; <keywords>)
 
-Write the specified HDU type to a file.
+Write a header-data unit (HDU) to `io`: the header cards, the END card, and blank cards that pad
+the header to a multiple of 2880 bytes, followed by the data.
 """
 function Base.write(io::IO, hdu::HDU{<:AbstractHDU}; kwds...)
 
@@ -404,7 +423,9 @@ end
 """
 	leastfloat(real::Union{Real, Nothing})
 
-Convert an integer the minimum float type of Float32, Float64, and BigFloat.
+Convert an integer to the smallest float type of Float32, Float64, and BigFloat that holds the
+integer, i.e., a Float32 for a 32-bit integer, a Float64 for a 64-bit integer, and otherwise a
+BigFloat. A value that is not an integer is returned as it is.
 """
 function leastfloat(value::Union{Real, Nothing})
 	if typeof(value) <: Integer

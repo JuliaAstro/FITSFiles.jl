@@ -135,7 +135,7 @@ end
 function DataFormat(::Type{Random}, data::Missing, mankeys::Dict{S, V}) where
     {S<:AbstractString, V<:ValueType}
 
-    #  Mandatory keys determine HDU tyhpe
+    #  Mandatory keys determine HDU type
     type  = BITS2TYPE[get(mankeys, "BITPIX", 32)]
     leng  = datalength(mankeys, 2)
     shape = datasize(mankeys, 2)
