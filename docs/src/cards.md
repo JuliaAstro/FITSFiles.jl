@@ -72,6 +72,44 @@ A keyword is converted to upper case. A keyword with the characters `A`-`Z`, `0`
 and at most 8 characters is a regular keyword. A longer keyword is a [HIERARCH](#HIERARCH-keywords)
 keyword.
 
+## Keyword arguments
+
+The keyword arguments of `Card` format the card. The word keyword also means the name of a card,
+so a keyword argument is called a keyword here only if it is clear. The arguments are the layout
+of the card, and the layout of a card that is parsed is read from the image.
+
+| Keyword    | Default | Function                                                                                   |
+|:-----------|:--------|:-------------------------------------------------------------------------------------------|
+| `fixed`    | `true`  | Use the fixed format, where a number ends at byte 30 and a string begins at byte 11. The free format has the value anywhere after byte 10. The mandatory keywords are always in fixed format. See [Fixed and free format](#Fixed-and-free-format). |
+| `slash`    | `32`    | The index, in bytes, of the comment separator `/`. A value that passes the index moves the separator and the comment to the right, and a separator at the end of the card has no comment. |
+| `lpad`     | `1`     | The least number of spaces between the value and the comment separator.                    |
+| `rpad`     | `1`     | The number of spaces between the comment separator and the units or the comment.           |
+| `upad`     | `1`     | The number of spaces between the units and the comment.                                    |
+| `truncate` | `true`  | Truncate a comment that is longer than the space at the end of the card. If `false`, the comment of a string is continued on `CONTINUE` cards, and a comment of another value, and units, that do not fit are an `ArgumentError`. See [Long strings](#Long-strings). |
+| `splitat`  | `' '`   | Split a long string and its comment after the last character `splitat` that fits, or at any character if `nothing`. See [Long strings](#Long-strings). |
+| `append`   | `false` | Append an ampersand to the string, which marks that a `CONTINUE` card continues the string. A string that is too long for a card has the ampersand without the keyword. |
+| `warn`     | `true`  | Warn when a keyword with more than 8 characters creates a [HIERARCH](#HIERARCH-keywords) card. |
+
+```jldoctest cards
+julia> show_(Card("KEY", 1, "comment"))
+KEY     =                    1 / comment
+
+julia> show_(Card("KEY", 1, "comment"; slash = 20, lpad = 0, rpad = 3))
+KEY     =                    1/   comment
+
+julia> show_(Card("KEY", 1, "comment"; fixed = false))
+KEY     = 1                    / comment
+
+julia> show_(Card("KEY", "abc", "comment"; append = true))
+KEY     = 'abc&'               / comment
+```
+
+`setvalue!` has the same keyword arguments, except `warn`, and the default of a layout keyword
+argument is the layout of the card, see [Changing the value](#Changing-the-value). The function
+`parse` has the keywords `strict`, which allows a lower case exponent letter if `false`, and
+`units`, which reads the units from the comment if `true`, see
+[Parsing an image](#Parsing-an-image).
+
 ## Units
 
 A `Quantity` is not a type of value. The units of a quantity are not part of the value, so a
