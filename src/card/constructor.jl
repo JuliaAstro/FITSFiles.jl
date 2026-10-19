@@ -17,6 +17,7 @@ function Card(key::K = "", value::V = missing, comment::C = ""; fixed::B = true,
 
 	#  The units of a quantity are not part of the value.
 	value, units = splitunits(value)
+	is_supported(value) || throw(ArgumentError("Value type $(typeof(value)) is not supported."))
 
 	#  Check for invalid characters in key, value string, and comment.
 	if !is_hierarch(upkey) && occursin(NON_KEY_TEXT, upkey)
@@ -92,6 +93,7 @@ function Card(key::K, tokens::T, value::V, comment::C;
 	upkey, uptoken = uppercase(strip(key)), uppercase(strip(tokens))
 	#  The units of a quantity are not part of the value.
 	value, units = splitunits(value)
+	is_supported(value) || throw(ArgumentError("Value type $(typeof(value)) is not supported."))
 
 	#  Check for invalid characters in key, value string, and comment.
 	if !is_hierarch(upkey) && occursin(NON_KEY_TEXT, upkey)
@@ -127,6 +129,13 @@ is_end_key(key::AbstractString)      = key == "END"
 is_continue_key(key::AbstractString) = key == "CONTINUE"
 is_comment_key(key::AbstractString)  = haskey(COMMENTKEY, key)
 is_valid_key(key::AbstractString) = length(key) <= KEYLENGTH && occursin(KEY_FSC, key)
+
+#  The types of a value that are written as a FITS value: a string, a logical, an integer, a real
+#  float, or a complex number of integers or floats.
+is_supported(value::Missing) = true
+is_supported(value::Union{AbstractString, Bool, Integer, AbstractFloat}) = true
+is_supported(value::Complex{T}) where T = T !== Bool && (T <: Integer || T <: AbstractFloat)
+is_supported(value) = false
 
 function is_string(value::ValueType)
 	typeof(value) <: AbstractString ? true : error("Value is not a string.")

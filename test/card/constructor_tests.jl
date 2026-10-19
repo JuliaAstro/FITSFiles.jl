@@ -798,4 +798,23 @@
         @test length(repr(card)) == 80 && card.comment == parse(Card, repr(card)).comment
     end
 
+    #  A value that cannot be written as a FITS value is an error, and not a card that cannot be written.
+    @testset "unsupported value types" begin
+        for value in (1//2, pi, Complex(1//2, 1), (1//2) * Unitful.m, Complex(true, false), Rational(1, 3))
+            @test_throws "is not supported." Card("KEY", value)
+            @test_throws "is not supported." Card("HIERARCH", "ESO A", value, "")
+            @test_throws "is not supported." Card("KEY", value, "comment"; fixed = false)
+            @test_throws "is not supported." FITSFiles.setvalue!(Card("KEY", 1), value)
+        end
+        #  The other types of numbers are written and read as the same value.
+        for value in (Float16(1.5), big(1.5), UInt8(7), UInt64(2)^63, Int128(10)^30, big(10)^40, Complex(Float16(1), Float16(2)),
+            Complex(UInt8(1), UInt8(2)), 2.5f0 * Unitful.m)
+            card = Card("KEY", value, "c")
+            image = repr(card)
+            @test length(image) == 80
+            @test FITSFiles.typename(parse(Card, image)) != FITSFiles.Invalid
+            @test parse(Card, image).value == ustrip(value)
+        end
+    end
+
 end

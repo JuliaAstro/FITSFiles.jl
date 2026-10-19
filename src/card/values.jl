@@ -27,6 +27,7 @@ function setvalue!(card::Card, value::ValueType; splitat::Union{Char, Nothing} =
 	#  The units of a quantity are not part of the value. A number without units has the units of
 	#  the card, whereas a value of another type has none.
 	value, units = splitunits(value)
+	is_supported(value) || throw(ArgumentError("Value type $(typeof(value)) is not supported."))
 	if isnothing(units) && value isa Union{Real, Complex} && !(value isa Bool)
 		units = card.units
 	end
