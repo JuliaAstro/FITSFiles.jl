@@ -77,7 +77,9 @@ function Card(key::K = "", value::V = missing, comment::C = ""; fixed::B = true,
 			slash, lpad, rpad, upad, truncate, units = unitstring(units))
 	end
 
-	typeof(cards) <: AbstractArray ? cards :
+	typeof(cards) <: AbstractArray && return cards
+	#  The comment of a commentary card is not on the card.
+	type <: Union{Comment, History} || (comment = fitcomment(comment, format))
 	Card(type, upkey, value, units, comment, format)
 end
 
@@ -117,7 +119,7 @@ function Card(key::K, tokens::T, value::V, comment::C;
 	else
 		error("Invalid card")
 	end
-	Card(type, uptoken, value, units, comment, format)
+	Card(type, uptoken, value, units, fitcomment(comment, format), format)
 end
 
 #  check key type

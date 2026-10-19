@@ -78,7 +78,7 @@ function layout_card(::Type{Hierarch{V}}, token::S, value::V, comment::C; kwds..
 		throw(ArgumentError("HIERARCH keyword and value do not fit on the card."))
 	format.vbeg, format.vend, format.ampr = Int8(0), Int8(vend), Int8(ampr)
 	#  Format comment, if necessary
-	formatcomment!(comment, vend, format; kwds...)
+	formatcomment!(comment, vend, format; last = CARDLENGTH - KEYLENGTH - 1, kwds...)
 end
 
 #  Free-format value field of a HIERARCH card: strings are quoted, logicals are T or F,
@@ -101,8 +101,12 @@ function value_image(value::ValueType)
 	end
 end
 
-function formatcomment!(comment::S, vend::I, format::F; units = missing,
-	kwds...) where {S <: AbstractString, I <: Integer, F <: CardFormat}
+#  The units and the comment must fit on the card, i.e., end at or before the last position, which
+#  is counted from the first position of the value field, i.e., byte 11. A comment that does not fit
+#  is truncated, or is an error if `truncate` is false, and a separator that is not on the card
+#  has no comment.
+function formatcomment!(comment::S, vend::I, format::F; units = missing, last::Integer =
+	CARDLENGTH - TOKENLEN, kwds...) where {S <: AbstractString, I <: Integer, F <: CardFormat}
 
 	#  Left padding has priority over the slash index.
 	padl, padr, padu = kwds[:lpad], kwds[:rpad], kwds[:upad]
@@ -110,6 +114,7 @@ function formatcomment!(comment::S, vend::I, format::F; units = missing,
 	#  Prepend units to comment
 	if !ismissing(units)
 		ubeg, uend = slash+padr+1, slash+padr+2+length(units)
+		uend > last && throw(ArgumentError("Units do not fit on the card."))
 		format.slsh = Int8(slash)
 		format.ubeg, format.uend = Int8(ubeg), Int8(uend)
 	end
@@ -117,11 +122,21 @@ function formatcomment!(comment::S, vend::I, format::F; units = missing,
 	if !isempty(comment)
 		cndx = format.uend > 0 ? format.uend+padu : slash+padr
 		cbeg, cend = cndx+1, cndx+length(comment)
-		format.slsh = Int8(slash)
-		format.cbeg, format.cend = Int8(cbeg), Int8(cend)
+		if cend > last
+			get(kwds, :truncate, true) || throw(ArgumentError("Comment does not fit on the card."))
+			cend = last
+		end
+		if cbeg <= cend
+			format.slsh = Int8(slash)
+			format.cbeg, format.cend = Int8(cbeg), Int8(cend)
+		end
 	end
 	format
 end
+
+#  The comment that is on the card, i.e., that is not truncated by the format.
+fitcomment(comment::AbstractString, format::CardFormat) =
+	format.cbeg == 0 ? "" : first(comment, format.cend - format.cbeg + 1)
 
 function value_length(slash::I, lpad::I)::Integer where I <: Integer
 	#  Calculate length of value based comment separator index and padding.

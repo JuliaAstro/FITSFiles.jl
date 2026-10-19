@@ -399,7 +399,7 @@
 
     #  create String Card that truncates comment
     @test isequal(showfields(Card("STRING", repeat("-", 58), "a truncated comment", slash=72, truncate=true)),
-                  ("STRING", "----------------------------------------------------------", "a truncated comment",
+                  ("STRING", "----------------------------------------------------------", "a trunc",
                    "STRING  = '----------------------------------------------------------' / a trunc"))
 
     #  create Value card with no left and right padding for comment separator
@@ -766,6 +766,36 @@
         @test card.key == "HIERARCH" && card.value == "some text"
         @test repr(parse(Card, repr(card))) == repr(card)
         @test FITSFiles.typename(Card("HIERARCH")) == FITSFiles.Comment
+    end
+
+    #  A comment that does not fit on the card is truncated, and the card has the comment of its image.
+    @testset "comment longer than the card" begin
+        for n in (47, 48, 60, 100, 120, 300), value in (1, 2.5f0, "str", true, missing, 1 + 2im)
+            card = Card("KEY", value, repeat("x", n))
+            @test length(repr(card)) == 80
+            @test card.comment == parse(Card, repr(card)).comment
+            @test card.format.cend <= 70
+        end
+        card = Card("HIERARCH", "ESO A", 1, repeat("y", 200))
+        @test length(repr(card)) == 80 && card.comment == parse(Card, repr(card)).comment
+        card = Card("KEY", 1.5f0 * Unitful.km / Unitful.s, repeat("x", 100))
+        @test length(repr(card)) == 80 && card.units == Unitful.km / Unitful.s
+        @test card.comment == parse(Card, repr(card)).comment
+        #  The comment is not on the card when the separator is at the end of the card.
+        @test Card("KEY", 1, "a comment"; slash = 75).comment == "a co"
+        for slash in (80, 200)
+            card = Card("KEY", 1, "a comment"; slash)
+            @test length(repr(card)) == 80 && isempty(card.comment) && card.format.slsh == 0
+        end
+        #  truncate = false is an error when the comment does not fit.
+        @test_throws "Comment does not fit on the card." Card("KEY", 1, repeat("x", 60); truncate = false)
+        @test_throws "Comment does not fit on the card." Card("KEY", 1, "a comment"; slash = 80, truncate = false)
+        @test length(repr(Card("KEY", 1, repeat("x", 47); truncate = false))) == 80
+        #  Units must fit on the card.
+        @test_throws "Units do not fit on the card." Card("KEY", 1.5 * Unitful.km / Unitful.s, "c"; slash = 75)
+        #  setvalue! truncates the comment too.
+        card = FITSFiles.setvalue!(Card("KEY", 1, repeat("x", 47)), 12345678901234567890123)
+        @test length(repr(card)) == 80 && card.comment == parse(Card, repr(card)).comment
     end
 
 end
