@@ -324,11 +324,32 @@
     @test FITSFiles.setvalue!(wide, repeat("a", 40)) isa Card
     @test FITSFiles.setvalue!(wide, repeat("a", 60)) isa Card
     @test length(FITSFiles.setvalue!(wide, repeat("a", 70))) > 1
-    #  the comment is continued, and not truncated, if it does not fit on the card.
+    #  the comment is truncated if it does not fit on the card, and is continued if truncate is false.
     comment = "a comment that is continued on the next card"
-    cards = FITSFiles.setvalue!(Card("OBJECT", "old", comment), repeat("a", 60))
+    card = FITSFiles.setvalue!(Card("OBJECT", "old", comment), repeat("a", 60))
+    @test card isa Card && card.value == repeat("a", 60) && card.comment == "a com"
+    @test card.comment == parse(Card, repr(card)).comment && length(repr(card)) == 80
+    @test FITSFiles.setvalue!(Card("OBJECT", "old", comment), repeat("a", 60); truncate = true) == card
+    cards = FITSFiles.setvalue!(Card("OBJECT", "old", comment), repeat("a", 60); truncate = false)
     @test length(cards) > 1 && FITSFiles.join_cards(cards).value == repeat("a", 60)
     @test FITSFiles.join_cards(cards).comment == comment
+    #  a comment that fits is the same for both settings, and a number that moves the comment is truncated.
+    short = Card("OBJECT", "old", "c")
+    for truncate in (true, false)
+        @test FITSFiles.setvalue!(short, repeat("a", 60); truncate) isa Card
+        @test FITSFiles.setvalue!(short, repeat("a", 60); truncate).comment == "c"
+    end
+    number = Card("N", 1, "a comment that is long enough")
+    @test FITSFiles.setvalue!(number, 1.2345678901234567e-100; truncate = true).comment == "a comment that is long enough"
+    long = Card("N", 1, repeat("x", 47))
+    @test FITSFiles.setvalue!(long, 12345678901234567890123; truncate = true).comment ==
+          parse(Card, repr(FITSFiles.setvalue!(long, 12345678901234567890123))).comment
+    @test_throws "Comment does not fit on the card." FITSFiles.setvalue!(long, 12345678901234567890123; truncate = false)
+    #  the string is split in the same way for both settings, if it does not fit on a card.
+    for truncate in (true, false)
+        cards = FITSFiles.setvalue!(Card("OBJECT", "old", "c"), repeat("word ", 30); truncate)
+        @test length(cards) > 1 && FITSFiles.join_cards(cards).value == repeat("word ", 30)
+    end
     for value in (repeat("It's O'Hara's ", 6), " " * text, text * " ", repeat("'", 70), repeat("x", 90))
         cards = FITSFiles.setvalue!(card, value)
         @test FITSFiles.join_cards(cards).value == value
@@ -370,6 +391,51 @@
         @test_throws ArgumentError FITSFiles.setvalue!(Card("END"), 1)
         @test FITSFiles.setvalue!(Card("END"), missing) isa Card{FITSFiles.End}
         @test repr(FITSFiles.setvalue!(Card("COMMENT", "a"), missing)) == rpad("COMMENT", 80)
+    end
+
+    #  The layout keywords of the constructor of a card are the keywords of setvalue!, and the default is the layout of the card.
+    @testset "setvalue! layout keywords" begin
+        show_(c) = rstrip(repr(c))
+        adjacent = parse(Card, rpad("KEY     = 1.5/ c", 80))
+        @test show_(FITSFiles.setvalue!(adjacent, 2.5)) == "KEY     = 2.5/ c"
+        @test show_(FITSFiles.setvalue!(adjacent, 2.5; lpad = 3)) == "KEY     = 2.5   / c"
+        @test show_(FITSFiles.setvalue!(adjacent, 1.5; lpad = 3)) == "KEY     = 1.5   / c"
+        spaced = parse(Card, rpad("KEY     = 1.5       /   c", 80))
+        @test show_(FITSFiles.setvalue!(spaced, 2.5)) == "KEY     = 2.5       /   c"
+        @test show_(FITSFiles.setvalue!(spaced, 2.5; slash = 50)) == "KEY     = 2.5" * " "^36 * "/   c"
+        @test show_(FITSFiles.setvalue!(spaced, 2.5; rpad = 5)) == "KEY     = 2.5       /     c"
+        @test show_(FITSFiles.setvalue!(spaced, 2.5; fixed = true)) == "KEY     =                  2.5 /   c"
+        @test show_(FITSFiles.setvalue!(spaced, 2.5; fixed = false)) == show_(FITSFiles.setvalue!(spaced, 2.5))
+        card = Card("KEY", "abc", "a comment")
+        @test show_(FITSFiles.setvalue!(card, "def")) == "KEY     = 'def'                / a comment"
+        @test show_(FITSFiles.setvalue!(card, "def"; slash = 50)) == "KEY     = 'def'" * " "^34 * "/ a comment"
+        @test show_(FITSFiles.setvalue!(card, "def"; append = true)) == "KEY     = 'def&'               / a comment"
+        #  a layout keyword formats the card again, even if the value is the same.
+        @test FITSFiles.setvalue!(card, "abc") === card
+        @test FITSFiles.setvalue!(card, "abc"; slash = 50) !== card
+        @test show_(FITSFiles.setvalue!(card, "abc"; slash = 50)) == "KEY     = 'abc'" * " "^34 * "/ a comment"
+        @test FITSFiles.setvalue!(card, "abc"; lpad = 1) !== card && FITSFiles.setvalue!(card, "abc"; fixed = true) !== card
+        #  the same keywords are the keywords of the constructor, so the card is the card that is created.
+        for kw in ((; slash = 50), (; lpad = 3, slash = 20), (; rpad = 4), (; fixed = false), (; upad = 3), (; slash = 40, rpad = 2))
+            @test repr(FITSFiles.setvalue!(Card("KEY", "old", "a comment"; kw...), "new value"; kw...)) ==
+                  repr(Card("KEY", "new value", "a comment"; kw...))
+            @test repr(FITSFiles.setvalue!(Card("KEY", 1, "a comment"; kw...), 25; kw...)) == repr(Card("KEY", 25, "a comment"; kw...))
+        end
+        withunits = Card("KEY", 1.5f0 * Unitful.m, "c")
+        @test show_(FITSFiles.setvalue!(withunits, 2.5f0; upad = 3)) == "KEY     =                  2.5 / [m]   c"
+        @test show_(FITSFiles.setvalue!(withunits, 2.5f0)) == "KEY     =                  2.5 / [m] c"
+        #  the separator of the cards of a long string.
+        text = repeat("word ", 20)
+        cards = FITSFiles.setvalue!(Card("KEY", "a", "c"), text; slash = 50)
+        @test length(cards) > 1 && all(length(repr(c)) == 80 for c in cards)
+        @test FITSFiles.join_cards(cards).value == text
+        @test length(FITSFiles.setvalue!(Card("KEY", "a", "c"), text; slash = 50)) <
+              length(FITSFiles.setvalue!(Card("KEY", "a", "c"), text; slash = 20))
+        #  the keywords of the list are the keywords of the card.
+        list = Card{<:Any}[Card("KEY", "a", "c")]
+        FITSFiles.setvalue!(list, "KEY", "bbb"; slash = 50, rpad = 3)
+        @test show_(list[1]) == "KEY     = 'bbb'" * " "^34 * "/   c"
+        @test_throws MethodError FITSFiles.setvalue!(list, "KEY", "bbb"; unknown = 1)
     end
 
 end

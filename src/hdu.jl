@@ -696,14 +696,15 @@ function Base.findfirst(key::AbstractString, cards::Cards)
 end
 
 """
-    setvalue!(cards, key, value; splitat = ' ')
+    setvalue!(cards, key, value; <keywords>)
 
 Replace the value of the first card with the keyword `key`. A string that does not fit on a card
 is split into the cards of a long string, and the CONTINUE cards of a string that is replaced
-are removed. The cards are always replaced, which is the way to split the value again.
+are removed. The keywords, i.e., `fixed`, `append`, `slash`, `lpad`, `rpad`, `upad`, `truncate`,
+and `splitat`, are those of `setvalue!(card, value)`, where the default of a layout keyword is the
+layout of the card. The cards are always replaced, which is the way to split the value again.
 """
-function setvalue!(cards::Cards, key::AbstractString, value::ValueInput;
-	splitat::Union{Char, Nothing} = ' ')
+function setvalue!(cards::Cards, key::AbstractString, value::ValueInput; kwds...)
 
 	j = Base.findfirst(key, cards)
 	ismissing(j) && throw(KeyError(key))
@@ -712,7 +713,7 @@ function setvalue!(cards::Cards, key::AbstractString, value::ValueInput;
 	while n < length(cards) && continued(cards[n]) && basetype(typename(cards[n+1])) == Continue
 		n += 1
 	end
-	new = setvalue!(cards[j], value; splitat)
+	new = setvalue!(cards[j], value; kwds...)
 	splice!(cards, j:n, new isa Card ? [new] : new)
 	cards
 end

@@ -364,7 +364,42 @@ KEY     = 2.567                / c
 
 A string that does not fit is split into the cards of a long string, as by `Card`. The value of
 a commentary card is a string or `missing`, and an END card has no value, otherwise an
-`ArgumentError` is raised. A list of cards in a header is changed by `setvalue!(cards, key,
+`ArgumentError` is raised.
+
+The keywords of `setvalue!` are the keywords of `Card` that format the card, and the default of
+a layout keyword is the layout of the card, so the new card is formatted as the card was.
+
+| Keyword                 | Default                                                                  |
+|:------------------------|:-------------------------------------------------------------------------|
+| `fixed`                 | the format of the card, fixed or free                                    |
+| `slash`                 | the index of the comment separator of the card, and for the cards of a long string the index 32 or more |
+| `lpad`                  | 0 if the separator follows the value of the card directly, otherwise 1   |
+| `rpad`                  | the number of spaces after the separator of the card, or 1               |
+| `upad`                  | the number of spaces after the units of the card, or 1                   |
+| `append`                | `false`                                                                  |
+| `truncate`              | `true`, as in `Card`                                                     |
+| `splitat`               | `' '`, as in `Card`                                                      |
+
+A keyword formats the card again, even if the value is the same, and a keyword creates the same
+card as the constructor of a card with the keyword.
+
+```jldoctest cards
+julia> card = parse(Card, rpad("KEY     = 1.5/ c", 80));
+
+julia> show_(setvalue!(card, 2.5))
+KEY     = 2.5/ c
+
+julia> show_(setvalue!(card, 2.5; lpad = 3))
+KEY     = 2.5   / c
+
+julia> show_(setvalue!(card, 2.5; slash = 20))
+KEY     = 2.5      / c
+
+julia> show_(setvalue!(card, 2.5; fixed = true))
+KEY     =                  2.5/ c
+```
+
+A list of cards in a header is changed by `setvalue!(cards, key,
 value)` and by `cards[key] = value`, which also replace the CONTINUE cards of the old value.
 
 ## Comparing and copying

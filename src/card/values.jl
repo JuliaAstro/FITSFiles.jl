@@ -4,18 +4,43 @@ splitunits(value::Quantity) = unit(value) === NoUnits ? (ustrip(value), nothing)
 splitunits(value) = (value, nothing)
 
 """
-	setvalue!(card, value; splitat = ' ')
+	setvalue!(card, value; <keywords>)
 
 Return the card with the value `value`, and the units, format, and comment of the card. A number
 without units has the units of the card. A string that fits on the card, i.e., that has at most 68
 characters, is not split, and moves the comment to the right if the string passes the comment
-separator. The comment is continued on CONTINUE cards if it does not fit on the card. A string
-that does not fit on the card is split into the cards of a long string, the first card and the
-CONTINUE cards, which are returned as a vector, at the comment separator, or at the end of the card
-if there is no comment. The string and the comment are split after the last `splitat` that fits, as
-in the constructor of a card.
+separator. A string that does not fit on the card is split into the cards of a long string, the
+first card and the CONTINUE cards, which are returned as a vector, at the comment separator, or at
+the end of the card if there is no comment. The keywords are those of the constructor of a card, where
+the default of a layout keyword is the layout of the card.
+
+# Keywords
+
+- `fixed::Bool`: use fixed format. The default is the format of the card.
+- `append::Bool=false`: append an ampersand to the string value, which marks that the string is
+  continued by a CONTINUE card.
+- `slash::Integer`: index of the comment separator (/). The default is the index of the separator of
+  the card, and the index 32 or more for the separator of the cards of a long string.
+- `lpad::Integer`: number of spaces before the comment separator. The default is 0 if the separator
+  follows the value of the card directly, and otherwise 1.
+- `rpad::Integer`: number of spaces after the comment separator. The default is the number of spaces
+  of the card, or 1 if the card has no comment.
+- `upad::Integer`: number of spaces after the units string. The default is the number of spaces of
+  the card, or 1 if the card has no units.
+- `truncate::Bool=true`: truncate a comment that is longer than the space at the end of the card, and
+  otherwise continue the comment on the CONTINUE cards of a string, or raise an `ArgumentError` for
+  another value.
+- `splitat::Union{Char, Nothing}=' '`: split a long string and its comment after the last character
+  that fits, or at any character if `nothing`.
+
+The card is replaced by the new card when a layout keyword is given, even if the value is the same.
 """
-function setvalue!(card::Card, value::ValueInput; splitat::Union{Char, Nothing} = ' ')
+function setvalue!(card::Card, value::ValueInput; fixed::Union{Bool, Nothing} = nothing,
+	append::Bool = false, slash::Union{Integer, Nothing} = nothing,
+	lpad::Union{Integer, Nothing} = nothing, rpad::Union{Integer, Nothing} = nothing,
+	upad::Union{Integer, Nothing} = nothing, truncate::Bool = true,
+	splitat::Union{Char, Nothing} = ' ')
+
 	#  The value of a commentary card is a string, and an END card has no value.
 	T = basetype(typename(card))
 	if T == End
@@ -33,41 +58,45 @@ function setvalue!(card::Card, value::ValueInput; splitat::Union{Char, Nothing} 
 	if isnothing(units) && value isa Union{Real, Complex} && !(value isa Bool)
 		units = card.units
 	end
-	#  The trailing spaces of a string are not significant.
+	#  The trailing spaces of a string are not significant. A layout keyword formats the card again.
 	same = (card.value isa AbstractString && value isa AbstractString ?
 		trimvalue(card.value) == trimvalue(value) : card.value === value) &&
-		isequal(card.units, units)
+		isequal(card.units, units) && append == false &&
+		all(isnothing, (fixed, slash, lpad, rpad, upad))
 	if !same
-		f, T = card.format, basetype(typename(card))
+		f = card.format
 		if T in (Value, Hierarch)
 			#  The type of the card follows the type of the new value. The card is formatted
 			#  again at the separator index of the old card, so a value that does not fit
 			#  before the separator moves the separator and comment.
 			type = T{typeof(value)}
-			rpad = max(f.cbeg, f.ubeg) > 0 ? (f.ubeg > 0 ? f.ubeg : f.cbeg) - f.slsh - 1 : 1
-			upad = f.ubeg > 0 && f.cbeg > 0 ? f.cbeg - f.uend - 1 : 1
+			fixed = something(fixed, f.fixd)
+			lpad = something(lpad, f.slsh > 0 && f.slsh - 1 <= f.vend ? 0 : 1)
+			rpad = something(rpad, max(f.cbeg, f.ubeg) > 0 ? (f.ubeg > 0 ? f.ubeg : f.cbeg) - f.slsh - 1 : 1)
+			upad_given, upad = upad, something(upad, f.ubeg > 0 && f.cbeg > 0 ? f.cbeg - f.uend - 1 : 1)
 			#  A units string at the beginning of the comment of a card that is parsed without
 			#  units is replaced by the units of the new value.
 			comment = card.comment
 			if !isnothing(units) && f.ubeg == 0 &&
 				(m = match(r"^\[[^\]]*\]( *)", comment)) !== nothing
-				comment, upad = comment[(length(m.match)+1):end], length(m[1])
+				comment = comment[(length(m.match)+1):end]
+				upad = something(upad_given, length(m[1]))
 			end
 			#  A string that does not fit on a card is split into the cards of a long string. A string
 			#  that passes the separator of the comment moves the comment to the right, and the
-			#  comment is continued, and not truncated, if it does not fit on the card.
+			#  comment is truncated, or continued if truncate is false, when it does not fit on the card.
+			splitcol = something(slash, max(f.slsh + TOKENLEN, 32))
 			splitslash = T == Value && value isa AbstractString ?
-				long_string_slash(value, comment, max(f.slsh + TOKENLEN, 32), 1, rpad, false) : nothing
+				long_string_slash(value, comment, splitcol, lpad, rpad, truncate) : nothing
 			if !isnothing(splitslash)
 				cards = split_card(card.key, value, comment,
-					(; fixed = f.fixd, slash = splitslash[1], slash2 = splitslash[2], lpad = 1, rpad, upad,
-						append = false, splitat))
+					(; fixed, slash = splitslash[1], slash2 = splitslash[2], lpad, rpad, upad, append, splitat))
 				return [Card(t, k, v, c, f) for (t, k, v, c, f) in cards]
 			end
 			args = T == Hierarch ? (card.key,) : ()
-			fmt = layout_card(type, args..., value, comment; fixed = f.fixd, append = false,
-				slash = f.slsh + TOKENLEN, lpad = 1, rpad, upad, units = unitstring(units, f.ufmt),
-				vfmt = keepfmt(f.vfmt, value), ufmt = f.ufmt, vbeg = f.vbeg)
+			fmt = layout_card(type, args..., value, comment; fixed, append,
+				slash = something(slash, f.slsh + TOKENLEN), lpad, rpad, upad, units = unitstring(units, f.ufmt),
+				vfmt = keepfmt(f.vfmt, value), ufmt = f.ufmt, vbeg = f.vbeg, truncate)
 			card = Card(type, card.key, value, units, fitcomment(comment, fmt), fmt)
 		else
 			card = Card(T, card.key, value, card.comment, f)

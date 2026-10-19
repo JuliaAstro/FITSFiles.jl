@@ -60,6 +60,15 @@
     #  the values of cards that are not continued are not joined with the following cards.
     cards3 = Card{<:Any}[Card("KEY", "a"), Card("COMMENT", "b")]
     @test cards3["KEY"] == "a"
+
+    #  the keywords of the card are the keywords of the list.
+    comment = "a comment that is continued on the next card"
+    list = Card{<:Any}[Card("OBJECT", "old", comment), Card("COMMENT", "b")]
+    FITSFiles.setvalue!(list, "OBJECT", repeat("a", 60))
+    @test length(list) == 2 && list[1].comment == "a com"
+    list = Card{<:Any}[Card("OBJECT", "old", comment), Card("COMMENT", "b")]
+    FITSFiles.setvalue!(list, "OBJECT", repeat("a", 60); truncate = false)
+    @test length(list) > 2 && list["OBJECT"] == repeat("a", 60)
     ####    Test that the header reader is strict or not    ####
 
     images = ["SIMPLE  =                    T", "BITPIX  =                   16", "NAXIS   =                    0",
