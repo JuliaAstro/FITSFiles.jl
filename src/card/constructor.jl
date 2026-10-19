@@ -21,7 +21,21 @@ function Card(key::K = "", value::V = missing, comment::C = ""; fixed::B = true,
 	value, units = splitunits(value)
 	is_supported(value) || throw(ArgumentError("Value type $(typeof(value)) is not supported."))
 	#  The units of a number are the units at the beginning of the comment, as they are for an image.
-	units, comment, upad, ufmt = commentunits(upkey, value, units, comment, upad)
+	#  The card is made by a function of the units, so a number without units is made by a method that
+	#  knows that there are no units, and the units of a comment are another method.
+	if startswith(comment, '[')
+		cunits, ccomment, cpad, cstyle = commentunits(upkey, value, units, comment, upad)
+		isnothing(units) && !isnothing(cunits) &&
+			return makecard(upkey, value, cunits, ccomment, cstyle; fixed, append, slash, lpad, rpad,
+				upad = cpad, truncate, splitat)
+	end
+	makecard(upkey, value, units, comment, ""; fixed, append, slash, lpad, rpad, upad, truncate, splitat)
+end
+
+#  Make a card, or the cards of a long string, from the keyword, the value, the units, and the comment.
+function makecard(upkey::AbstractString, value, units, comment::AbstractString, ufmt::AbstractString;
+	fixed::Bool, append::Bool, slash::Integer, lpad::Integer, rpad::Integer, upad::Integer,
+	truncate::Bool, splitat::Union{Char, Nothing})
 
 	#  Check for invalid characters in key, value string, and comment.
 	if !is_hierarch(upkey) && occursin(NON_KEY_TEXT, upkey)
@@ -103,7 +117,17 @@ function Card(key::K, tokens::T, value::V, comment::C;
 	value, units = splitunits(value)
 	is_supported(value) || throw(ArgumentError("Value type $(typeof(value)) is not supported."))
 	#  The units of a number are the units at the beginning of the comment, as they are for an image.
-	units, comment, upad, ufmt = commentunits(upkey, value, units, comment, upad)
+	if startswith(comment, '[')
+		cunits, ccomment, cpad, cstyle = commentunits(upkey, value, units, comment, upad)
+		isnothing(units) && !isnothing(cunits) &&
+			return makehierarch(upkey, uptoken, value, cunits, ccomment, cstyle; fixed, slash, lpad, rpad, upad = cpad)
+	end
+	makehierarch(upkey, uptoken, value, units, comment, ""; fixed, slash, lpad, rpad, upad)
+end
+
+#  Make a HIERARCH card from the keyword, the tokens, the value, the units, and the comment.
+function makehierarch(upkey::AbstractString, uptoken::AbstractString, value, units, comment::AbstractString,
+	ufmt::AbstractString; fixed::Bool, slash::Integer, lpad::Integer, rpad::Integer, upad::Integer)
 
 	#  Check for invalid characters in key, value string, and comment.
 	if !is_hierarch(upkey) && occursin(NON_KEY_TEXT, upkey)

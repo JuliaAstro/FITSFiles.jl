@@ -100,7 +100,7 @@ function setvalue!(card::Card, value::ValueInput; fixed::Union{Bool, Nothing} = 
 				#  The units at the beginning of the comment of a number are the units of the number.
 				units, comment, nspaces, style = commentunits(card.key, value, units, comment, upad)
 				if !isnothing(units)
-					upad, ufmt = something(upad_given, nspaces), style
+					upad, ufmt = nspaces, style
 				end
 			end
 			#  A string that does not fit on a card is split into the cards of a long string. A string

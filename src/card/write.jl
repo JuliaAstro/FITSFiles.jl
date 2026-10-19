@@ -5,9 +5,17 @@ function Base.show(io::IO, cards::Vector{Card{<:Any}})
 end
 
 function Base.show(io::IO, card::Card)
-	print(io, format_card(basetype(typename(card)), card.key, card.value, card.units,
-		card.comment, card.format))
+	print(io, card_image(card))
 end
+
+#  The image of a card. The writers of the values are found by the type of the card, and not by
+#  the type of the card as an argument, which is slower for the types that have a parameter.
+card_image(card::Card{Value{T}}) where T = format_value(card.key, card.value, card.units,
+	card.comment, card.format)
+card_image(card::Card{Hierarch{T}}) where T = format_hierarch(card.key, card.value, card.units,
+	card.comment, card.format)
+card_image(card::Card{T}) where T = format_card(T, card.key, card.value, card.units,
+	card.comment, card.format)
 
 #  Format End card using only keyword.
 function format_card(::Type{End}, key::K, value::V, units, comment::C,
@@ -49,7 +57,7 @@ function format_card(::Type{Continue}, key::K, value::V, units, comment::C,
 end
 
 #  Add HIERARCH key, then format value and comment fields
-function format_card(::Type{Hierarch}, key::K, value::V, units, comment::C,
+function format_hierarch(key::K, value::V, units, comment::C,
 	format::F) where {K <: AbstractString, V <: ValueType, C <: AbstractString,
 	F <: CardFormat}
 
@@ -105,7 +113,7 @@ function format_card(::Type{Invalid}, key::K, value::V, units, comment::C,
 end
 
 #  Format Value card for missing value.
-function format_card(::Type{Value}, key::K, value::M, units, comment::C,
+function format_value(key::K, value::M, units, comment::C,
 	format::F) where {K <: AbstractString, M <: Missing, C <: AbstractString,
 	F <: CardFormat}
 
@@ -113,7 +121,7 @@ function format_card(::Type{Value}, key::K, value::M, units, comment::C,
 end
 
 #  Format Value card for string value.
-function format_card(::Type{Value}, key::K, value::V, units, comment::C,
+function format_value(key::K, value::V, units, comment::C,
 	format::F) where {K <: AbstractString, V <: AbstractString, C <: AbstractString,
 	F <: CardFormat}
 
@@ -122,7 +130,7 @@ function format_card(::Type{Value}, key::K, value::V, units, comment::C,
 end
 
 #  Format Value card for boolean value.
-function format_card(::Type{Value}, key::K, value::V, units, comment::C,
+function format_value(key::K, value::V, units, comment::C,
 	format::F) where {K <: AbstractString, V <: Bool, C <: AbstractString,
 	F <: CardFormat}
 
@@ -133,7 +141,7 @@ function format_card(::Type{Value}, key::K, value::V, units, comment::C,
 end
 
 #  Format Value card for integer value.
-function format_card(::Type{Value}, key::K, value::I, units, comment::C,
+function format_value(key::K, value::I, units, comment::C,
 	format::F) where {K <: AbstractString,
 	I <: Integer,
 	C <: AbstractString, F <: CardFormat}
@@ -149,7 +157,7 @@ function format_card(::Type{Value}, key::K, value::I, units, comment::C,
 end
 
 #  Format Value card for 32-bit float value.
-function format_card(::Type{Value}, key::K, value::V, units, comment::C,
+function format_value(key::K, value::V, units, comment::C,
 	format::F) where {K <: AbstractString,
 	V <: Float32,
 	C <: AbstractString, F <: CardFormat}
@@ -167,7 +175,7 @@ function format_card(::Type{Value}, key::K, value::V, units, comment::C,
 end
 
 #  Format Value card for non-32-bit float values.
-function format_card(::Type{Value}, key::K, value::V, units, comment::C,
+function format_value(key::K, value::V, units, comment::C,
 	format::F) where {K <: AbstractString,
 	V <: AbstractFloat,
 	C <: AbstractString, F <: CardFormat}
@@ -190,7 +198,7 @@ function format_card(::Type{Value}, key::K, value::V, units, comment::C,
 end
 
 #  Format Value card for complex integer value.
-function format_card(::Type{Value}, key::K, value::V, units, comment::C,
+function format_value(key::K, value::V, units, comment::C,
 	format::F) where {K <: AbstractString,
 	V <: Complex{<:Integer},
 	C <: AbstractString, F <: CardFormat}
@@ -204,7 +212,7 @@ function format_card(::Type{Value}, key::K, value::V, units, comment::C,
 end
 
 #  Format Value card for complex 32-bit float value.
-function format_card(::Type{Value}, key::K, value::V, units, comment::C,
+function format_value(key::K, value::V, units, comment::C,
 	format::F) where {K <: AbstractString,
 	V <: Complex{Float32},
 	C <: AbstractString, F <: CardFormat}
@@ -222,7 +230,7 @@ function format_card(::Type{Value}, key::K, value::V, units, comment::C,
 end
 
 #  Format Value card for all other complex float values.
-function format_card(::Type{Value}, key::K, value::V, units, comment::C,
+function format_value(key::K, value::V, units, comment::C,
 	format::F) where {K <: AbstractString,
 	V <: Complex{<:AbstractFloat},
 	C <: AbstractString, F <: CardFormat}
