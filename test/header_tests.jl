@@ -161,4 +161,40 @@
     cards["object"] = "short"
     @test cards["OBJECT"] == "short" && length(cards) == 3
 
+    #  The values of the cards with a list of keywords are the values of the first cards, and have the types of the cards.
+    @testset "get with a list of keys" begin
+        cards = Card{<:Any}[Card("BITPIX", 16), Card("BZERO", 1.5), Card("OBJECT", "NGC"), Card("HISTORY", "a"),
+            Card("OBJECT", "second"), Card("HISTORY", "b"), Card("LONG", repeat("word ", 30))..., Card("COMMENT", "c")]
+        @test get(cards, ["BITPIX", "BZERO"], [0, 0]) == (16, 1.5)
+        @test get(cards, ["BZERO"], [0]) == (1.5,) && get(cards, ["OBJECT"], [0]) == ("NGC",)
+        @test get(cards, ("BITPIX", "BZERO", "NOPE", "OBJECT"), (0, 0.0, "default", "")) == (16, 1.5, "default", "NGC")
+        @test typeof.(get(cards, ["BITPIX", "BZERO", "OBJECT"], [0, 0, 0])) == (Int, Float64, String)
+        @test get(cards, ["bitpix", "Bzero"], [0, 0]) == (16, 1.5)
+        @test get(cards, ["NOPE", "NONE"], [1, 2.5]) == (1, 2.5) && get(cards, String[], Int[]) == ()
+        #  a repeated keyword is the first card, as for a single key.
+        @test get(cards, ["OBJECT", "HISTORY"], ["", ""]) == ("NGC", "a") && get(cards, "OBJECT") == "NGC"
+        @test length(get(cards, ["LONG"], [""])[1]) >= 149
+        @test_throws DimensionMismatch get(cards, ["A", "B"], [0])
+    end
+
+    #  All the cards with a keyword, in the order of the header.
+    @testset "findall and getall" begin
+        cards = Card{<:Any}[Card("BITPIX", 16), Card("OBJECT", "NGC"), Card("HISTORY", "a"), Card("OBJECT", "second"),
+            Card("HISTORY", "b"), Card("COMMENT", "c"), Card("HISTORY", "d"), Card("LONG", repeat("word ", 30))..., Card("N", 1)]
+        @test findall("HISTORY", cards) == [3, 5, 7] && findall("history", cards) == [3, 5, 7]
+        @test findall("OBJECT", cards) == [2, 4] && findall("BITPIX", cards) == [1] && isempty(findall("NOPE", cards))
+        @test FITSFiles.getall(cards, "HISTORY") == ["a", "b", "d"] && FITSFiles.getall(cards, "OBJECT") == ["NGC", "second"]
+        @test FITSFiles.getall(cards, "BITPIX") == [16] && isempty(FITSFiles.getall(cards, "NOPE"))
+        @test FITSFiles.getall(cards, "N") == [1] && FITSFiles.getall(cards, "COMMENT") == ["c"]
+        #  the value of a continued string is joined, and the CONTINUE cards are not values of the string.
+        @test length(FITSFiles.getall(cards, "LONG")) == 1 && length(only(FITSFiles.getall(cards, "LONG"))) >= 149
+        @test length(FITSFiles.getall(cards, "CONTINUE")) == length(findall("CONTINUE", cards)) > 1
+        #  a list of keys is the tuple of the vectors, in the order of the keys.
+        @test FITSFiles.getall(cards, ["HISTORY", "OBJECT", "NOPE"]) == (["a", "b", "d"], ["NGC", "second"], [])
+        @test FITSFiles.getall(cards, ("OBJECT",)) == (["NGC", "second"],) && FITSFiles.getall(cards, String[]) == ()
+        @test FITSFiles.getall(Card{<:Any}[], "A") == []
+        #  the value of the first card is the first value.
+        @test first(FITSFiles.getall(cards, "OBJECT")) == get(cards, "OBJECT") == cards["OBJECT"]
+    end
+
 end

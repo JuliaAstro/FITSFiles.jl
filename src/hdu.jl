@@ -672,16 +672,26 @@ function Base.get(cards::Cards, key::AbstractString, default = nothing)
 	value
 end
 
+"""
+    get(cards, key, default)
+    get(cards, keys, defaults)
+
+Return the value of the first card with the keyword `key`, or `default` if there is no such card.
+With a list of keys, return the tuple of the values of the first cards with the keywords, in the order
+of the keys, where the default of a keyword that is not found is the default at the same position. The
+types of the values are the types of the cards, and not the types of the defaults. The value of a
+continued string is the joined string. See [`getall`](@ref) for the values of all the cards with a
+keyword.
+"""
 function Base.get(cards::Cards, keys::Union{AbstractArray, Tuple},
 	defaults::Union{AbstractArray, Tuple})
 
-	values = [defaults...]
+	length(keys) == length(defaults) ||
+		throw(DimensionMismatch("The keys and the defaults have different lengths."))
+	values = Any[defaults...]
 	for (j, key) in enumerate(keys)
-		for (k, card) in enumerate(cards)
-			if uppercase(card.key) == uppercase(key)
-				values[j] = joinvalue(cards, k)
-			end
-		end
+		k = Base.findfirst(key, cards)
+		ismissing(k) || (values[j] = joinvalue(cards, k))
 	end
 	(values...,)
 end
@@ -694,6 +704,29 @@ function Base.findfirst(key::AbstractString, cards::Cards)
 	end
 	missing
 end
+
+"""
+    findall(key, cards)
+
+Return the indexes of all the cards with the keyword `key`, in the order of the header. The indexes
+are empty if there is no such card.
+"""
+function Base.findall(key::AbstractString, cards::Cards)
+	upkey = uppercase(key)
+	[j for (j, card) in enumerate(cards) if uppercase(card.key) == upkey]
+end
+
+"""
+    getall(cards, key)
+    getall(cards, keys)
+
+Return the values of all the cards with the keyword `key`, in the order of the header, e.g., the
+values of the `COMMENT` or `HISTORY` cards, which are the vector of the values, or an empty vector if
+there is no such card. With a list of keys, return the tuple of the vectors of the keys. The value of
+a continued string is the joined string, and the `CONTINUE` cards of the string are not values.
+"""
+getall(cards::Cards, key::AbstractString) = [joinvalue(cards, j) for j in Base.findall(key, cards)]
+getall(cards::Cards, keys::Union{AbstractArray, Tuple}) = Tuple(getall(cards, key) for key in keys)
 
 """
     setvalue!(cards, key, value; <keywords>)

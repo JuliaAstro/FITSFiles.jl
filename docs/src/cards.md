@@ -462,6 +462,39 @@ KEY     =                  2.5/ c
 A list of cards in a header is changed by `setvalue!(cards, key,
 value)` and by `cards[key] = value`, which also replace the CONTINUE cards of the old value.
 
+## A list of cards
+
+A header is a vector of cards, and the cards with a keyword are found by the keyword, without regard
+to the case.
+
+```jldoctest cards
+julia> cards = Card{<:Any}[Card("BITPIX", 16), Card("BZERO", 1.5), Card("OBJECT", "NGC 1275"),
+                           Card("HISTORY", "first step"), Card("HISTORY", "second step")];
+
+julia> cards["bitpix"], get(cards, "NOPE", 0), haskey(cards, "OBJECT")
+(16, 0, true)
+
+julia> get(cards, ["BITPIX", "BZERO", "NOPE"], [0, 0, "default"])
+(16, 1.5, "default")
+
+julia> FITSFiles.getall(cards, "HISTORY")
+2-element Vector{String}:
+ "first step"
+ "second step"
+
+julia> findall("HISTORY", cards)
+2-element Vector{Int64}:
+ 4
+ 5
+```
+
+The value of a card is the first card with the keyword, for `getindex`, `get`, and `haskey`, and
+`findfirst` is the index of the first card. With a list of keys, `get` is the tuple of the values of
+the first cards, where the types of the values are the types of the cards and not of the defaults.
+`findall` and `getall` are the indexes and the values of all the cards with a keyword, e.g., the
+`COMMENT` and `HISTORY` cards. The value of a continued string is the joined string, and
+`setvalue!(cards, key, value)` replaces the card and the `CONTINUE` cards of the old string.
+
 ## Comparing and copying
 
 Two cards are equal if their images are equal, so a card is equal to the card that is parsed
