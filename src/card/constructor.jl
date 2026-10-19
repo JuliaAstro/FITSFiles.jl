@@ -43,8 +43,9 @@ function Card(key::K = "", value::V = missing, comment::C = ""; fixed::B = true,
 		if !ismissing(value) || !isempty(comment)
 			throw(ArgumentError("END keyword has no value or comment."))
 		end
-	elseif is_continue_key(upkey) && is_string(value)
-		#  Create CONTINUE card
+	elseif is_continue_key(upkey)
+		#  Create CONTINUE card, whose value is a string
+		value isa AbstractString || error("Value is not a string.")
 		type = Continue
 		format = layout_card(type, value, comment; append, fixed,
 			slash, lpad, rpad, upad)
@@ -136,10 +137,6 @@ is_supported(value::Missing) = true
 is_supported(value::Union{AbstractString, Bool, Integer, AbstractFloat}) = true
 is_supported(value::Complex{T}) where T = T !== Bool && (T <: Integer || T <: AbstractFloat)
 is_supported(value) = false
-
-function is_string(value::ValueType)
-	typeof(value) <: AbstractString ? true : error("Value is not a string.")
-end
 
 function is_fixed_key(key::AbstractString)
 	key in ("SIMPLE", "XTENSION", "BITPIX", "NAXIS", "PCOUNT", "GCOUNT", "END") ||
