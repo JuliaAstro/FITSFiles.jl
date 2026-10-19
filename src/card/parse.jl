@@ -21,14 +21,14 @@ function Base.parse(::Type{Card}, image::AbstractString; strict::Bool = true, un
 		key = rstrip(image[1:KEYLENGTH])
 		if image == END_IMAGE
 			card = Card(End, "END", missing, "", CardFormat())
-		elseif key != "END" && (m = match(Regex("^"*VALUE_CARD*"\$"), image[1:TOKENLEN])) !== nothing
+		elseif key != "END" && (m = match(VALUE_CARD_RE, image[1:TOKENLEN])) !== nothing
 			#  The mandatory keywords have no units.
 			parsed = parse_value_comment(Value, image[(TOKENLEN+1):end]; strict,
 				units = units && !is_fixed_key(key))
 			card = isnothing(parsed) ?
 				Card(Invalid, key, image[(KEYLENGTH+1):end], "", CardFormat()) :
 				Card(Value{typeof(parsed[1])}, m[:key], parsed...)
-		elseif (m = match(Regex("^"*COMMENT_CARD*"\$"), image[1:TOKENLEN])) !== nothing
+		elseif (m = match(COMMENT_CARD_RE, image[1:TOKENLEN])) !== nothing
 			comment = image[(KEYLENGTH+1):end]
 			#  A HIERARCH card without a value is commentary text.
 			hier = m[:key] == "HIERARCH" && image[KEYLENGTH+1] == ' ' ?
@@ -39,7 +39,7 @@ function Base.parse(::Type{Card}, image::AbstractString; strict::Bool = true, un
 				card = Card(m[:key] == "HISTORY " ? History : Comment, rstrip(m[:key]),
 					rstrip(comment), "", CardFormat(true, 1, length(comment)))
 			end
-		elseif (m = match(Regex("^"*CONTINUE_CARD*"\$"), image[1:TOKENLEN])) !== nothing
+		elseif (m = match(CONTINUE_CARD_RE, image[1:TOKENLEN])) !== nothing
 			parsed = parse_value_comment(Value, image[(TOKENLEN+1):end]; strict, units = false)
 			if isnothing(parsed)
 				card = Card(Invalid, key, image[(KEYLENGTH+1):end], "", CardFormat())

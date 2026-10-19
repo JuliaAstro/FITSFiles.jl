@@ -20,6 +20,11 @@ const VALUE_CARD = "(?!"*COMMENTARY_KEY*")(?="*VALUE_TOKEN*")(?<key>"*VALUE_KEY*
 const CONTINUE_CARD = "(?<key>"*CONTINUE_KEY*")"*ASCII_CHARS*"{2}"
 const COMMENT_CARD = "(?<key>"*COMMENT_KEY*")"*ASCII_CHARS*"{2}"
 
+#  regexes for the first 10 bytes of the cards that have a value, commentary, or a CONTINUE keyword.
+const VALUE_CARD_RE    = Regex("^" * VALUE_CARD * "\$")
+const COMMENT_CARD_RE  = Regex("^" * COMMENT_CARD * "\$")
+const CONTINUE_CARD_RE = Regex("^" * CONTINUE_CARD * "\$")
+
 const END_IMAGE = "END"*repeat(' ', 77)
 
 #  regex for a FITS standard compliant (FSC) keyword.

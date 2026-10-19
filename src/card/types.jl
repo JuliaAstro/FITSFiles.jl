@@ -48,7 +48,7 @@ end
 """
 	Card(type, key, value, [units,] comment, format)
 	Card([key, [value, [comment]]]; <keywords>)
-	Card("HIERARCH", key, [key, [value, [comment]]]; <keywords>)
+	Card("HIERARCH", tokens, value, comment; <keywords>)
 
 Create a card type, where type is Comment, Continue, End, Hierarch, History, Invalid, or
 Value{T}.
@@ -56,22 +56,31 @@ Value{T}.
 # Arguments
 
 - `key::AbstractString=""`: keyword string
-- `value::U=missing`: keyword value, where U is Bool, Number, Quantity, or String. The units of
-  a Quantity are the units of the card, and are not part of the value.
+- `value::U=missing`: keyword value, where U is Bool, Integer, AbstractFloat, a Complex number
+  of integers or floats, Quantity of one of these, or String. Another type of value is an
+  `ArgumentError`. The units of a Quantity are the units of the card, and are not part of the
+  value.
+- `tokens::AbstractString`: the tokens of a HIERARCH keyword, which are separated by spaces
 - `comment::AbstractString=""`: comment string
 
 # Keywords
 
-- `append::Bool=false`: append CONTINUE cards for long strings (>68 characters)
+- `append::Bool=false`: append an ampersand to the string value, which marks that the string is
+  continued by a CONTINUE card. A string that is longer than the card (>68 characters) is
+  always split into a card and CONTINUE cards, which are returned as a vector.
 - `fixed::Bool=true`: use fixed format. A fixed-format number ends at byte 30, so a `Float64`
   that has more than 20 characters is written with fewer digits of the mantissa, which are
   truncated, e.g., `1.2345678901234567e-100` is written as `1.2345678901234D-100`. Use
   `fixed=false` to keep all of the digits.
-- `slash::Integer=32`: index of comment separator (/)
+- `slash::Integer=32`: index of the comment separator (/). A comment, and the units, must end at
+  or before the end of the card.
 - `lpad::Integer=1`: number of spaces before comment separator
 - `rpad::Integer=1`: number of spaces after comment separator
 - `upad::Integer=1`: number of spaces after the units string
-- `truncate::Bool=true`: truncate comment at end of card
+- `truncate::Bool=true`: truncate a comment that is longer than the space at the end of the card,
+  and the comment of the card is the truncated comment. If `false`, a comment that does not fit,
+  and units that do not fit, are an `ArgumentError`. A comment is dropped if the comment
+  separator is at the end of the card.
 - `warn::Bool=true`: warn when a keyword longer than 8 characters creates a HIERARCH card
 - `splitat::Union{Char, Nothing}=' '`: split a long string and its comment into the cards after
   the last character that fits, instead of splitting at any character if `nothing`
