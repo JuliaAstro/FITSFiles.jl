@@ -15,6 +15,10 @@ The default data stucture for Random and Bintable HDUs is a named tuple of array
 
 - `record::Bool=false`: structure the data as a list of records
 - `scale::Bool=true`: apply the scale and zero keywords to the data
+- `strict::Bool=true`: numbers with a lower case exponent letter (d or e) are invalid cards,
+  unless false
+- `units::Bool=true`: the units in the comment of a number are the units of the value, unless
+  false
 """
 function fits(io::IO; kwds...)
 	hdus = HDU{<:AbstractHDU}[]

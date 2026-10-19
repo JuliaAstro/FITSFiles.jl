@@ -4,5 +4,6 @@
 
 ```@autodocs
 Modules = [FITSFiles]
-Pages = ["fitscore.jl", "hdu.jl", "card.jl"]
+Pages = ["fitscore.jl", "hdu.jl", "card/types.jl", "card/numbers.jl", "card/constructor.jl",
+         "card/values.jl", "card/parse.jl", "units.jl"]
 ```
