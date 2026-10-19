@@ -289,4 +289,19 @@
         @test FITSFiles.parseunit("km/s") == u"km/s"
     end
 
+    #  the caches of the units are used by several threads at once.
+    @testset "threads" begin
+        names = ["m", "s", "kg", "Hz", "J", "W", "K", "mol", "rad", "deg", "arcsec", "Jy", "pc", "AU", "eV", "erg", "km", "Mpc"]
+        texts = [a * "/" * b for a in names for b in names if a != b]
+        empty!(FITSFiles.UNIT_CACHE); empty!(FITSFiles.PARSEUNIT_CACHE)
+        units = Vector{Any}(undef, length(texts))
+        Threads.@threads for i in eachindex(texts)
+            units[i] = FITSFiles.parseunit(texts[i])
+        end
+        @test all(!isnothing, units)
+        @test all(i -> units[i] == FITSFiles.parseunit(texts[i]), eachindex(texts))
+        @test FITSFiles.unitname("km") == FITSFiles.parseunit("km") && isnothing(FITSFiles.unitname("foo"))
+        @test haskey(FITSFiles.UNIT_CACHE, "foo") && isnothing(FITSFiles.UNIT_CACHE["foo"])
+    end
+
 end

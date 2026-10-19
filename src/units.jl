@@ -105,26 +105,36 @@ const FITS_UNIT_BASES = Set(split("m g s rad sr K A mol cd Hz J W V N Pa C Ohm S
 const FITS_PREFIXES = ("da", "Y", "Z", "E", "P", "T", "G", "M", "k", "h", "d", "c", "m", "u",
 	"n", "p", "f", "a", "z", "y")
 
+#  The units of the names that are looked up, which are cached by the name. The lock makes the cache
+#  safe when cards are parsed by several threads, and is not held while a unit is looked up.
 const UNIT_CACHE = Dict{String, Any}()
+const UNIT_LOCK = ReentrantLock()
 
 #  Return the Unitful unit of a FITS unit name, which is a base unit with an optional prefix,
 #  or nothing. A base unit has priority over a prefix, e.g., min is minutes and not milli-in.
 function unitname(name::AbstractString)
-	get!(UNIT_CACHE, name) do
-		candidates = [("", name)]
-		append!(candidates, [(p, name[(length(p)+1):end]) for p in FITS_PREFIXES if startswith(name, p)])
-		for (prefix, base) in candidates
-			base in FITS_UNIT_BASES || continue
-			text = (prefix == "u" ? "μ" : prefix) * get(UNITFUL_UNIT_NAMES, base, base)
-			unit = try
-				uparse(text; unit_context = UNITFUL_MODULES)
-			catch
-				nothing
-			end
-			unit isa Unitful.FreeUnits && return unit
+	name = String(name)
+	cached = @lock UNIT_LOCK get(UNIT_CACHE, name, missing)
+	ismissing(cached) || return cached
+	unit = lookupunit(name)
+	@lock UNIT_LOCK UNIT_CACHE[name] = unit
+	unit
+end
+
+function lookupunit(name::AbstractString)
+	candidates = [("", name)]
+	append!(candidates, [(p, name[(length(p)+1):end]) for p in FITS_PREFIXES if startswith(name, p)])
+	for (prefix, base) in candidates
+		base in FITS_UNIT_BASES || continue
+		text = (prefix == "u" ? "μ" : prefix) * get(UNITFUL_UNIT_NAMES, base, base)
+		unit = try
+			uparse(text; unit_context = UNITFUL_MODULES)
+		catch
+			nothing
 		end
-		nothing
+		unit isa Unitful.FreeUnits && return unit
 	end
+	nothing
 end
 
 #  The units of the strings that are parsed, since the same strings are in many cards. The result of
