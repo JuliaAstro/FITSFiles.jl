@@ -20,6 +20,8 @@ function Card(key::K = "", value::V = missing, comment::C = ""; fixed::B = true,
 	#  The units of a quantity are not part of the value.
 	value, units = splitunits(value)
 	is_supported(value) || throw(ArgumentError("Value type $(typeof(value)) is not supported."))
+	#  The units of a number are the units at the beginning of the comment, as they are for an image.
+	units, comment, upad, ufmt = commentunits(upkey, value, units, comment, upad)
 
 	#  Check for invalid characters in key, value string, and comment.
 	if !is_hierarch(upkey) && occursin(NON_KEY_TEXT, upkey)
@@ -64,7 +66,7 @@ function Card(key::K = "", value::V = missing, comment::C = ""; fixed::B = true,
 		#  Create Value card
 		type = Value{typeof(value)}
 		format = layout_card(type, value, comment; fixed, append,
-			slash, lpad, rpad, upad, truncate, units = unitstring(units))
+			slash, lpad, rpad, upad, truncate, units = unitstring(units, ufmt), ufmt)
 	elseif is_valid_key(upkey) &&
 		(splitslash = long_string_slash(String(value), comment, slash, lpad, rpad, truncate)) !== nothing
 		#  Create a list of cards from from a long string.
@@ -80,7 +82,7 @@ function Card(key::K = "", value::V = missing, comment::C = ""; fixed::B = true,
 		type = Value{typeof(value)}
 		value = format_xtension_value(upkey, value)
 		format = layout_card(type, value, comment; fixed, append,
-			slash, lpad, rpad, upad, truncate, units = unitstring(units))
+			slash, lpad, rpad, upad, truncate, units = unitstring(units, ufmt), ufmt)
 	end
 
 	typeof(cards) <: AbstractArray && return cards
@@ -100,6 +102,8 @@ function Card(key::K, tokens::T, value::V, comment::C;
 	#  The units of a quantity are not part of the value.
 	value, units = splitunits(value)
 	is_supported(value) || throw(ArgumentError("Value type $(typeof(value)) is not supported."))
+	#  The units of a number are the units at the beginning of the comment, as they are for an image.
+	units, comment, upad, ufmt = commentunits(upkey, value, units, comment, upad)
 
 	#  Check for invalid characters in key, value string, and comment.
 	if !is_hierarch(upkey) && occursin(NON_KEY_TEXT, upkey)
@@ -123,7 +127,7 @@ function Card(key::K, tokens::T, value::V, comment::C;
 		end
 		type = Hierarch{typeof(value)}
 		format = layout_card(type, uptoken, value, comment; fixed, slash, lpad, rpad, upad,
-			units = unitstring(units))
+			units = unitstring(units, ufmt), ufmt)
 	else
 		throw(ArgumentError("Invalid card"))
 	end

@@ -61,7 +61,10 @@ Value{T}.
   number of integers or floats, or AbstractString, which is the type `T` of the card `Value{T}`.
   Another type of value is an `ArgumentError`. A Quantity of a number may be given in place of
   the number, but a Quantity is not a type of value: the value of the card is the number, and
-  the units of the Quantity are the units of the card.
+  the units of the Quantity are the units of the card. The units of a number without a Quantity
+  are the unit string in square brackets at the beginning of the comment, e.g., `[km/s] velocity`,
+  as they are for an image, and the unit string is removed from the comment. The comment of a string,
+  a logical, a mandatory keyword, text that is not a unit string, or a scale factor, is not units.
 - `tokens::AbstractString`: the tokens of a HIERARCH keyword, which are separated by spaces
 - `comment::AbstractString=""`: comment string
 

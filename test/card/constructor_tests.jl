@@ -589,7 +589,7 @@
 
     #  create HIERARCH keyword and value with comment
     @test isequal(showfields(Card("HIERARCH", "abc def gh ijklmn_-", -99.9, "[m] abcdef ghijklm nopqrstu vw xyzab")),
-                  ("ABC DEF GH IJKLMN_-", -99.9, "[m] abcdef ghijklm nopqrstu vw xyzab",
+                  ("ABC DEF GH IJKLMN_-", -99.9, "abcdef ghijklm nopqrstu vw xyzab",
                    "HIERARCH ABC DEF GH IJKLMN_- = -99.9 / [m] abcdef ghijklm nopqrstu vw xyzab     "))
 
     #  test HIERARCH Card with abbreviated value indicator.
@@ -604,7 +604,7 @@
 
     #  HIERARCH keyword implied by long keyword
     @test isequal(showfields(Card("abc def gh ijklmn", -99.9, "[m] abcdef ghijklm nopqrstu vw xyzab"; warn = false)),
-                  ("ABC DEF GH IJKLMN", -99.9, "[m] abcdef ghijklm nopqrstu vw xyzab",
+                  ("ABC DEF GH IJKLMN", -99.9, "abcdef ghijklm nopqrstu vw xyzab",
                    "HIERARCH ABC DEF GH IJKLMN = -99.9 / [m] abcdef ghijklm nopqrstu vw xyzab       "))
 
     ###  Regression tests: HIERARCH cards  ###
@@ -989,6 +989,75 @@
             @test Card("HIERARCH", "ESO A", 1, comment).comment == strip(comment)
             @test FITSFiles.setvalue!(Card("KEY", 1, "c"), 2; slash = 40).comment == "c"
         end
+    end
+
+    #  The units of a number are the unit string in square brackets at the beginning of the comment, as they
+    #  are for an image, and the units are removed from the comment.
+    @testset "units in the comment" begin
+        m, kms = Unitful.m, Unitful.km / Unitful.s
+        card = Card("KEY", 12345, "[s] exposure")
+        @test card.units == Unitful.s && card.comment == "exposure"
+        @test repr(card) == rpad("KEY     =                12345 / [s] exposure", 80)
+        for (comment, units, rest, image) in (("[km/s]   x", kms, "x", "KEY     =                12345 / [km/s]   x"),
+            ("[km s-1] x", kms, "x", "KEY     =                12345 / [km s-1] x"), ("[m**2] x", m^2, "x", "KEY     =                12345 / [m**2] x"),
+            ("[m^2] x", m^2, "x", "KEY     =                12345 / [m^2] x"), ("[s]", Unitful.s, "", "KEY     =                12345 / [s]"),
+            ("[m]x", m, "x", "KEY     =                12345 / [m]x"))
+            card = Card("KEY", 12345, comment)
+            @test card.units == units && card.comment == rest
+            @test repr(card) == rpad(image, 80)
+            parsed = parse(Card, repr(card))
+            @test parsed.units == card.units && parsed.comment == card.comment && repr(parsed) == repr(card)
+        end
+        #  The card has the units of the quantity, the units of the Card are in the same way for every kind of number.
+        for value in (12345, 2.5, 2.5f0, 1 + 2im, big(10)^30, Int8(5))
+            card = Card("KEY", value, "[Jy/beam] c")
+            @test card.units == FITSFiles.parseunit("Jy/beam")
+            @test card.comment == "c" && card.value === value
+            @test Card("KEY", value, "[Jy/beam] c"; fixed = false).units == card.units
+            @test Card("HIERARCH", "ESO A", value, "[Jy/beam] c").units == card.units
+            @test Card("LONGKEYWORD", value, "[Jy/beam] c"; warn = false).units == card.units
+            @test parse(Card, repr(card)).units == card.units
+        end
+        #  Text that is not units, a scale factor, a string, a logical, a mandatory keyword, or a quantity, is a comment.
+        for comment in ("[xyz] x", "[10**3 m] x", "[] x", "[m x", "m] x", "x [m]", "[m", "[ct s-1 x")
+            @test Card("KEY", 1, comment).units === nothing && Card("KEY", 1, comment).comment == strip(comment)
+        end
+        @test Card("KEY", "abc", "[s] x").units === nothing && Card("KEY", "abc", "[s] x").comment == "[s] x"
+        @test Card("KEY", true, "[s] x").units === nothing && Card("KEY", true, "[s] x").comment == "[s] x"
+        @test Card("KEY", missing, "[s] x").units === nothing && Card("KEY", missing, "[s] x").comment == "[s] x"
+        for key in ("NAXIS", "BITPIX", "NAXIS1", "PCOUNT", "GCOUNT")
+            @test Card(key, 2, "[s] x").units === nothing && Card(key, 2, "[s] x").comment == "[s] x"
+        end
+        card = Card("KEY", 2.5 * Unitful.m, "[s] x")
+        @test card.units == Unitful.m && card.comment == "[s] x"
+        #  The image is the image of the card with the units of a quantity, and the card is the parsed card.
+        @test repr(Card("KEY", 2.5, "[m] x")) == repr(Card("KEY", 2.5 * Unitful.m, "x"))
+        @test Card("KEY", 2.5, "[m] x") == Card("KEY", 2.5 * Unitful.m, "x") && Card("KEY", 2.5, "[m] x").units == Card("KEY", 2.5 * Unitful.m, "x").units
+        @test Card("KEY", 2.5, "[m] x").units == parse(Card, repr(Card("KEY", 2.5, "[m] x"))).units
+        #  The units are removed from the comment of a number that is set, as for the constructor.
+        card = FITSFiles.setvalue!(Card("KEY", 1, "c"), 2.5)
+        @test card.units === nothing
+        #  A number that is set has the units at the beginning of the comment of the card, as the constructor of a card.
+        card = FITSFiles.setvalue!(Card("KEY", "text", "[d]-69c"), 1)
+        @test card.units == Unitful.d && card.comment == "-69c" && repr(card) == repr(Card("KEY", 1, "[d]-69c"))
+        card = FITSFiles.setvalue!(parse(Card, rpad("KEY     = 5 / [km/s] x", 80); units = false), 6)
+        @test card.units == kms && card.comment == "x" && repr(card) == rpad("KEY     = 6 / [km/s] x", 80)
+        @test FITSFiles.setvalue!(parse(Card, rpad("NAXIS   = 5 / [s] x", 80)), 6).units === nothing
+        @test FITSFiles.setvalue!(Card("KEY", 1, "[s] x"), 2.5).units == Unitful.s
+        @test FITSFiles.setvalue!(Card("KEY", "abc", "[s] x"), "def").units === nothing
+        @test FITSFiles.setvalue!(Card("KEY", "abc", "[s] x"), true).units === nothing
+    end
+
+    #  The value of a complex number begins at the first index, so a value that is set begins there.
+    @testset "complex value index" begin
+        card = Card("KEY", 3 + 4im, "c"; fixed = false)
+        @test card.format.vbeg == 1
+        @test repr(FITSFiles.setvalue!(card, true)) == repr(Card("KEY", true, "c"; fixed = false))
+        @test repr(FITSFiles.setvalue!(card, 12)) == repr(Card("KEY", 12, "c"; fixed = false))
+        @test repr(FITSFiles.setvalue!(card, "abc")) == repr(Card("KEY", "abc", "c"; fixed = false))
+        @test parse(Card, rpad("KEY     = (3, 4) / c", 80)).format.vbeg == 1
+        #  the spaces before the units are not significant, as they are not read.
+        @test Card("KEY", 1, "  [m] x").units == Unitful.m
     end
 
 end

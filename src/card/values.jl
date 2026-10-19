@@ -3,11 +3,25 @@ splitunits(value::Quantity) = unit(value) === NoUnits ? (ustrip(value), nothing)
 	(ustrip(value), unit(value))
 splitunits(value) = (value, nothing)
 
+#  The units of a number and the comment, where the units are the unit string in square brackets at the
+#  beginning of the comment (Sect. 4.3.2), unless the number has units, or the keyword is mandatory.
+#  The number of spaces after the units is the number of spaces after the units string of the comment, and
+#  the style of the units string is kept.
+function commentunits(key::AbstractString, value, units, comment::AbstractString, upad::Integer)
+	isnothing(units) && value isa Union{Real, Complex} && !(value isa Bool) && !is_fixed_key(key) ||
+		return units, comment, upad, ""
+	m = match(r"^\[([^\]]*)\]( *)", comment)
+	parsed = isnothing(m) ? nothing : parseunit(m[1])
+	parsed isa Unitful.Units || return units, comment, upad, ""
+	parsed, comment[(length(m.match)+1):end], length(m[2]), unitstyle(m[1])
+end
+
 """
 	setvalue!(card, value; <keywords>)
 
 Return the card with the value `value`, and the units, format, and comment of the card. A number
-without units has the units of the card. A string that fits on the card, i.e., that has at most 68
+without units has the units of the card, or the units at the beginning of the comment of the card
+if the card has no units, as for the constructor of a card. A string that fits on the card, i.e., that has at most 68
 characters, is not split, and moves the comment to the right if the string passes the comment
 separator. A string that does not fit on the card is split into the cards of a long string, the
 first card and the CONTINUE cards, which are returned as a vector, at the comment separator, or at
@@ -77,10 +91,17 @@ function setvalue!(card::Card, value::ValueInput; fixed::Union{Bool, Nothing} = 
 			#  A units string at the beginning of the comment of a card that is parsed without
 			#  units is replaced by the units of the new value.
 			comment = card.comment
+			ufmt = f.ufmt
 			if !isnothing(units) && f.ubeg == 0 &&
 				(m = match(r"^\[[^\]]*\]( *)", comment)) !== nothing
 				comment = comment[(length(m.match)+1):end]
 				upad = something(upad_given, length(m[1]))
+			elseif isnothing(units)
+				#  The units at the beginning of the comment of a number are the units of the number.
+				units, comment, nspaces, style = commentunits(card.key, value, units, comment, upad)
+				if !isnothing(units)
+					upad, ufmt = something(upad_given, nspaces), style
+				end
 			end
 			#  A string that does not fit on a card is split into the cards of a long string. A string
 			#  that passes the separator of the comment moves the comment to the right, and the
@@ -96,8 +117,8 @@ function setvalue!(card::Card, value::ValueInput; fixed::Union{Bool, Nothing} = 
 			end
 			args = T == Hierarch ? (card.key,) : ()
 			fmt = layout_card(type, args..., value, comment; fixed, append,
-				slash = something(slash, f.slsh + TOKENLEN), lpad, rpad, upad, units = unitstring(units, f.ufmt),
-				vfmt = keepfmt(f.vfmt, value), ufmt = f.ufmt, vbeg = f.vbeg, truncate)
+				slash = something(slash, f.slsh + TOKENLEN), lpad, rpad, upad, units = unitstring(units, ufmt),
+				vfmt = keepfmt(f.vfmt, value), ufmt, vbeg = f.vbeg, truncate)
 			card = Card(type, card.key, value, units, fitcomment(comment, fmt), fmt)
 		else
 			card = Card(T, card.key, value, card.comment, f)

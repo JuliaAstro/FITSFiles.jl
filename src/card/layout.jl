@@ -50,7 +50,7 @@ function layout_card(::Type{Value{V}}, value::V, comment::C; kwds...) where
 	if isempty(format.vfmt)
 		rlen, ilen = length(string(real(value))), length(string(imag(value)))
 		vend = 1+rlen+2+ilen
-		format.vbeg, format.vend = Int8(2), Int8(vend+1)
+		format.vbeg, format.vend = Int8(1), Int8(vend+1)
 	else
 		vbeg = get(kwds, :vbeg, 1)
 		vend = vbeg+length(printfmt(format.vfmt, value))-1

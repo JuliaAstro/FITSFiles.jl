@@ -116,7 +116,9 @@ A `Quantity` is not a type of value. The units of a quantity are not part of the
 `Quantity` that is given in place of a number is split into its number and its units, and the
 type of the card is the type of the number, e.g., the type of a card with `1200.0u"s"` is
 `Card{Value{Float64}}`. The units are read from the comment when a card is parsed, where the
-units are in square brackets at the beginning of the comment (Sect. 4.3.2).
+units are in square brackets at the beginning of the comment (Sect. 4.3.2), and they are read in
+the same way from the comment of a number that is given to `Card`: the unit string is removed
+from the comment and is the units of the card, as if the number were a `Quantity`.
 
 ```jldoctest cards
 julia> card = Card("EXPTIME", 1200.0u"s", "exposure time");
@@ -132,7 +134,21 @@ s
 
 julia> show_(Card("RATE", 3.5f0u"km/s", "velocity"))
 RATE    =                  3.5 / [km s-1] velocity
+
+julia> card = Card("RATE", 3.5f0, "[km/s] velocity"); card.units, card.comment
+(km s⁻¹, "velocity")
+
+julia> show_(card)
+RATE    =                  3.5 / [km/s] velocity
+
+julia> card = Card("RATE", 3.5f0, "[foo] velocity"); card.units, card.comment
+(nothing, "[foo] velocity")
 ```
+
+The style of the unit string of the comment is written again, e.g., `[km/s]`, and a `Quantity`
+is written in the default style. The comment of a string or a logical, of a mandatory keyword,
+and of a number with a `Quantity`, is not units, and text that is not a unit string or a scale
+factor remains in the comment.
 
 The units are written as the strings of the FITS Standard (Sect. 4.3), by `formunit`, and are
 read by `parseunit`. A unit with a scale factor, e.g., `10**3 m`, or without a name in the
