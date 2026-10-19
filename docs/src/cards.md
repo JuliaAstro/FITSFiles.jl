@@ -1,0 +1,382 @@
+# Cards
+
+A FITS header is a list of 80-character *cards*, or keyword records. A [`Card`](@ref) holds the
+parts of one card, the keyword, the value, the units, and the comment, and the layout that is
+needed to write the card as it was read. This page describes the creation, the parsing, and the
+modification of cards. The rules are those of the FITS Standard 4.0, Sect. 4, and of the ESO
+HIERARCH convention.
+
+The examples use the following definitions, where `show_` prints the 80-character image of a card
+without the trailing spaces.
+
+```@meta
+DocTestSetup = quote
+    using FITSFiles, Unitful
+    import FITSFiles: setvalue!, join_cards
+    show_(card) = println(rstrip(repr(card)))
+end
+```
+
+## Creating a card
+
+A card is created from a keyword, a value, and a comment, which are all optional.
+
+```jldoctest cards
+julia> card = Card("EXPTIME", 1200.0, "exposure time");
+
+julia> show_(card)
+EXPTIME =               1200.0 / exposure time
+
+julia> card.key, card.value, card.units, card.comment
+("EXPTIME", 1200.0, nothing, "exposure time")
+
+julia> typeof(card)
+Card{Value{Float64}}
+```
+
+The type of the card is the kind of the card, `Value`, `Hierarch`,
+`Comment`, `History`, `Continue`, `End`, or `Invalid`, and
+for a value the type of the value.
+
+| Value                                             | Card                     |
+|:--------------------------------------------------|:-------------------------|
+| `missing`, or none                                | an undefined value       |
+| `true`, `false`                                   | a logical                |
+| `Integer`                                         | an integer               |
+| `AbstractFloat`                                   | a real number            |
+| `Complex` of integers or of floats                | a complex number         |
+| `AbstractString`                                  | a string                 |
+
+```jldoctest cards
+julia> show_(Card("NAXIS", 2))
+NAXIS   =                    2
+
+julia> show_(Card("OBJECT", "NGC 1275", "target"))
+OBJECT  = 'NGC 1275'           / target
+
+julia> show_(Card("FLAG", true))
+FLAG    =                    T
+
+julia> show_(Card("Z", 1.5 + 2.5im))
+Z       = (1.5, 2.5)
+
+julia> show_(Card("EMPTY"))
+EMPTY   =
+```
+
+Other values, e.g., a `Rational` or `Complex{Bool}`, are an `ArgumentError`, and a number that is
+not finite is a `DomainError`, since the FITS Standard has no such values. The text of a string
+and of a comment is the printable ASCII characters, 32 to 126.
+
+A keyword is converted to upper case. A keyword with the characters `A`-`Z`, `0`-`9`, `-`, and `_`
+and at most 8 characters is a regular keyword. A longer keyword is a [HIERARCH](#HIERARCH-keywords)
+keyword.
+
+## Units
+
+A `Quantity` is not a type of value. The units of a quantity are not part of the value, so a
+`Quantity` that is given in place of a number is split into its number and its units, and the
+type of the card is the type of the number, e.g., the type of a card with `1200.0u"s"` is
+`Card{Value{Float64}}`. The units are read from the comment when a card is parsed, where the
+units are in square brackets at the beginning of the comment (Sect. 4.3.2).
+
+```jldoctest cards
+julia> card = Card("EXPTIME", 1200.0u"s", "exposure time");
+
+julia> show_(card)
+EXPTIME =               1200.0 / [s] exposure time
+
+julia> card.value, card.units
+(1200.0, s)
+
+julia> units(card)
+s
+
+julia> show_(Card("RATE", 3.5f0u"km/s", "velocity"))
+RATE    =                  3.5 / [km s-1] velocity
+```
+
+The units are written as the strings of the FITS Standard (Sect. 4.3), by `formunit`, and are
+read by `parseunit`. A unit with a scale factor, e.g., `10**3 m`, or without a name in the
+Standard, e.g., a function such as `log(Hz)`, remains in the comment. The units of a card are
+not read if the keyword `units = false` is given to `parse`.
+
+## Fixed and free format
+
+The values of a card are in fixed format by default, where a number ends at byte 30 and a string
+begins at byte 11. A number has at most 20 characters in fixed format, so a `Float64` that has
+more characters is written with fewer digits of the mantissa. The free format has no such limit.
+
+```jldoctest cards
+julia> show_(Card("EXPTIME", 1200.0, "exposure time"; fixed = false))
+EXPTIME = 1200.0               / exposure time
+
+julia> show_(Card("DELTA", 1.2345678901234567e-100))
+DELTA   = 1.2345678901234D-100
+
+julia> show_(Card("DELTA", 1.2345678901234567e-100; fixed = false))
+DELTA   = 1.2345678901234567D-100
+```
+
+The mandatory keywords `SIMPLE`, `XTENSION`, `BITPIX`, `NAXIS`, `NAXIS`*n*, `PCOUNT`, `GCOUNT`,
+and `END` are always in fixed format and have no units.
+
+The position of the comment is the keyword `slash`, the byte of the comment separator, which is
+32 by default, and `lpad`, `rpad`, and `upad` are the numbers of spaces before and after the
+separator and after the units. A comment that is longer than the space at the end of the card is
+truncated, and the comment of the card is the truncated comment, unless `truncate = false`, which
+is an `ArgumentError`.
+
+```jldoctest cards
+julia> show_(Card("EXPTIME", 1200.0, "exposure time"; slash = 40))
+EXPTIME =               1200.0         / exposure time
+
+julia> Card("A", 1, repeat("x", 100)).comment |> length
+47
+
+julia> Card("A", 1, repeat("x", 100); truncate = false)
+ERROR: ArgumentError: Comment does not fit on the card.
+[...]
+```
+
+## Commentary cards
+
+A `COMMENT`, a `HISTORY`, and a blank keyword have no value indicator and only text.
+
+```jldoctest cards
+julia> show_(Card("COMMENT", "A comment"))
+COMMENT A comment
+
+julia> show_(Card("HISTORY", "processed"))
+HISTORY processed
+
+julia> card = Card("COMMENT", "A comment"); card.value
+"A comment"
+```
+
+## HIERARCH keywords
+
+A keyword that is longer than 8 characters is a HIERARCH keyword, where the tokens of the
+keyword follow `HIERARCH`. A warning is given, unless `warn = false`. The key of the card is the
+tokens.
+
+```jldoctest cards
+julia> card = Card("HIERARCH", "ESO TEL FOCU SCALE", 1.489, "(deg/m) Focus");
+
+julia> show_(card)
+HIERARCH ESO TEL FOCU SCALE = 1.489 / (deg/m) Focus
+
+julia> card.key, typeof(card)
+("ESO TEL FOCU SCALE", Card{Hierarch{Float64}})
+
+julia> show_(Card("LONGKEYWORD", 1.5; warn = false))
+HIERARCH LONGKEYWORD = 1.5
+```
+
+The tokens have the characters of a keyword, and a HIERARCH card is in free format. A card
+without a value, e.g., `HIERARCH some text`, is commentary text.
+
+## Long strings
+
+A string that does not fit on one card is split into the cards of a long string, a card and
+the `CONTINUE` cards (Sect. 4.2.1.2), which are returned as a vector. Every card but the last
+ends with an ampersand. A string is split after the last space that fits, unless the keyword
+`splitat = nothing` is given, where it is split at any character, or the keyword `splitat` is
+another character.
+
+```jldoctest cards
+julia> cards = Card("LONGSTR", repeat("This is a long string value. ", 5), "comment");
+
+julia> foreach(show_, cards)
+LONGSTR = 'This is a long &'   / comment
+CONTINUE  'string value. &'
+CONTINUE  'This is a long &'
+CONTINUE  'string value. &'
+CONTINUE  'This is a long &'
+CONTINUE  'string value. &'
+CONTINUE  'This is a long &'
+CONTINUE  'string value. &'
+CONTINUE  'This is a long &'
+CONTINUE  'string value. '
+```
+
+The comment is split in the same way. A list of cards is joined into the value of the card by
+`join_cards`.
+
+```jldoctest cards
+julia> join_cards(cards).value
+"This is a long string value. This is a long string value. This is a long string value. This is a long string value. This is a long string value. "
+```
+
+## Parsing an image
+
+`parse(Card, image)` creates a card from an 80-character image. The type of the card follows the
+image: a value, a HIERARCH keyword, commentary text, a CONTINUE card, an END card, or an invalid
+record.
+
+```jldoctest cards
+julia> image = rpad("EXPTIME = 1200. / [s] exposure time in seconds", 80);
+
+julia> card = parse(Card, image);
+
+julia> card.key, card.value, card.units, card.comment
+("EXPTIME", 1200.0f0, s, "exposure time in seconds")
+
+julia> repr(card) == image
+true
+
+julia> typeof(parse(Card, rpad("COMMENT some text", 80)))
+Card{Comment}
+
+julia> typeof(parse(Card, rpad("END", 80)))
+Card{End}
+```
+
+The type of a number is the smallest type that holds the number, and a floating-point number is
+a `Float32` if it is exactly the shortest `Float32` of its text. An integer is an `Int64`, an
+`Int128`, or a `BigInt`.
+
+A record with a malformed value is an `Invalid` card, which keeps the text of the record
+and is written as it was read. Only a record that is not a value, e.g., a keyword without the
+value indicator `= ` in bytes 9 and 10, is commentary text.
+
+```jldoctest cards
+julia> card = parse(Card, rpad("KEY     = 1 2 3", 80));
+
+julia> typeof(card), card.key
+(Card{Invalid}, "KEY")
+
+julia> typeof(parse(Card, rpad("HIERARCH ESO A = 1 2 3", 80)))
+Card{Invalid}
+
+julia> typeof(parse(Card, rpad("KEY=  1", 80)))
+Card{Invalid}
+
+julia> typeof(parse(Card, rpad("HIERARCH some text", 80)))
+Card{Comment}
+```
+
+The Standard allows an upper case `E` or `D` for the exponent. A number with a lower case
+letter is an invalid card, unless the keyword `strict = false` is given.
+
+```jldoctest cards
+julia> typeof(parse(Card, rpad("KEY     = 1.5e3", 80)))
+Card{Invalid}
+
+julia> card = parse(Card, rpad("KEY     = 1.5e3", 80); strict = false);
+
+julia> card.value
+1500.0f0
+
+julia> show_(card)
+KEY     = 1.5E3
+```
+
+A CONTINUE card continues a string only if the card before it is a string that ends with an
+ampersand, so the card before it is given to `parse`. A CONTINUE card that does not continue a
+string, and a CONTINUE record without spaces in bytes 9 and 10 or without a string, is commentary.
+
+```jldoctest cards
+julia> images = [rpad("LONGSTR = 'This is a long &' / comment", 80), rpad("CONTINUE  'string value.'", 80)];
+
+julia> cards = Card{<:Any}[]; previous = nothing;
+
+julia> for image in images
+           card = parse(Card, image, previous)
+           push!(cards, card)
+           previous = card
+       end
+
+julia> typeof.(cards)
+2-element Vector{DataType}:
+ Card{Value{String}}
+ Card{Continue}
+
+julia> join_cards(cards).value
+"This is a long string value."
+
+julia> typeof(parse(Card, rpad("CONTINUE  'orphan'", 80), nothing))
+Card{Comment}
+```
+
+## Reading and writing a card
+
+A card is written as it was read, and the image of a parsed card is the image that was read,
+including the format of the numbers, the position of the values, the units, and the comment. The
+exceptions are those of the reading, where the value is not changed:
+
+- a number without an integer digit has a zero, e.g., `.5` is `0.5`;
+- an exponent has at least two digits, and a mantissa has one integer digit, e.g., `E+007` is
+  `E+07` and `56.53E+13` is `5.653E+14`;
+- the sign of an integer zero is lost;
+- a number that is longer than before takes the spaces before the comment, but may move the
+  comment, and the end of the comment of a full card is lost.
+
+Trailing spaces of a string are not significant, and are restored in the written card.
+
+## Changing the value
+
+`setvalue!` returns the card with a new value, and the units, format, and comment of the card.
+The new value may have another type. A number keeps the format of the old number, e.g., the
+digits and the exponent letter, only if the number is written with that format without a loss
+of digits. A number without units has the units of the card.
+
+```jldoctest cards
+julia> card = Card("EXPTIME", 1200.0, "exposure time");
+
+julia> show_(setvalue!(card, 1500.0))
+EXPTIME =               1500.0 / exposure time
+
+julia> show_(setvalue!(card, 1500.0u"s"))
+EXPTIME =               1500.0 / [s] exposure time
+
+julia> show_(setvalue!(Card("N", 1, "c"), "text"))
+N       = 'text'               / c
+
+julia> card = parse(Card, rpad("KEY     = 1.50 / c", 80));
+
+julia> show_(setvalue!(card, 2.5))
+KEY     = 2.50 / c
+
+julia> show_(setvalue!(card, 2.567))
+KEY     = 2.567                / c
+```
+
+A string that does not fit is split into the cards of a long string, as by `Card`. The value of
+a commentary card is a string or `missing`, and an END card has no value, otherwise an
+`ArgumentError` is raised. A list of cards in a header is changed by `setvalue!(cards, key,
+value)` and by `cards[key] = value`, which also replace the CONTINUE cards of the old value.
+
+## Comparing and copying
+
+Two cards are equal if their images are equal, so a card is equal to the card that is parsed
+from its image, and equal cards have the same hash. A copy has its own format, so the copy can
+be changed without changing the card.
+
+```jldoctest cards
+julia> a, b = Card("A", 1, "c"), Card("A", 1, "c");
+
+julia> a == b, hash(a) == hash(b), copy(a) == a, copy(a) === a
+(true, true, true, false)
+
+julia> parse(Card, repr(a)) == a
+true
+```
+
+A card is a scalar in a broadcast, e.g., `cards .== a`.
+
+## Errors
+
+| Error                                         | Cause                                                              |
+|:----------------------------------------------|:-------------------------------------------------------------------|
+| `ArgumentError`                               | a keyword, a string, or a comment with characters that are not allowed |
+| `ArgumentError`                               | a value of a type that cannot be written                           |
+| `ArgumentError`                               | a string value for a number, or a value that is not a string for a commentary or CONTINUE card |
+| `ArgumentError`                               | a comment, units, or a HIERARCH keyword and value that do not fit on the card |
+| `DomainError`                                 | a number that is not finite                                        |
+
+Reading an image never raises an error. A record that is not valid is an `Invalid` card.
+
+```@meta
+DocTestSetup = nothing
+```

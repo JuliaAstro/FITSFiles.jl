@@ -869,4 +869,28 @@
         end
     end
 
+    #  A quantity is not a value type, since the units are not part of the value, so it is not the type
+    #  of a value card.
+    @testset "quantity is not a value type" begin
+        q = 1.5 * Unitful.m
+        @test !(q isa FITSFiles.ValueType) && q isa FITSFiles.ValueInput
+        @test_throws TypeError Value{typeof(q)}
+        @test_throws TypeError Hierarch{typeof(q)}
+        @test_throws TypeError Value{typeof(1 * Unitful.m)}
+        for value in (q, 2.5f0 * Unitful.km / Unitful.s, 3 * Unitful.m, (1 + 2im) * Unitful.m, 1 * Unitful.NoUnits)
+            card = Card("KEY", value, "c")
+            @test !(FITSFiles.typename(card) <: Value{<:Quantity})
+            @test !(card.value isa Quantity)
+            @test FITSFiles.typename(card) == Value{typeof(ustrip(value))}
+            @test FITSFiles.typename(Card("HIERARCH", "ESO A", value, "c")) == Hierarch{typeof(ustrip(value))}
+            @test !(FITSFiles.typename(FITSFiles.setvalue!(Card("KEY", 1), value)) <: Value{<:Quantity})
+        end
+        #  The quantity of the low-level constructor is split in the same way.
+        card = Card(Value{Float64}, "KEY", q, "c", FITSFiles.CardFormat())
+        @test card.value === 1.5 && card.units == Unitful.m
+        for card in (parse(Card, rpad("KEY     = 1.5 / [m] c", 80)), Card("KEY", q))
+            @test !(card.value isa Quantity) && card.units == Unitful.m
+        end
+    end
+
 end

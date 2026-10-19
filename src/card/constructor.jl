@@ -1,7 +1,7 @@
 function Card(key::K = "", value::V = missing, comment::C = ""; fixed::B = true,
 	append::B = false, slash::I = 32, lpad::I = 1, rpad::I = 1, upad::I = 1,
 	truncate::B = true, warn::B = true, splitat::Union{Char, Nothing} = ' ') where
-	{B <: Bool, I <: Integer, K <: AbstractString, V <: ValueType, C <: AbstractString}
+	{B <: Bool, I <: Integer, K <: AbstractString, V <: ValueInput, C <: AbstractString}
 
 	#  Convert key to uppercase and remove trailing spaces.
 	upkey = uppercase(strip(key))
@@ -87,7 +87,7 @@ end
 
 function Card(key::K, tokens::T, value::V, comment::C;
 	fixed::B = true, slash::I = 32, lpad::I = 1, rpad::I = 1, upad::I = 1) where
-{B <: Bool, I <: Integer, K <: AbstractString, T <: AbstractString, V <: ValueType,
+{B <: Bool, I <: Integer, K <: AbstractString, T <: AbstractString, V <: ValueInput,
 	C <: AbstractString}
 
 	#  Convert key to uppercase and remove trailing SPECIAL_KEYS

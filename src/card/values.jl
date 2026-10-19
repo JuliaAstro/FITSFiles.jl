@@ -13,7 +13,7 @@ cards of a long string, the first card and the CONTINUE cards, which are returne
 The string and the comment are split after the last `splitat` that fits, as in the constructor
 of a card.
 """
-function setvalue!(card::Card, value::ValueType; splitat::Union{Char, Nothing} = ' ')
+function setvalue!(card::Card, value::ValueInput; splitat::Union{Char, Nothing} = ' ')
 	#  The value of a commentary card is a string, and an END card has no value.
 	T = basetype(typename(card))
 	if T == End

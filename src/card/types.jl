@@ -1,4 +1,7 @@
-const ValueType = Union{AbstractString, Missing, Number}
+#  The type of the value of a card, where the units of a quantity are not part of the value, so
+#  a quantity is not a value type. The input of a value is a value or a quantity.
+const ValueType = Union{AbstractString, Missing, Real, Complex}
+const ValueInput = Union{ValueType, Quantity}
 
 abstract type AbstractCardType end
 abstract type CommentCardType <: AbstractCardType end
@@ -6,10 +9,10 @@ abstract type CommentCardType <: AbstractCardType end
 struct Continue <: AbstractCardType end
 struct End <: AbstractCardType end
 struct Invalid <: AbstractCardType end
-struct Value{T} <: AbstractCardType where T <: ValueType end
+struct Value{T <: ValueType} <: AbstractCardType end
 
 struct Comment <: CommentCardType end
-struct Hierarch{T} <: CommentCardType where T <: ValueType end
+struct Hierarch{T <: ValueType} <: CommentCardType end
 struct History <: CommentCardType end
 
 const COMMENTKEY = Dict(""=>Comment, "COMMENT"=>Comment, "HIERARCH"=>Comment, "HISTORY"=>History)
@@ -54,10 +57,11 @@ Value{T}.
 # Arguments
 
 - `key::AbstractString=""`: keyword string
-- `value::U=missing`: keyword value, where U is Bool, Integer, AbstractFloat, a Complex number
-  of integers or floats, Quantity of one of these, or String. Another type of value is an
-  `ArgumentError`. The units of a Quantity are the units of the card, and are not part of the
-  value.
+- `value::U=missing`: keyword value, where U is Missing, Bool, Integer, AbstractFloat, a Complex
+  number of integers or floats, or AbstractString, which is the type `T` of the card `Value{T}`.
+  Another type of value is an `ArgumentError`. A Quantity of a number may be given in place of
+  the number, but a Quantity is not a type of value: the value of the card is the number, and
+  the units of the Quantity are the units of the card.
 - `tokens::AbstractString`: the tokens of a HIERARCH keyword, which are separated by spaces
 - `comment::AbstractString=""`: comment string
 

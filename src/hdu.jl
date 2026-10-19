@@ -702,7 +702,7 @@ Replace the value of the first card with the keyword `key`. A string that does n
 is split into the cards of a long string, and the CONTINUE cards of a string that is replaced
 are removed. The cards are always replaced, which is the way to split the value again.
 """
-function setvalue!(cards::Cards, key::AbstractString, value::ValueType;
+function setvalue!(cards::Cards, key::AbstractString, value::ValueInput;
 	splitat::Union{Char, Nothing} = ' ')
 
 	j = Base.findfirst(key, cards)
@@ -719,7 +719,7 @@ end
 
 #  Setting the value that the cards have leaves the cards as they are, including the pieces
 #  of a long string.
-function Base.setindex!(cards::Cards, value::ValueType, key::AbstractString)
+function Base.setindex!(cards::Cards, value::ValueInput, key::AbstractString)
 	j = Base.findfirst(key, cards)
 	ismissing(j) && throw(KeyError(key))
 	old = joinvalue(cards, j)
