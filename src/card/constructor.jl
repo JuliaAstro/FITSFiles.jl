@@ -63,12 +63,12 @@ function Card(key::K = "", value::V = missing, comment::C = ""; fixed::B = true,
 		type = Value{typeof(value)}
 		format = layout_card(type, value, comment; fixed, append,
 			slash, lpad, rpad, upad, truncate, units = unitstring(units))
-	elseif is_valid_key(upkey) && is_long_string(String(value), comment, slash, lpad,
-		rpad, truncate)
+	elseif is_valid_key(upkey) &&
+		(splitslash = long_string_slash(String(value), comment, slash, lpad, rpad, truncate)) !== nothing
 		#  Create a list of cards from from a long string.
 		type = Value{typeof(value)}
 		cards = split_card(upkey, value, comment,
-			(; fixed, slash, lpad, rpad, upad, append, splitat))
+			(; fixed, slash = splitslash[1], slash2 = splitslash[2], lpad, rpad, upad, append, splitat))
 		cards = [Card(t, k, v, c, f) for (t, k, v, c, f) in cards]
 	else
 		#  Create Value card that is not a long string. The key is valid, because the
@@ -143,12 +143,26 @@ function is_fixed_key(key::AbstractString)
 		occursin(r"^NAXIS\d{1,3}$", key)
 end
 
-function is_long_string(value::AbstractString, comment::AbstractString,
+#  The indexes of the comment separators of the first card and of the CONTINUE cards of a long
+#  string, or nothing if the string and the comment are on one card. A string that fits on a card is
+#  not split, and moves the comment to the right, if the string passes the comment separator. The
+#  comment is truncated, if it does not fit on the card and `truncate` is true, and otherwise is
+#  continued on the CONTINUE cards of the string, where the comment begins at the comment separator.
+#  A string that does not fit on a card is split at the comment separator, or at the end of the
+#  card if there is no comment.
+function long_string_slash(value::AbstractString, comment::AbstractString,
 	slash::I, lpad::I, rpad::I, truncate::Bool) where I <: Integer
-	#  Test for long value and comment strings. Return true if found, except in the case where
-	#  the comment can be truncated, i.e., truncate == true.
-	length(replace(value, "'" => "''")) > value_length(slash, lpad) ||
-		(!truncate && length(comment) > comment_length(slash, rpad))
+
+	vlen = length(replace(value, "'" => "''"))
+	if vlen <= value_length(slash, lpad)
+		(truncate || length(comment) <= comment_length(slash, rpad)) ? nothing : (slash, slash)
+	elseif vlen <= CARDLENGTH - TOKENLEN - 2
+		#  The comment separator follows the string, and the continued string has an ampersand.
+		next = vlen + lpad + TOKENLEN + 3
+		(truncate || length(comment) <= comment_length(next, rpad)) ? nothing : (next + 1, slash)
+	else
+		isempty(comment) ? (CARDLENGTH + 2, CARDLENGTH + 2) : (slash, slash)
+	end
 end
 
 function is_hierarch(key::AbstractString)

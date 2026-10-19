@@ -7,11 +7,13 @@ splitunits(value) = (value, nothing)
 	setvalue!(card, value; splitat = ' ')
 
 Return the card with the value `value`, and the units, format, and comment of the card. A number
-without units has the units of the card. A string that does not fit on the card, i.e., that
-passes the comment separator, or the end of the card if there is no comment, is split into the
-cards of a long string, the first card and the CONTINUE cards, which are returned as a vector.
-The string and the comment are split after the last `splitat` that fits, as in the constructor
-of a card.
+without units has the units of the card. A string that fits on the card, i.e., that has at most 68
+characters, is not split, and moves the comment to the right if the string passes the comment
+separator. The comment is continued on CONTINUE cards if it does not fit on the card. A string
+that does not fit on the card is split into the cards of a long string, the first card and the
+CONTINUE cards, which are returned as a vector, at the comment separator, or at the end of the card
+if there is no comment. The string and the comment are split after the last `splitat` that fits, as
+in the constructor of a card.
 """
 function setvalue!(card::Card, value::ValueInput; splitat::Union{Char, Nothing} = ' ')
 	#  The value of a commentary card is a string, and an END card has no value.
@@ -51,14 +53,15 @@ function setvalue!(card::Card, value::ValueInput; splitat::Union{Char, Nothing} 
 				(m = match(r"^\[[^\]]*\]( *)", comment)) !== nothing
 				comment, upad = comment[(length(m.match)+1):end], length(m[1])
 			end
-			#  A string does not fit if it passes the separator of a card with a comment, which is not
-			#  before the default index, or the end of a card without a comment. It is split into the
-			#  cards of a long string.
-			slash = isempty(comment) ? CARDLENGTH + 2 : max(f.slsh + TOKENLEN, 32)
-			if T == Value && value isa AbstractString &&
-				is_long_string(value, comment, slash, 1, rpad, true)
+			#  A string that does not fit on a card is split into the cards of a long string. A string
+			#  that passes the separator of the comment moves the comment to the right, and the
+			#  comment is continued, and not truncated, if it does not fit on the card.
+			splitslash = T == Value && value isa AbstractString ?
+				long_string_slash(value, comment, max(f.slsh + TOKENLEN, 32), 1, rpad, false) : nothing
+			if !isnothing(splitslash)
 				cards = split_card(card.key, value, comment,
-					(; fixed = f.fixd, slash, lpad = 1, rpad, upad, append = false, splitat))
+					(; fixed = f.fixd, slash = splitslash[1], slash2 = splitslash[2], lpad = 1, rpad, upad,
+						append = false, splitat))
 				return [Card(t, k, v, c, f) for (t, k, v, c, f) in cards]
 			end
 			args = T == Hierarch ? (card.key,) : ()
@@ -86,19 +89,24 @@ function split_card(key::K, value::S, comment::C, kwds) where
 {K <: AbstractString, S <: AbstractString, C <: AbstractString}
 
 	slash, lpad, rpad = kwds[:slash], kwds[:lpad], kwds[:rpad]
+	#  The comment separator of the CONTINUE cards may be before the separator of the first card.
+	slash2 = get(kwds, :slash2, slash)
 	vallen, comlen = value_length(slash, lpad) - 1, comment_length(slash, rpad)
 	#  Calculate number of cards, adjusting for ampersand and single quotes.
 	splitat = get(kwds, :splitat, nothing)
-	ncard = max(nslices(value, vallen, true, splitat), nslices(comment, comlen, false, splitat))
+	slicing = commentslices(comment, comlen, comment_length(slash2, rpad), splitat)
+	ncard = max(nslices(value, vallen, true, splitat), length(slicing))
 	#  Create arrays of card types, keywords, values, comments, and formatting keywords
 	#  for each card. Ensure ampersand is appended to each value string, except last.
 	types    = (Value{String}, fill(Continue, ncard-1)...)
 	keys     = (key, fill("CONTINUE", ncard-1)...)
 	values   = Tuple(value[j1:j2] for (j1, j2) in slices(value, vallen, ncard, true, splitat))
-	comments = Tuple(comment[j1:j2] for (j1, j2) in slices(comment, comlen, ncard, false, splitat))
-	formats  = (Tuple(layout_card(t, v, c; merge(kwds, (; append = true))...) for (t, v, c) in
-		zip(types[1:(ncard-1)], values[1:(ncard-1)], comments[1:(ncard-1)]))...,
-		layout_card(types[ncard], values[ncard], comments[ncard]; kwds...))
+	comments = Tuple(j <= length(slicing) ? comment[slicing[j][1]:slicing[j][2]] : "" for j in 1:ncard)
+	#  The comment separator is the separator of the first card, or of the CONTINUE cards.
+	sep(j) = j == 1 ? slash : slash2
+	formats  = (Tuple(layout_card(types[j], values[j], comments[j];
+		merge(kwds, (; append = true, slash = sep(j)))...) for j in 1:(ncard-1))...,
+		layout_card(types[ncard], values[ncard], comments[ncard]; merge(kwds, (; slash = sep(ncard)))...))
 
 	zip(types, keys, values, comments, formats)
 end
@@ -149,6 +157,28 @@ function lastndx(value::AbstractString, j1::Integer, slen::Integer, single::Bool
 		isnothing(k) || (j2 = j1 + k - 1)
 	end
 	j2
+end
+
+#  The slices of a comment, where the first slice has at most `first` characters, and the other slices
+#  have at most `other` characters. The comment is deleted if there is no space for it.
+function commentslices(comment::AbstractString, first::Integer, other::Integer,
+	splitat::Union{Char, Nothing} = nothing)
+
+	slicing = Tuple{Int, Int}[]
+	(isempty(comment) || other <= 0) && return [(1, 0)]
+	j1, width = 1, first
+	while j1 <= length(comment)
+		if width <= 0
+			push!(slicing, (j1, j1 - 1))
+		else
+			j2 = lastndx(comment, j1, width, false, splitat)
+			j2 < j1 && throw(ArgumentError("Comment does not fit on a card."))
+			push!(slicing, (j1, j2))
+			j1 = j2 + 1
+		end
+		width = other
+	end
+	slicing
 end
 
 #  Number of slices needed to hold the text.

@@ -138,9 +138,13 @@ function formatcomment!(comment::S, vend::I, format::F; units = missing, last::I
 	format
 end
 
-#  The comment that is on the card, i.e., that is not truncated by the format.
-fitcomment(comment::AbstractString, format::CardFormat) =
-	format.cbeg == 0 ? "" : first(comment, format.cend - format.cbeg + 1)
+#  The comment that is on the card, i.e., that is not truncated by the format. The spaces at the end of
+#  a truncated comment are not on the card, since they are not significant.
+function fitcomment(comment::AbstractString, format::CardFormat)
+	format.cbeg == 0 && return ""
+	n = format.cend - format.cbeg + 1
+	n >= length(comment) ? comment : rstrip(first(comment, n))
+end
 
 function value_length(slash::I, lpad::I)::Integer where I <: Integer
 	#  Calculate length of value based comment separator index and padding.

@@ -439,33 +439,75 @@
     #  test word on long string that is too long.
 
     #  test long string value using fromstring.
-    #  type of String Card having string with multiple single quotes with CONTINUE cards in fixed-format
-    card = Card("longcom", repeat("Kelley O'Hara ", 4), repeat("long comment ", 6), slash=43, lpad=1, splitat=nothing)
-    @test isequal(showfields(card[1]),
-                  ("LONGCOM", "Kelley O'Hara Kelley O'Har", "long comment long comment long comme",
-                   "LONGCOM = 'Kelley O''Hara Kelley O''Har&' / long comment long comment long comme"))
-    @test isequal(showfields(card[2]),
-                  ("CONTINUE", "a Kelley O'Hara Kelley O'H", "nt long comment long comment long co",
-                   "CONTINUE  'a Kelley O''Hara Kelley O''H&' / nt long comment long comment long co"))
-    @test isequal(showfields(card[3]),
-                  ("CONTINUE", "ara ", "mment ",
-                   "CONTINUE  'ara '                          / mment                               "))
+    #  type of String Card having string with multiple single quotes with CONTINUE cards in fixed-format, where
+    #  the string does not fit on a card.
+    value, comment = repeat("Kelley O'Hara ", 6), repeat("long comment ", 6)
+    card = Card("longcom", value, comment, slash=43, lpad=1, splitat=nothing)
+    @test rstrip.(repr.(card)) == [
+        "LONGCOM = 'Kelley O''Hara Kelley O''Har&' / long comment long comment long comme",
+        "CONTINUE  'a Kelley O''Hara Kelley O''H&' / nt long comment long comment long co",
+        "CONTINUE  'ara Kelley O''Hara Kelley O&'  / mment",
+        "CONTINUE  '''Hara '"]
+    @test isequal(showfields(card[1])[1:3], ("LONGCOM", "Kelley O'Hara Kelley O'Har", "long comment long comment long comme"))
+    @test isequal(showfields(card[3])[1:3], ("CONTINUE", "ara Kelley O'Hara Kelley O", "mment "))
+    @test FITSFiles.join_cards(card).value == value && FITSFiles.join_cards(card).comment == comment
 
     #  type of String Card having string with multiple single quotes with CONTINUE cards in free-format
-    card = Card("longcom", repeat("Kelley O'Hara ", 4), repeat("long comment ", 10), slash=42,
-                lpad=1, fixed=false, splitat=nothing)
-    @test isequal(showfields(card[1]),
-                  ("LONGCOM", "Kelley O'Hara Kelley O'Ha", "long comment long comment long commen",
-                   "LONGCOM = 'Kelley O''Hara Kelley O''Ha&' / long comment long comment long commen"))
-    @test isequal(showfields(card[2]),
-                  ("CONTINUE", "ra Kelley O'Hara Kelley O", "t long comment long comment long comm",
-                   "CONTINUE  'ra Kelley O''Hara Kelley O&'  / t long comment long comment long comm"))
-    @test isequal(showfields(card[3]),
-                  ("CONTINUE", "'Hara ", "ent long comment long comment long co",
-                   "CONTINUE  '''Hara &'                     / ent long comment long comment long co"))
-    @test isequal(showfields(card[4]),
-                  ("CONTINUE", "", "mment long comment ",
-                   "CONTINUE  ''                             / mment long comment                   "))
+    value, comment = repeat("Kelley O'Hara ", 6), repeat("long comment ", 10)
+    card = Card("longcom", value, comment, slash=42, lpad=1, fixed=false, splitat=nothing)
+    @test rstrip.(repr.(card)) == [
+        "LONGCOM = 'Kelley O''Hara Kelley O''Ha&' / long comment long comment long commen",
+        "CONTINUE  'ra Kelley O''Hara Kelley O&'  / t long comment long comment long comm",
+        "CONTINUE  '''Hara Kelley O''Hara Kelle&' / ent long comment long comment long co",
+        "CONTINUE  'y O''Hara '                   / mment long comment"]
+    @test FITSFiles.join_cards(card).value == value && FITSFiles.join_cards(card).comment == comment
+
+    #  a string that fits on a card is not split, and moves the comment to the right of the string,
+    #  and the comment is truncated, if truncate is true.
+    value, comment = repeat("Kelley O'Hara ", 4), repeat("long comment ", 6)
+    card = Card("longcom", value, comment, slash=43, lpad=1, splitat=nothing)
+    @test card isa Card && card.value == value
+    @test repr(card) == rpad("LONGCOM = 'Kelley O''Hara Kelley O''Hara Kelley O''Hara Kelley O''Hara ' / long ", 80)
+    @test card.comment == "long" && parse(Card, repr(card)).comment == "long"
+    card = Card("DATE-OBS", "2020-01-01T00:00:00.000")
+    @test card isa Card && repr(card) == rpad("DATE-OBS= '2020-01-01T00:00:00.000'", 80)
+    card = Card("DATE-OBS", "2020-01-01T00:00:00.000", "observation date")
+    @test card isa Card && repr(card) == rpad("DATE-OBS= '2020-01-01T00:00:00.000' / observation date", 80)
+    for n in (18, 19, 25, 40, 60, 67, 68)
+        card = Card("KEY", repeat("x", n))
+        @test card isa Card && card.value == repeat("x", n) && length(repr(card)) == 80
+        card = Card("KEY", repeat("x", n), "a comment")
+        @test card isa Card && card.value == repeat("x", n) && length(repr(card)) == 80
+        @test startswith(card.comment, "a comment"[1:min(9, length(card.comment))]) && card.comment == parse(Card, repr(card)).comment
+        @test parse(Card, repr(card)).value == repeat("x", n)
+    end
+    #  a string with quotes uses the doubled quotes to fit on the card.
+    @test Card("KEY", repeat("'", 34)) isa Card && Card("KEY", repeat("'", 35)) isa Vector
+
+    #  a string that does not fit on a card is split at the end of the card, if there is no comment.
+    cards = Card("KEY", repeat("x", 69))
+    @test cards isa Vector && length(cards) == 2
+    @test rstrip.(repr.(cards)) == ["KEY     = '" * repeat("x", 67) * "&'", "CONTINUE  'xx'"]
+    @test FITSFiles.join_cards(cards).value == repeat("x", 69)
+
+    #  the comment that does not fit is continued on the CONTINUE cards, if truncate is false, at the comment separator.
+    value, comment = repeat("x", 60), "a comment that is long enough to be continued on the next cards"
+    cards = Card("KEY", value, comment; truncate = false)
+    @test cards isa Vector && length(cards) == 3
+    @test rstrip.(repr.(cards)) == ["KEY     = '" * value * "&' / a",
+        "CONTINUE  '&'                  / comment that is long enough to be continued on",
+        "CONTINUE  ''                   / the next cards"]
+    @test FITSFiles.join_cards(cards).value == value && FITSFiles.join_cards(cards).comment == comment
+    @test Card("KEY", value, "short"; truncate = false) isa Card
+    @test Card("KEY", value, "short"; truncate = false).comment == "short"
+    #  a comment that fits on the card is not continued, and a number has no CONTINUE cards.
+    @test_throws ArgumentError Card("KEY", 1, repeat("x", 100); truncate = false)
+
+    #  the comment that is truncated is the comment of the card.
+    card = Card("KEY", repeat("x", 60), "a comment that is long enough to be truncated")
+    @test card.comment == "a com" && repr(card) == rpad("KEY     = '" * repeat("x", 60) * "' / a com", 80)
+    card = Card("KEY", repeat("x", 66), "a comment")
+    @test isempty(card.comment) && repr(card) == rpad("KEY     = '" * repeat("x", 66) * "'", 80)
 
     #  Value Card with long string creates CONTINUE cards
     card = Card("abc", repeat("long string value ", 10), repeat("long comment ", 10), slash=51, splitat=nothing)

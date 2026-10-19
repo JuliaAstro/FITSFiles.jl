@@ -74,15 +74,16 @@ Value{T}.
   that has more than 20 characters is written with fewer digits of the mantissa, which are
   truncated, e.g., `1.2345678901234567e-100` is written as `1.2345678901234D-100`. Use
   `fixed=false` to keep all of the digits.
-- `slash::Integer=32`: index of the comment separator (/). A comment, and the units, must end at
-  or before the end of the card.
+- `slash::Integer=32`: index of the comment separator (/). A string that passes the separator moves
+  the separator to the right. A comment, and the units, must end at or before the end of the card.
 - `lpad::Integer=1`: number of spaces before comment separator
 - `rpad::Integer=1`: number of spaces after comment separator
 - `upad::Integer=1`: number of spaces after the units string
 - `truncate::Bool=true`: truncate a comment that is longer than the space at the end of the card,
-  and the comment of the card is the truncated comment. If `false`, a comment that does not fit,
-  and units that do not fit, are an `ArgumentError`. A comment is dropped if the comment
-  separator is at the end of the card.
+  and the comment of the card is the truncated comment. If `false`, the comment of a string is
+  continued on CONTINUE cards of the string, and a comment of another value that does not fit, and
+  units that do not fit, are an `ArgumentError`. A comment is dropped if the comment separator is at
+  the end of the card.
 - `warn::Bool=true`: warn when a keyword longer than 8 characters creates a HIERARCH card
 - `splitat::Union{Char, Nothing}=' '`: split a long string and its comment into the cards after
   the last character that fits, instead of splitting at any character if `nothing`

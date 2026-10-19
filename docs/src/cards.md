@@ -178,9 +178,29 @@ without a value, e.g., `HIERARCH some text`, is commentary text.
 
 ## Long strings
 
+A string of at most 68 characters, with the doubled single quotes, is on one card, and is not
+split. A string that passes the comment separator moves the separator and the comment to the right,
+and the comment is truncated if it does not fit on the card, unless `truncate = false`, where the
+comment is continued on `CONTINUE` cards.
+
+```jldoctest cards
+julia> show_(Card("DATE-OBS", "2020-01-01T00:00:00.000", "observation date"))
+DATE-OBS= '2020-01-01T00:00:00.000' / observation date
+
+julia> card = Card("KEY", repeat("x", 60), "a comment that is truncated"); card.comment
+"a com"
+
+julia> cards = Card("KEY", repeat("x", 60), "a comment that is continued"; truncate = false);
+
+julia> foreach(show_, cards)
+KEY     = 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx&' / a
+CONTINUE  ''                   / comment that is continued
+```
+
 A string that does not fit on one card is split into the cards of a long string, a card and
 the `CONTINUE` cards (Sect. 4.2.1.2), which are returned as a vector. Every card but the last
-ends with an ampersand. A string is split after the last space that fits, unless the keyword
+ends with an ampersand. The string is split at the comment separator, or at the end of the card if
+there is no comment. A string is split after the last space that fits, unless the keyword
 `splitat = nothing` is given, where it is split at any character, or the keyword `splitat` is
 another character.
 

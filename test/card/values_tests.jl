@@ -227,7 +227,7 @@
     commas = replace(text, " " => ",")
     cards = collect(Card("OBJECT", commas, ""; splitat = ','))
     @test all(endswith(c.value, ",") for c in cards[1:end-1])
-    @test cards[2].value == "fox,jumps,over,"
+    @test all(length(c.value) <= 67 for c in cards) && length(cards) > 1
     @test FITSFiles.join_cards(cards).value == commas
     @test collect(Card("OBJECT", text, ""; splitat = ','))[1].value != "The quick brown "
 
@@ -235,7 +235,7 @@
     long = "short " * repeat("x", 90) * " end"
     cards = collect(Card("OBJECT", long, ""))
     @test cards[1].value == "short "
-    @test all(c.value == repeat("x", 17) for c in cards[2:5])
+    @test all(c.value == repeat("x", length(cards[2].value)) for c in cards[2:(end-1)]) && length(cards[2].value) > 17
     @test FITSFiles.join_cards(cards).value == long
 
     #  the split keeps the single quotes together, the spaces at the ends, and the long values.
@@ -316,10 +316,19 @@
     @test narrow.format.slsh < 20
     @test length(repr(FITSFiles.setvalue!(narrow, repeat("a", 17)))) == 80
     @test FITSFiles.setvalue!(narrow, repeat("a", 17)) isa Card
-    @test length(FITSFiles.setvalue!(narrow, repeat("a", 30))) > 1
+    #  a string that fits on a card moves the comment to the right, and is not split.
+    moved = FITSFiles.setvalue!(narrow, repeat("a", 30))
+    @test moved isa Card && moved.comment == "c" && length(repr(moved)) == 80
+    @test rstrip(repr(moved)) == "OBJECT  = '" * repeat("a", 30) * "' / c"
     wide = Card("OBJECT", "old", "c"; slash = 60)
     @test FITSFiles.setvalue!(wide, repeat("a", 40)) isa Card
-    @test length(FITSFiles.setvalue!(wide, repeat("a", 60))) > 1
+    @test FITSFiles.setvalue!(wide, repeat("a", 60)) isa Card
+    @test length(FITSFiles.setvalue!(wide, repeat("a", 70))) > 1
+    #  the comment is continued, and not truncated, if it does not fit on the card.
+    comment = "a comment that is continued on the next card"
+    cards = FITSFiles.setvalue!(Card("OBJECT", "old", comment), repeat("a", 60))
+    @test length(cards) > 1 && FITSFiles.join_cards(cards).value == repeat("a", 60)
+    @test FITSFiles.join_cards(cards).comment == comment
     for value in (repeat("It's O'Hara's ", 6), " " * text, text * " ", repeat("'", 70), repeat("x", 90))
         cards = FITSFiles.setvalue!(card, value)
         @test FITSFiles.join_cards(cards).value == value
