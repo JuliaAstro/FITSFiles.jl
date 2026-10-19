@@ -30,7 +30,7 @@ function format_card(::Type{Comment}, key::K, value::N, units, comment::C,
 	format::F) where {K <: AbstractString, N <: Number, C <: AbstractString,
 	F <: CardFormat}
 
-	error("Value is not a string.")
+	throw(ArgumentError("Value is not a string."))
 end
 
 #  Format Continue card value by adding ampersand to end of string.
@@ -45,7 +45,7 @@ function format_card(::Type{Continue}, key::K, value::V, units, comment::C,
 	format::F) where {K <: AbstractString, V <: Union{Missing, Number},
 	C <: AbstractString, F <: CardFormat}
 
-	error("Continue contains non-string value.")
+	throw(ArgumentError("Continue contains non-string value."))
 end
 
 #  Add HIERARCH key, then format value and comment fields
@@ -89,7 +89,7 @@ function format_card(::Type{History}, key::K, value::N, units, comment::C,
 	format::F) where {K <: AbstractString, N <: Number, C <: AbstractString,
 	F <: CardFormat}
 
-	error("Value is not a string.")
+	throw(ArgumentError("Value is not a string."))
 end
 
 #  Format Invalid card

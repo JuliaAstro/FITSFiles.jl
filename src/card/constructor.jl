@@ -21,13 +21,13 @@ function Card(key::K = "", value::V = missing, comment::C = ""; fixed::B = true,
 
 	#  Check for invalid characters in key, value string, and comment.
 	if !is_hierarch(upkey) && occursin(NON_KEY_TEXT, upkey)
-		error("Keyword contains invalid characters.")
+		throw(ArgumentError("Keyword contains invalid characters."))
 	elseif !ismissing(value) && typeof(value) <: AbstractString && occursin(NON_ASCII_TEXT, value)
-		error("Value string contains invalid characters.")
+		throw(ArgumentError("Value string contains invalid characters."))
 	elseif !ismissing(comment) && occursin(NON_ASCII_TEXT, comment)
-		error("Comment contains invalid characters.")
+		throw(ArgumentError("Comment contains invalid characters."))
 	elseif value isa Number && !isfinite(value)
-		error("Value is not finite.")
+		throw(DomainError(value, "Value is not finite."))
 	end
 	#  Format card image from key, value, and comment arguments and construct Card.
 	#  Card is a parametric type containing Comment, Continue, End, Hierarch, History,
@@ -45,7 +45,7 @@ function Card(key::K = "", value::V = missing, comment::C = ""; fixed::B = true,
 		end
 	elseif is_continue_key(upkey)
 		#  Create CONTINUE card, whose value is a string
-		value isa AbstractString || error("Value is not a string.")
+		value isa AbstractString || throw(ArgumentError("Value is not a string."))
 		type = Continue
 		format = layout_card(type, value, comment; append, fixed,
 			slash, lpad, rpad, upad)
@@ -98,13 +98,13 @@ function Card(key::K, tokens::T, value::V, comment::C;
 
 	#  Check for invalid characters in key, value string, and comment.
 	if !is_hierarch(upkey) && occursin(NON_KEY_TEXT, upkey)
-		error("Keyword contains invalid characters.")
+		throw(ArgumentError("Keyword contains invalid characters."))
 	elseif !ismissing(value) && typeof(value) <: AbstractString && occursin(NON_ASCII_TEXT, value)
-		error("Value string contains invalid characters.")
+		throw(ArgumentError("Value string contains invalid characters."))
 	elseif !ismissing(comment) && occursin(NON_ASCII_TEXT, comment)
-		error("Comment contains invalid characters.")
+		throw(ArgumentError("Comment contains invalid characters."))
 	elseif value isa Number && !isfinite(value)
-		error("Value is not finite.")
+		throw(DomainError(value, "Value is not finite."))
 	end
 
 	#  Format card image from key, value, and comment arguments and construct Card.
@@ -114,13 +114,13 @@ function Card(key::K, tokens::T, value::V, comment::C;
 
 	if is_hierarch(upkey) && is_valid_key(upkey)
 		if !occursin(HIERARCH_TOKENS, uptoken)
-			error("HIERARCH keyword contains invalid characters.")
+			throw(ArgumentError("HIERARCH keyword contains invalid characters."))
 		end
 		type = Hierarch{typeof(value)}
 		format = layout_card(type, uptoken, value, comment; fixed, slash, lpad, rpad, upad,
 			units = unitstring(units))
 	else
-		error("Invalid card")
+		throw(ArgumentError("Invalid card"))
 	end
 	Card(type, uptoken, value, units, fitcomment(comment, format), format)
 end

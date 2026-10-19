@@ -830,4 +830,43 @@
         end
     end
 
+    #  The constructors raise an ArgumentError for an argument that cannot be a card, and a DomainError for a
+    #  number that is not finite.
+    @testset "error types" begin
+        for (f, message) in (
+            (() -> Card("ABC DEF", 1), "Keyword contains invalid characters."),
+            (() -> Card("ABC", "caf\u00e9"), "Value string contains invalid characters."),
+            (() -> Card("ABC", 1, "caf\u00e9"), "Comment contains invalid characters."),
+            (() -> Card("A\x01", "ESO A", 1, ""), "Keyword contains invalid characters."),
+            (() -> Card("HIERARCH", "ESO A", "caf\u00e9", ""), "Value string contains invalid characters."),
+            (() -> Card("HIERARCH", "ESO A", 1, "caf\u00e9"), "Comment contains invalid characters."),
+            (() -> Card("HIERARCH", "ESO a=b", 1, ""), "HIERARCH keyword contains invalid characters."),
+            (() -> Card("ABC", "ESO A", 1, ""), "Invalid card"),
+            (() -> Card("CONTINUE", 1), "Value is not a string."),
+            (() -> Card("CONTINUE"), "Value is not a string."),
+            (() -> Card("COMMENT", 1), "value is not a string."),
+            (() -> Card("END", 1), "END keyword has no value or comment."),
+            (() -> Card("ABC", 1//2), "is not supported."),
+            (() -> Card("HIERARCH", "ESO A", repeat("x", 62), ""), "do not fit on the card."),
+            (() -> Card("ABC", 1, repeat("x", 60); truncate = false), "Comment does not fit on the card."),
+            (() -> FITSFiles.setvalue!(Card("COMMENT", "a"), 1), "value is not a string."),
+            (() -> FITSFiles.setvalue!(Card("END"), 1), "END keyword has no value."),
+            (() -> FITSFiles.format_card(FITSFiles.Comment, "COMMENT", 1, "", "", FITSFiles.CardFormat()), "Value is not a string."),
+            (() -> FITSFiles.format_card(FITSFiles.History, "HISTORY", 1, "", "", FITSFiles.CardFormat()), "Value is not a string."),
+            (() -> FITSFiles.format_card(FITSFiles.Continue, "CONTINUE", 1, "", "", FITSFiles.CardFormat()), "Continue contains non-string value."))
+            @test_throws ArgumentError f()
+            @test_throws message f()
+        end
+        for value in (NaN, Inf, -Inf, NaN32, Inf32, complex(NaN, 1.0))
+            @test_throws DomainError Card("ABC", value)
+            @test_throws "Value is not finite." Card("HIERARCH", "ESO A", value, "")
+            @test_throws DomainError Card("HIERARCH", "ESO A", value, "")
+        end
+        #  No error of the card is a bare ErrorException.
+        for f in (() -> Card("ABC DEF", 1), () -> Card("ABC", NaN), () -> Card("CONTINUE", 1))
+            err = try f() catch e; e end
+            @test !(err isa ErrorException)
+        end
+    end
+
 end
