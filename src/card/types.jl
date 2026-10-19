@@ -56,7 +56,8 @@ Value{T}.
 
 # Arguments
 
-- `key::AbstractString=""`: keyword string
+- `key::AbstractString=""`: keyword string. The index of an indexed keyword of the standard, e.g.,
+  `NAXIS2`, has no leading zeros, otherwise it is an `ArgumentError`.
 - `value::U=missing`: keyword value, where U is Missing, Bool, Integer, AbstractFloat, a Complex
   number of integers or floats, or AbstractString, which is the type `T` of the card `Value{T}`.
   Another type of value is an `ArgumentError`. A Quantity of a number may be given in place of

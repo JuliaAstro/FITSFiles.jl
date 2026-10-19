@@ -33,6 +33,14 @@ const END_IMAGE = "END"*repeat(' ', 77)
 #  regex for a FITS standard compliant (FSC) keyword.
 const KEY_FSC = Regex("^[A-Z0-9_-]{0," * string(KEYLENGTH) * "}\$")
 const NON_KEY_TEXT = Regex("[^A-Z0-9_-]")
+#  regexes for the indexed keywords of the standard, which have an index that is a positive integer
+#  without leading zeros (Sect. 4.1.2.1), i.e., a root with an index, a root with an index and the
+#  letter of an alternate world coordinate system, and a matrix element with two indexes.
+const INDEXED_KEY = Regex("^(?:" *
+	"(?:NAXIS|ZNAXIS|ZTILE|ZNAME|ZVAL|ZFORM|ZCTYP|TFORM|TTYPE|TUNIT|TSCAL|TZERO|TNULL|TDISP|TDIM|TBCOL|" *
+	"TLMIN|TLMAX|TDMIN|TDMAX|PTYPE|PSCAL|PZERO|TCTYP|TCUNI|TCRVL|TCRPX|TCDLT|TCROT|TRPOS|TRDIR)(\\d+)|" *
+	"(?:CTYPE|CRVAL|CRPIX|CDELT|CROTA|CUNIT|CRDER|CSYER|CNAME|CZPHS|CPERI)(\\d+)[A-Z]?|" *
+	"(?:PC|CD|PV|PS)(\\d+)_(\\d+)[A-Z]?)\$")
 #  regex for the tokens of a HIERARCH keyword, which are separated by spaces and
 #  contain only characters that are legal in a FITS keyword.
 const HIERARCH_TOKENS = r"^[A-Z0-9_-]+(?: +[A-Z0-9_-]+)*$"

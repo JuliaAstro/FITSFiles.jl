@@ -63,7 +63,7 @@
                          ("kg.m.s-2", u"kg*m/s^2"), ("kg*m/s**2", u"kg*m/s^2"), ("kg m s-2", u"kg*m/s^2"),
                          ("um", u"μm"), ("us", u"μs"), ("u", u"u"), ("deg", u"°"), ("arcsec", u"arcsecond"),
                          ("arcmin", u"arcminute"), ("Angstrom", u"Å"), ("Ohm", u"Ω"), ("kOhm", u"kΩ"),
-                         ("h", u"hr"), ("min", u"minute"), ("d", u"d"), ("a", u"a"), ("yr", u"yr"),
+                         ("h", u"hr"), ("min", u"minute"), ("d", u"d"), ("a", u"yr"), ("yr", u"yr"),
                          ("solMass", u"Msun"), ("solLum", u"Lsun"), ("solRad", u"Rsun"), ("lyr", u"ly"),
                          ("pc", u"pc"), ("kpc", u"kpc"), ("Jy", u"Jy"), ("mJy", u"mJy"), ("G", u"Gauss"),
                          ("barn", u"b"), ("eV", u"eV"), ("keV", u"keV"), ("mas", u"mas"), ("Hz", u"Hz"),
@@ -107,9 +107,8 @@
     @test FITSFiles.parseunit("m (2)") === nothing
 
     #  a string that is not a unit string, or has an unknown unit, is nothing.
-    for text in ("", " ", "foo", "m/", "/", "m**", "m-", "m 2", "m s-", "log(m)", "ln(m)", "exp(m)", "mag", "D",
-                 "Sun", "c", "%", "m/s2/", "m**(1/", "m**(a)", "(m", "m)", "m s)", "10", "10**", "10**3", "m,s",
-                 "m[s]", "m_s", "1 m", "m\$s", "m;s", "pc.", ".pc", "Mpc/", "m s -1", "k", "da")
+    for text in ("", " ", "foo", "m/", "/", "m**", "m-", "m 2", "m s-", "log(m)", "ln(m)", "exp(m)", "c", "%", "m/s2/", "m**(1/", "m**(a)", "(m", "m)", "m s)", "10", "10**", "10**3", "m,s",
+                 "m[s]", "m_s", "1 m", "m\$s", "m;s", "pc.", ".pc", "Mpc/", "m s -1", "k", "mmm", "dd", "ZYeV")
         @test FITSFiles.parseunit(text) === nothing
     end
 
@@ -167,7 +166,7 @@
     #  text in the brackets that is not a unit string is a comment, and so is a scale factor.
     for img in ("K       = 5 / [see note] c", "K       = 5 / [foo] c", "K       = 5 / [] c", "K       = 5 / [ ] c",
                 "K       = 5 / [10**3 m] c", "K       = 5 / [m c", "K       = 5 / m c", "K       = 5 / c [m]",
-                "K       = 5 / [D]", "K       = 5 / [mag] c", "K       = 5 / [log(m)] c")
+                "K       = 5 / [Suns] c", "K       = 5 / [mags] c", "K       = 5 / [log(m)] c")
         card = parse(Card, rpad(img, 80))
         @test card.value === 5
         @test card.comment == strip(split(img, "/ ")[2])
@@ -302,6 +301,72 @@
         @test all(i -> units[i] == FITSFiles.parseunit(texts[i]), eachindex(texts))
         @test FITSFiles.unitname("km") == FITSFiles.parseunit("km") && isnothing(FITSFiles.unitname("foo"))
         @test haskey(FITSFiles.UNIT_CACHE, "foo") && isnothing(FITSFiles.UNIT_CACHE["foo"])
+    end
+
+    ####    Test the units of Tables 3 and 4 of the FITS standard    ####
+
+    #  the year is the Julian year of 365.25 days, and not the are of Unitful, and takes the prefixes of the standard.
+    @testset "annum, rayleigh, debye, magnitude, and Sun" begin
+        parse_ = FITSFiles.parseunit
+        @test parse_("a") == u"yr" && ustrip(uconvert(u"s", 1 * parse_("a"))) == 31557600
+        for (text, factor) in (("ka", 1e3), ("Ma", 1e6), ("Ga", 1e9), ("ma", 1e-3), ("da", 0.1), ("daa", 10.0), ("ha", 100.0))
+            @test dimension(parse_(text)) == dimension(u"s")
+            @test ustrip(uconvert(u"yr", 1 * parse_(text))) ≈ factor
+        end
+        #  Pa is the pascal, and not the peta-year, and Gyr is the Julian year.
+        @test parse_("Pa") == u"Pa" && dimension(parse_("Pa")) == dimension(u"Pa")
+        @test parse_("Gyr") == u"Gyr" && parse_("kyr") == u"kyr"
+        #  the rayleigh is 10^10/(4π) photons m^-2 s^-1 sr^-1, and is not the Rankine of Unitful.
+        R, ph = parse_("R"), parse_("ph")
+        @test dimension(R) != dimension(u"Ra") && dimension(R) == dimension(ph / (u"m^2" * u"s" * u"sr"))
+        @test ustrip(uconvert(ph / (u"m^2" * u"s" * u"sr"), 1 * R)) ≈ 1e10 / (4π)
+        @test ustrip(uconvert(parse_("ph") / (u"m^2" * u"s" * u"sr"), 1 * parse_("kR"))) ≈ 1e13 / (4π)
+        @test ustrip(uconvert(parse_("R"), 1 * parse_("mR"))) ≈ 1e-3
+        #  the debye is 10^-29/3 C m, and has no prefixes.
+        D = parse_("D")
+        @test dimension(D) == dimension(u"C*m") && ustrip(uconvert(u"C*m", 1 * D)) ≈ 1e-29 / 3
+        @test parse_("mD") === nothing && parse_("kD") === nothing
+        #  the magnitude takes the prefixes, and the Sun does not.
+        mag, Sun = parse_("mag"), parse_("Sun")
+        @test mag isa Unitful.Units && Sun isa Unitful.Units && dimension(mag) != dimension(Sun)
+        @test ustrip(uconvert(mag, 1 * parse_("mmag"))) ≈ 1e-3 && ustrip(uconvert(mag, 1 * parse_("kmag"))) ≈ 1e3
+        @test parse_("mSun") === nothing && parse_("kSun") === nothing
+        #  the units are in the products and the quotients, and are written as they were read.
+        for text in ("R", "kR", "mag", "mmag", "D", "Sun", "yr", "kyr", "Myr", "D/m", "R/Sun", "mag/pix", "mag Sun-1")
+            unit = parse_(text)
+            @test unit !== nothing
+            @test parse_(FITSFiles.formunit(unit)) == unit
+        end
+        @test FITSFiles.formunit(parse_("a")) == "yr" && FITSFiles.formunit(parse_("Ma")) == "Myr"
+    end
+
+    #  every unit of Tables 3 and 4 is a unit that converts to the SI unit of the Notes column of the standard.
+    @testset "table of units" begin
+        parse_ = FITSFiles.parseunit
+        for text in ("m", "g", "kg", "s", "rad", "sr", "K", "A", "mol", "cd", "Hz", "J", "W", "V", "N", "Pa", "C", "Ohm", "S", "F",
+            "Wb", "T", "H", "lm", "lx", "deg", "arcmin", "arcsec", "mas", "min", "h", "d", "a", "yr", "eV", "erg", "Ry", "solMass", "u",
+            "solLum", "Angstrom", "solRad", "AU", "lyr", "pc", "count", "ct", "photon", "ph", "Jy", "mag", "R", "G", "pixel", "pix",
+            "barn", "D", "Sun", "chan", "bin", "voxel", "bit", "byte", "adu", "beam")
+            @test parse_(text) isa Unitful.Units
+        end
+        for (text, unit, factor) in (("deg", "rad", pi / 180), ("arcmin", "deg", 1 / 60), ("arcsec", "deg", 1 / 3600),
+            ("mas", "deg", 1 / 3.6e6), ("min", "s", 60), ("h", "s", 3600), ("d", "s", 86400), ("yr", "s", 31557600),
+            ("a", "s", 31557600), ("eV", "J", 1.6021765e-19), ("erg", "J", 1e-7), ("u", "kg", 1.6605387e-27),
+            ("solMass", "kg", 1.9891e30), ("solLum", "W", 3.8268e26), ("Angstrom", "m", 1e-10), ("solRad", "m", 6.9599e8),
+            ("AU", "m", 1.49598e11), ("lyr", "m", 9.46073e15), ("pc", "m", 3.0857e16), ("G", "T", 1e-4), ("barn", "m2", 1e-28),
+            ("Jy", "W m-2 Hz-1", 1e-26), ("Ry", "eV", 13.605692), ("g", "kg", 1e-3))
+            @test ustrip(uconvert(parse_(unit), 1 * parse_(text))) ≈ factor rtol = 2e-3
+        end
+        #  the prefixes of Table 5 are those of the units that take them, and are not compound.
+        for prefix in ("da", "h", "k", "M", "G", "Y", "d", "m", "u", "p", "a", "y")
+            for unit in ("m", "eV", "pc", "Jy", "yr", "a", "G", "barn", "bit", "byte", "mag", "R")
+                prefix == "a" && unit == "a" && continue
+                @test parse_(prefix * unit) isa Unitful.Units
+            end
+        end
+        for text in ("ZYeV", "kkm", "mum", "daks", "Pyr2x")
+            @test parse_(text) === nothing
+        end
     end
 
 end

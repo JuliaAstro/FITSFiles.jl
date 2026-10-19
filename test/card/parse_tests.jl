@@ -768,4 +768,24 @@
         end
     end
 
+    #  A value record with an indexed keyword of the standard that has leading zeros is an invalid card.
+    @testset "keyword index" begin
+        for image in ("NAXIS001= 5", "NAXIS01 = 5", "TFORM01 = 'E'", "CTYPE01 = 'X'", "CRVAL01A=  1.5 / c", "PC01_1  = 1",
+            "ZNAXIS01=  5", "TDISP010= 'F4.1'", "NAXIS0  = 5")
+            card = parse(Card, rpad(image, 80))
+            @test card isa Card{Invalid}
+            @test repr(card) == rpad(image, 80)
+        end
+        for image in ("NAXIS1  = 5", "NAXIS10 = 5", "TFORM1  = 'E'", "CTYPE1A = 'X'", "PC1_1   = 1", "KEY001  = 5", "RA_0001 = 1",
+            "NAXIS   = 5", "TFORM   = 'E'")
+            @test !(parse(Card, rpad(image, 80)) isa Card{Invalid})
+        end
+        #  A record without a value indicator is commentary text.
+        for image in ("NAXIS01 5", "TFORM01 text", "NAXIS01 =5", "TFORM001 text / comment")
+            @test parse(Card, rpad(image, 80)) isa Card{Comment}
+        end
+        #  A HIERARCH keyword has no index.
+        @test parse(Card, rpad("HIERARCH ESO NAXIS01 = 5", 80)) isa Card{<:Hierarch}
+    end
+
 end

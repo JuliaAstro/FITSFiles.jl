@@ -57,8 +57,9 @@ end
 
 ####  Parse FITS units  ####
 
-#  Units of the FITS standard that are not in Unitful, namely units of counting. Each unit has
-#  its own dimension, so the units cannot be combined with each other.
+#  Units of the FITS standard that are not in Unitful, namely units of counting, the magnitude,
+#  and the solar unit, which each have their own dimension, so the units cannot be combined with
+#  each other, and the rayleigh and the debye, which are derived units.
 module FITSUnits
 using Unitful
 
@@ -71,6 +72,8 @@ using Unitful
 @dimension DimBin     "Bin"     BinDimension
 @dimension DimVoxel   "Voxel"   VoxelDimension
 @dimension DimBit     "Bit"     BitDimension
+@dimension DimMag     "Magnitude" MagnitudeDimension
+@dimension DimSun     "Sun"     SunDimension
 
 @refunit pix   "pix"   Pixel   DimPixel   false
 @refunit ct    "ct"    Count   DimCount   false
@@ -82,6 +85,12 @@ using Unitful
 @refunit voxel "voxel" Voxel   DimVoxel   false
 @refunit bit   "bit"   Bit     DimBit     true
 @unit    byte  "byte"  Byte    8bit       true
+@refunit mag   "mag"   Magnitude DimMag   true
+@refunit Sun   "Sun"   Sun     DimSun     false
+
+#  The rayleigh is 10^10/(4π) photons m^-2 s^-1 sr^-1 and the debye is 10^-29/3 C m (Table 4).
+@unit    R     "R"     Rayleigh (1e10/(4π))*ph/(Unitful.m^2*Unitful.s*Unitful.sr) true
+@unit    D     "D"     Debye   (1e-29/3)*Unitful.C*Unitful.m false
 
 function __init__()
 	Unitful.register(FITSUnits)
@@ -92,16 +101,15 @@ end
 const UNITFUL_UNIT_NAMES = Dict(
 	"Ohm" => "Ω", "deg" => "°", "arcmin" => "arcminute", "arcsec" => "arcsecond",
 	"min" => "minute", "h" => "hr", "solMass" => "Msun", "solLum" => "Lsun",
-	"solRad" => "Rsun", "Angstrom" => "Å", "lyr" => "ly", "G" => "Gauss", "R" => "Ra",
+	"solRad" => "Rsun", "Angstrom" => "Å", "lyr" => "ly", "G" => "Gauss", "a" => "yr",
 	"barn" => "b", "count" => "ct", "photon" => "ph", "pixel" => "pix")
 
 const UNITFUL_MODULES = [Unitful, UnitfulAstro, UnitfulAngles, UnitfulAtomic, FITSUnits]
 
-#  Base units (Tables 3 and 4) and prefixes (Table 5) of the FITS standard. The units D, Sun,
-#  and mag have no Unitful unit.
+#  Base units (Tables 3 and 4) and prefixes (Table 5) of the FITS standard.
 const FITS_UNIT_BASES = Set(split("m g s rad sr K A mol cd Hz J W V N Pa C Ohm S F Wb T H lm lx " *
 	"deg arcmin arcsec mas min h d a yr eV erg Ry solMass u solLum Angstrom solRad AU lyr pc " *
-	"count ct photon ph Jy R G barn bit byte adu beam pixel pix chan bin voxel"))
+	"count ct photon ph Jy mag R G barn D Sun bit byte adu beam pixel pix chan bin voxel"))
 const FITS_PREFIXES = ("da", "Y", "Z", "E", "P", "T", "G", "M", "k", "h", "d", "c", "m", "u",
 	"n", "p", "f", "a", "z", "y")
 
@@ -128,7 +136,10 @@ function lookupunit(name::AbstractString)
 		base in FITS_UNIT_BASES || continue
 		text = (prefix == "u" ? "μ" : prefix) * get(UNITFUL_UNIT_NAMES, base, base)
 		unit = try
-			uparse(text; unit_context = UNITFUL_MODULES)
+			#  A unit that is defined in FITSUnits is looked up in FITSUnits, since Unitful has other symbols
+			#  with the name, e.g., the gas constant R.
+			own = isdefined(FITSUnits, Symbol(text)) && Base.binding_module(FITSUnits, Symbol(text)) === FITSUnits
+			uparse(text; unit_context = own ? [FITSUnits] : UNITFUL_MODULES)
 		catch
 			nothing
 		end
