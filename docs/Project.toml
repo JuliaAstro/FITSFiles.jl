@@ -3,9 +3,6 @@ Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
 FITSFiles = "358a0a88-3548-4ad6-b652-8bdbf64af8e5"
 Unitful = "1986cc42-f94f-5a68-af5c-568840ba703d"
 
-[sources]
-FITSFiles = {path = "/private/tmp/claude-501/-Users-paul--julia-dev-Radix/634cbbd0-a0b0-432f-a9f4-3d21b25bd8a2/scratchpad/docswt"}
-
 [compat]
 Documenter = "1"
 Unitful = "1.22"
