@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>Cards · FITSFiles.jl</title><meta name="title" content="Cards · FITSFiles.jl"/><meta property="og:title" content="Cards · FITSFiles.jl"/><meta property="twitter:title" content="Cards · FITSFiles.jl"/><meta name="description" content="Documentation for FITSFiles.jl."/><meta property="og:description" content="Documentation for FITSFiles.jl."/><meta property="twitter:description" content="Documentation for FITSFiles.jl."/><meta property="og:url" content="https://juliaastro.org/FITSFiles/stable/cards/"/><meta property="twitter:url" content="https://juliaastro.org/FITSFiles/stable/cards/"/><link rel="canonical" href="https://juliaastro.org/FITSFiles/stable/cards/"/><script data-outdated-warner src="../assets/warner.js"></script><link href="https://cdnjs.cloudflare.com/ajax/libs/lato-font/3.0.0/css/lato-font.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/juliamono/0.63.2/juliamono.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/fontawesome.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/solid.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/brands.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.8/katex.min.css" rel="stylesheet" type="text/css"/><script>documenterBaseURL=".."</script><script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js" data-main="../assets/documenter.js"></script><script src="../search_index.js"></script><script src="../siteinfo.js"></script><script src="../../versions.js"></script><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-mocha.css" data-theme-name="catppuccin-mocha"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-macchiato.css" data-theme-name="catppuccin-macchiato"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-frappe.css" data-theme-name="catppuccin-frappe"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-latte.css" data-theme-name="catppuccin-latte"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/documenter-dark.css" data-theme-name="documenter-dark" data-theme-primary-dark/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/documenter-light.css" data-theme-name="documenter-light" data-theme-primary/><script src="../assets/themeswap.js"></script><link href="../assets/custom.css" rel="stylesheet" type="text/css"/></head><body><div id="documenter"><nav class="docs-sidebar"><button class="docs-search-query input is-rounded is-small is-clickable my-2 mx-auto py-1 px-2" id="documenter-search-query">Search docs (Ctrl + /)</button><ul class="docs-menu"><li><a class="tocitem" href="../">FITSFiles</a></li><li class="is-active"><a class="tocitem" href>Cards</a><ul class="internal"><li><a class="tocitem" href="#Creating-a-card"><span>Creating a card</span></a></li><li><a class="tocitem" href="#Keyword-arguments"><span>Keyword arguments</span></a></li><li><a class="tocitem" href="#Units"><span>Units</span></a></li><li><a class="tocitem" href="#Fixed-and-free-format"><span>Fixed and free format</span></a></li><li><a class="tocitem" href="#Commentary-cards"><span>Commentary cards</span></a></li><li><a class="tocitem" href="#HIERARCH-keywords"><span>HIERARCH keywords</span></a></li><li><a class="tocitem" href="#Long-strings"><span>Long strings</span></a></li><li><a class="tocitem" href="#Parsing-an-image"><span>Parsing an image</span></a></li><li><a class="tocitem" href="#Reading-and-writing-a-card"><span>Reading and writing a card</span></a></li><li><a class="tocitem" href="#Changing-the-value"><span>Changing the value</span></a></li><li><a class="tocitem" href="#A-list-of-cards"><span>A list of cards</span></a></li><li><a class="tocitem" href="#Comparing-and-copying"><span>Comparing and copying</span></a></li><li><a class="tocitem" href="#Errors"><span>Errors</span></a></li></ul></li></ul><div class="docs-version-selector field has-addons"><div class="control"><span class="docs-label button is-static is-size-7">Version</span></div><div class="docs-selector control is-expanded"><div class="select is-fullwidth is-size-7"><select id="documenter-version-selector"></select></div></div></div></nav><div class="docs-main"><header class="docs-navbar"><a class="docs-sidebar-button docs-navbar-link fa-solid fa-bars is-hidden-desktop" id="documenter-sidebar-button" href="#"></a><nav class="breadcrumb"><ul class="is-hidden-mobile"><li class="is-active"><a href>Cards</a></li></ul><ul class="is-hidden-tablet"><li class="is-active"><a href>Cards</a></li></ul></nav><div class="docs-right"><a class="docs-navbar-link" href="https://github.com/JuliaAstro/FITSFiles.jl" title="View the repository on GitHub"><span class="docs-icon fa-brands"></span><span class="docs-label is-hidden-touch">GitHub</span></a><a class="docs-navbar-link" href="https://github.com/JuliaAstro/FITSFiles.jl/blob/main/docs/src/cards.md" title="Edit source on GitHub"><span class="docs-icon fa-solid"></span></a><a class="docs-settings-button docs-navbar-link fa-solid fa-gear" id="documenter-settings-button" href="#" title="Settings"></a><a class="docs-article-toggle-button fa-solid fa-chevron-up" id="documenter-article-toggle-button" href="javascript:;" title="Collapse all docstrings"></a></div></header><article class="content" id="documenter-page"><h1 id="Cards"><a class="docs-heading-anchor" href="#Cards">Cards</a><a id="Cards-1"></a><a class="docs-heading-anchor-permalink" href="#Cards" title="Permalink"></a></h1><p>A FITS header is a list of 80-character <em>cards</em>, or keyword records. A <a href="../#FITSFiles.Card"><code>Card</code></a> holds the parts of one card, the keyword, the value, the units, and the comment, and the layout that is needed to write the card as it was read. This page describes the creation, the parsing, and the modification of cards. The rules are those of the FITS Standard 4.0, Sect. 4, and of the ESO HIERARCH convention.</p><p>The examples use the following definitions, where <code>show_</code> prints the 80-character image of a card without the trailing spaces.</p><h2 id="Creating-a-card"><a class="docs-heading-anchor" href="#Creating-a-card">Creating a card</a><a id="Creating-a-card-1"></a><a class="docs-heading-anchor-permalink" href="#Creating-a-card" title="Permalink"></a></h2><p>A card is created from a keyword, a value, and a comment, which are all optional.</p><pre><code class="language-julia-repl hljs">julia&gt; card = Card(&quot;EXPTIME&quot;, 1200.0, &quot;exposure time&quot;);
+
+julia&gt; show_(card)
+EXPTIME =               1200.0 / exposure time
+
+julia&gt; card.key, card.value, card.units, card.comment
+(&quot;EXPTIME&quot;, 1200.0, nothing, &quot;exposure time&quot;)
+
+julia&gt; typeof(card)
+Card{Value{Float64}}</code></pre><p>The type of the card is the kind of the card, <code>Value</code>, <code>Hierarch</code>, <code>Comment</code>, <code>History</code>, <code>Continue</code>, <code>End</code>, or <code>Invalid</code>, and for a value the type of the value.</p><table><tr><th style="text-align: left">Value</th><th style="text-align: left">Card</th></tr><tr><td style="text-align: left"><code>missing</code>, or none</td><td style="text-align: left">an undefined value</td></tr><tr><td style="text-align: left"><code>true</code>, <code>false</code></td><td style="text-align: left">a logical</td></tr><tr><td style="text-align: left"><code>Integer</code></td><td style="text-align: left">an integer</td></tr><tr><td style="text-align: left"><code>AbstractFloat</code></td><td style="text-align: left">a real number</td></tr><tr><td style="text-align: left"><code>Complex</code> of integers or of floats</td><td style="text-align: left">a complex number</td></tr><tr><td style="text-align: left"><code>AbstractString</code></td><td style="text-align: left">a string</td></tr></table><pre><code class="language-julia-repl hljs">julia&gt; show_(Card(&quot;NAXIS&quot;, 2))
+NAXIS   =                    2
+
+julia&gt; show_(Card(&quot;OBJECT&quot;, &quot;NGC 1275&quot;, &quot;target&quot;))
+OBJECT  = &#39;NGC 1275&#39;           / target
+
+julia&gt; show_(Card(&quot;FLAG&quot;, true))
+FLAG    =                    T
+
+julia&gt; show_(Card(&quot;Z&quot;, 1.5 + 2.5im))
+Z       = (1.5, 2.5)
+
+julia&gt; show_(Card(&quot;EMPTY&quot;))
+EMPTY   =</code></pre><p>Other values, e.g., a <code>Rational</code> or <code>Complex{Bool}</code>, are an <code>ArgumentError</code>, and a number that is not finite is a <code>DomainError</code>, since the FITS Standard has no such values. The text of a string and of a comment is the printable ASCII characters, 32 to 126.</p><p>A keyword is converted to upper case. A keyword with the characters <code>A</code>-<code>Z</code>, <code>0</code>-<code>9</code>, <code>-</code>, and <code>_</code> and at most 8 characters is a regular keyword. A longer keyword is a <a href="#HIERARCH-keywords">HIERARCH</a> keyword.</p><h2 id="Keyword-arguments"><a class="docs-heading-anchor" href="#Keyword-arguments">Keyword arguments</a><a id="Keyword-arguments-1"></a><a class="docs-heading-anchor-permalink" href="#Keyword-arguments" title="Permalink"></a></h2><p>The keyword arguments of <code>Card</code> format the card. The word keyword also means the name of a card, so a keyword argument is called a keyword here only if it is clear. The arguments are the layout of the card, and the layout of a card that is parsed is read from the image.</p><table><tr><th style="text-align: left">Keyword</th><th style="text-align: left">Default</th><th style="text-align: left">Function</th></tr><tr><td style="text-align: left"><code>fixed</code></td><td style="text-align: left"><code>true</code></td><td style="text-align: left">Use the fixed format, where a number ends at byte 30 and a string begins at byte 11. The free format has the value anywhere after byte 10. The mandatory keywords are always in fixed format. See <a href="#Fixed-and-free-format">Fixed and free format</a>.</td></tr><tr><td style="text-align: left"><code>slash</code></td><td style="text-align: left"><code>32</code></td><td style="text-align: left">The index, in bytes, of the comment separator <code>/</code>. A value that passes the index moves the separator and the comment to the right, and a separator at the end of the card has no comment, unless <code>truncate = false</code>, where the comment is continued at index 32. A number in fixed format ends at byte 30, so its separator is at byte 32 or later.</td></tr><tr><td style="text-align: left"><code>lpad</code></td><td style="text-align: left"><code>1</code></td><td style="text-align: left">The least number of spaces between the value and the comment separator.</td></tr><tr><td style="text-align: left"><code>rpad</code></td><td style="text-align: left"><code>1</code></td><td style="text-align: left">The number of spaces between the comment separator and the units or the comment.</td></tr><tr><td style="text-align: left"><code>upad</code></td><td style="text-align: left"><code>1</code></td><td style="text-align: left">The number of spaces between the units and the comment.</td></tr><tr><td style="text-align: left"><code>truncate</code></td><td style="text-align: left"><code>true</code></td><td style="text-align: left">Truncate a comment that is longer than the space at the end of the card. If <code>false</code>, the comment of a string is continued on <code>CONTINUE</code> cards, and a comment of another value, and units, that do not fit are an <code>ArgumentError</code>. See <a href="#Long-strings">Long strings</a>.</td></tr><tr><td style="text-align: left"><code>splitat</code></td><td style="text-align: left"><code>&#39; &#39;</code></td><td style="text-align: left">Split a long string and its comment after the last character <code>splitat</code> that fits, or at any character if <code>nothing</code>. See <a href="#Long-strings">Long strings</a>.</td></tr><tr><td style="text-align: left"><code>append</code></td><td style="text-align: left"><code>false</code></td><td style="text-align: left">Append an ampersand to the string, which marks that a <code>CONTINUE</code> card continues the string. A string that is too long for a card has the ampersand without the keyword.</td></tr><tr><td style="text-align: left"><code>warn</code></td><td style="text-align: left"><code>true</code></td><td style="text-align: left">Warn when a keyword with more than 8 characters creates a <a href="#HIERARCH-keywords">HIERARCH</a> card.</td></tr></table><pre><code class="language-julia-repl hljs">julia&gt; show_(Card(&quot;KEY&quot;, 1, &quot;comment&quot;))
+KEY     =                    1 / comment
+
+julia&gt; show_(Card(&quot;KEY&quot;, 1, &quot;comment&quot;; slash = 20, lpad = 0, rpad = 3))
+KEY     =                    1/   comment
+
+julia&gt; show_(Card(&quot;KEY&quot;, 1, &quot;comment&quot;; fixed = false))
+KEY     = 1                    / comment
+
+julia&gt; show_(Card(&quot;KEY&quot;, &quot;abc&quot;, &quot;comment&quot;; append = true))
+KEY     = &#39;abc&amp;&#39;               / comment</code></pre><p><code>setvalue!</code> has the same keyword arguments, except <code>warn</code>, and the default of a layout keyword argument is the layout of the card, see <a href="#Changing-the-value">Changing the value</a>. The function <code>parse</code> has the keywords <code>strict</code>, which allows a lower case exponent letter if <code>false</code>, and <code>units</code>, which reads the units from the comment if <code>true</code>, see <a href="#Parsing-an-image">Parsing an image</a>.</p><h2 id="Units"><a class="docs-heading-anchor" href="#Units">Units</a><a id="Units-1"></a><a class="docs-heading-anchor-permalink" href="#Units" title="Permalink"></a></h2><p>A <code>Quantity</code> is not a type of value. The units of a quantity are not part of the value, so a <code>Quantity</code> that is given in place of a number is split into its number and its units, and the type of the card is the type of the number, e.g., the type of a card with <code>1200.0u&quot;s&quot;</code> is <code>Card{Value{Float64}}</code>. The units are read from the comment when a card is parsed, where the units are in square brackets at the beginning of the comment (Sect. 4.3.2), and they are read in the same way from the comment of a number that is given to <code>Card</code>: the unit string is removed from the comment and is the units of the card, as if the number were a <code>Quantity</code>.</p><pre><code class="language-julia-repl hljs">julia&gt; card = Card(&quot;EXPTIME&quot;, 1200.0u&quot;s&quot;, &quot;exposure time&quot;);
+
+julia&gt; show_(card)
+EXPTIME =               1200.0 / [s] exposure time
+
+julia&gt; card.value, card.units
+(1200.0, s)
+
+julia&gt; units(card)
+s
+
+julia&gt; show_(Card(&quot;RATE&quot;, 3.5f0u&quot;km/s&quot;, &quot;velocity&quot;))
+RATE    =                  3.5 / [km s-1] velocity
+
+julia&gt; card = Card(&quot;RATE&quot;, 3.5f0, &quot;[km/s] velocity&quot;); card.units, card.comment
+(km s⁻¹, &quot;velocity&quot;)
+
+julia&gt; show_(card)
+RATE    =                  3.5 / [km/s] velocity
+
+julia&gt; card = Card(&quot;RATE&quot;, 3.5f0, &quot;[foo] velocity&quot;); card.units, card.comment
+(nothing, &quot;[foo] velocity&quot;)</code></pre><p>The style of the unit string of the comment is written again, e.g., <code>[km/s]</code>, and a <code>Quantity</code> is written in the default style. The comment of a string or a logical, of a mandatory keyword, and of a number with a <code>Quantity</code>, is not units, and text that is not a unit string or a scale factor remains in the comment.</p><p>The units are written as the strings of the FITS Standard (Sect. 4.3), by <code>formunit</code>, and are read by <code>parseunit</code>. All the units of Tables 3 and 4 of the Standard are read, with the prefixes of Table 5 for the units that take them, e.g., <code>a</code>, the Julian year, <code>Ma</code>, <code>R</code>, the rayleigh, <code>mag</code>, <code>D</code>, the debye, and <code>Sun</code>. A unit with a scale factor, e.g., <code>10**3 m</code>, or without a name in the Standard, e.g., a function such as <code>log(Hz)</code>, remains in the comment. The units of a card are not read if the keyword <code>units = false</code> is given to <code>parse</code>.</p><h2 id="Fixed-and-free-format"><a class="docs-heading-anchor" href="#Fixed-and-free-format">Fixed and free format</a><a id="Fixed-and-free-format-1"></a><a class="docs-heading-anchor-permalink" href="#Fixed-and-free-format" title="Permalink"></a></h2><p>The values of a card are in fixed format by default, where a number ends at byte 30 and a string begins at byte 11. A number has at most 20 characters in fixed format, so a <code>Float64</code> that has more characters is written with fewer digits of the mantissa. The free format has no such limit.</p><pre><code class="language-julia-repl hljs">julia&gt; show_(Card(&quot;EXPTIME&quot;, 1200.0, &quot;exposure time&quot;; fixed = false))
+EXPTIME = 1200.0               / exposure time
+
+julia&gt; show_(Card(&quot;DELTA&quot;, 1.2345678901234567e-100))
+DELTA   = 1.2345678901234D-100
+
+julia&gt; show_(Card(&quot;DELTA&quot;, 1.2345678901234567e-100; fixed = false))
+DELTA   = 1.2345678901234567D-100</code></pre><p>The mandatory keywords <code>SIMPLE</code>, <code>XTENSION</code>, <code>BITPIX</code>, <code>NAXIS</code>, <code>NAXIS</code><em>n</em>, <code>PCOUNT</code>, <code>GCOUNT</code>, and <code>END</code> are always in fixed format and have no units.</p><p>The position of the comment is the keyword <code>slash</code>, the byte of the comment separator, which is 32 by default, and <code>lpad</code>, <code>rpad</code>, and <code>upad</code> are the numbers of spaces before and after the separator and after the units. A comment that is longer than the space at the end of the card is truncated, and the comment of the card is the truncated comment, unless <code>truncate = false</code>, which is an <code>ArgumentError</code>.</p><pre><code class="language-julia-repl hljs">julia&gt; show_(Card(&quot;EXPTIME&quot;, 1200.0, &quot;exposure time&quot;; slash = 40))
+EXPTIME =               1200.0         / exposure time
+
+julia&gt; Card(&quot;A&quot;, 1, repeat(&quot;x&quot;, 100)).comment |&gt; length
+47
+
+julia&gt; Card(&quot;A&quot;, 1, repeat(&quot;x&quot;, 100); truncate = false)
+ERROR: ArgumentError: Comment does not fit on the card.
+[...]</code></pre><h2 id="Commentary-cards"><a class="docs-heading-anchor" href="#Commentary-cards">Commentary cards</a><a id="Commentary-cards-1"></a><a class="docs-heading-anchor-permalink" href="#Commentary-cards" title="Permalink"></a></h2><p>A <code>COMMENT</code>, a <code>HISTORY</code>, and a blank keyword have no value indicator and only text.</p><pre><code class="language-julia-repl hljs">julia&gt; show_(Card(&quot;COMMENT&quot;, &quot;A comment&quot;))
+COMMENT A comment
+
+julia&gt; show_(Card(&quot;HISTORY&quot;, &quot;processed&quot;))
+HISTORY processed
+
+julia&gt; card = Card(&quot;COMMENT&quot;, &quot;A comment&quot;); card.value
+&quot;A comment&quot;</code></pre><h2 id="HIERARCH-keywords"><a class="docs-heading-anchor" href="#HIERARCH-keywords">HIERARCH keywords</a><a id="HIERARCH-keywords-1"></a><a class="docs-heading-anchor-permalink" href="#HIERARCH-keywords" title="Permalink"></a></h2><p>A keyword that is longer than 8 characters is a HIERARCH keyword, where the tokens of the keyword follow <code>HIERARCH</code>. A warning is given, unless <code>warn = false</code>. The key of the card is the tokens.</p><pre><code class="language-julia-repl hljs">julia&gt; card = Card(&quot;HIERARCH&quot;, &quot;ESO TEL FOCU SCALE&quot;, 1.489, &quot;(deg/m) Focus&quot;);
+
+julia&gt; show_(card)
+HIERARCH ESO TEL FOCU SCALE = 1.489 / (deg/m) Focus
+
+julia&gt; card.key, typeof(card)
+(&quot;ESO TEL FOCU SCALE&quot;, Card{Hierarch{Float64}})
+
+julia&gt; show_(Card(&quot;LONGKEYWORD&quot;, 1.5; warn = false))
+HIERARCH LONGKEYWORD = 1.5</code></pre><p>The tokens have the characters of a keyword, and a HIERARCH card is in free format. A card without a value, e.g., <code>HIERARCH some text</code>, is commentary text.</p><h2 id="Long-strings"><a class="docs-heading-anchor" href="#Long-strings">Long strings</a><a id="Long-strings-1"></a><a class="docs-heading-anchor-permalink" href="#Long-strings" title="Permalink"></a></h2><p>A string of at most 68 characters, with the doubled single quotes, is on one card, and is not split. A string that passes the comment separator moves the separator and the comment to the right, and the comment is truncated if it does not fit on the card, unless <code>truncate = false</code>, where the comment is continued on <code>CONTINUE</code> cards.</p><pre><code class="language-julia-repl hljs">julia&gt; show_(Card(&quot;DATE-OBS&quot;, &quot;2020-01-01T00:00:00.000&quot;, &quot;observation date&quot;))
+DATE-OBS= &#39;2020-01-01T00:00:00.000&#39; / observation date
+
+julia&gt; card = Card(&quot;KEY&quot;, repeat(&quot;x&quot;, 60), &quot;a comment that is truncated&quot;); card.comment
+&quot;a com&quot;
+
+julia&gt; cards = Card(&quot;KEY&quot;, repeat(&quot;x&quot;, 60), &quot;a comment that is continued&quot;; truncate = false);
+
+julia&gt; foreach(show_, cards)
+KEY     = &#39;xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx&amp;&#39; / a
+CONTINUE  &#39;&#39;                   / comment that is continued</code></pre><p>The spaces at the ends of a comment are not significant, so they are not part of the comment of a card. The comments of the cards of a long string are joined by <code>join_cards</code> with a space, unless a comment ends with a space.</p><p>A string that does not fit on one card is split into the cards of a long string, a card and the <code>CONTINUE</code> cards (Sect. 4.2.1.2), which are returned as a vector. Every card but the last ends with an ampersand. The string is split at the comment separator, or at the end of the card if there is no comment. A string is split after the last space that fits, unless the keyword <code>splitat = nothing</code> is given, where it is split at any character, or the keyword <code>splitat</code> is another character.</p><pre><code class="language-julia-repl hljs">julia&gt; cards = Card(&quot;LONGSTR&quot;, repeat(&quot;This is a long string value. &quot;, 5), &quot;comment&quot;);
+
+julia&gt; foreach(show_, cards)
+LONGSTR = &#39;This is a long &amp;&#39;   / comment
+CONTINUE  &#39;string value. &amp;&#39;
+CONTINUE  &#39;This is a long &amp;&#39;
+CONTINUE  &#39;string value. &amp;&#39;
+CONTINUE  &#39;This is a long &amp;&#39;
+CONTINUE  &#39;string value. &amp;&#39;
+CONTINUE  &#39;This is a long &amp;&#39;
+CONTINUE  &#39;string value. &amp;&#39;
+CONTINUE  &#39;This is a long &amp;&#39;
+CONTINUE  &#39;string value. &#39;</code></pre><p>The comment is split in the same way. A list of cards is joined into the value of the card by <code>join_cards</code>.</p><pre><code class="language-julia-repl hljs">julia&gt; join_cards(cards).value
+&quot;This is a long string value. This is a long string value. This is a long string value. This is a long string value. This is a long string value. &quot;</code></pre><h2 id="Parsing-an-image"><a class="docs-heading-anchor" href="#Parsing-an-image">Parsing an image</a><a id="Parsing-an-image-1"></a><a class="docs-heading-anchor-permalink" href="#Parsing-an-image" title="Permalink"></a></h2><p><code>parse(Card, image)</code> creates a card from an 80-character image. The type of the card follows the image: a value, a HIERARCH keyword, commentary text, a CONTINUE card, an END card, or an invalid record.</p><pre><code class="language-julia-repl hljs">julia&gt; image = rpad(&quot;EXPTIME = 1200. / [s] exposure time in seconds&quot;, 80);
+
+julia&gt; card = parse(Card, image);
+
+julia&gt; card.key, card.value, card.units, card.comment
+(&quot;EXPTIME&quot;, 1200.0f0, s, &quot;exposure time in seconds&quot;)
+
+julia&gt; repr(card) == image
+true
+
+julia&gt; typeof(parse(Card, rpad(&quot;COMMENT some text&quot;, 80)))
+Card{Comment}
+
+julia&gt; typeof(parse(Card, rpad(&quot;END&quot;, 80)))
+Card{End}</code></pre><p>The type of a number is the smallest type that holds the number, and a floating-point number is a <code>Float32</code> if it is exactly the shortest <code>Float32</code> of its text. An integer is an <code>Int64</code>, an <code>Int128</code>, or a <code>BigInt</code>.</p><p>A record with a malformed value is an <code>Invalid</code> card, which keeps the text of the record and is written as it was read. Only a record that is not a value, e.g., a keyword without the value indicator <code>=</code> in bytes 9 and 10, is commentary text.</p><pre><code class="language-julia-repl hljs">julia&gt; card = parse(Card, rpad(&quot;KEY     = 1 2 3&quot;, 80));
+
+julia&gt; typeof(card), card.key
+(Card{Invalid}, &quot;KEY&quot;)
+
+julia&gt; typeof(parse(Card, rpad(&quot;HIERARCH ESO A = 1 2 3&quot;, 80)))
+Card{Invalid}
+
+julia&gt; typeof(parse(Card, rpad(&quot;KEY=  1&quot;, 80)))
+Card{Invalid}
+
+julia&gt; typeof(parse(Card, rpad(&quot;HIERARCH some text&quot;, 80)))
+Card{Comment}</code></pre><p>The Standard allows an upper case <code>E</code> or <code>D</code> for the exponent. A number with a lower case letter is an invalid card, unless the keyword <code>strict = false</code> is given.</p><pre><code class="language-julia-repl hljs">julia&gt; typeof(parse(Card, rpad(&quot;KEY     = 1.5e3&quot;, 80)))
+Card{Invalid}
+
+julia&gt; card = parse(Card, rpad(&quot;KEY     = 1.5e3&quot;, 80); strict = false);
+
+julia&gt; card.value
+1500.0f0
+
+julia&gt; show_(card)
+KEY     = 1.5E3</code></pre><p>A CONTINUE card continues a string only if the card before it is a string that ends with an ampersand, so the card before it is given to <code>parse</code>. A CONTINUE card that does not continue a string, and a CONTINUE record without spaces in bytes 9 and 10 or without a string, is commentary.</p><pre><code class="language-julia-repl hljs">julia&gt; images = [rpad(&quot;LONGSTR = &#39;This is a long &amp;&#39; / comment&quot;, 80), rpad(&quot;CONTINUE  &#39;string value.&#39;&quot;, 80)];
+
+julia&gt; cards = Card{&lt;:Any}[]; previous = nothing;
+
+julia&gt; for image in images
+           card = parse(Card, image, previous)
+           push!(cards, card)
+           previous = card
+       end
+
+julia&gt; typeof.(cards)
+2-element Vector{DataType}:
+ Card{Value{String}}
+ Card{Continue}
+
+julia&gt; join_cards(cards).value
+&quot;This is a long string value.&quot;
+
+julia&gt; typeof(parse(Card, rpad(&quot;CONTINUE  &#39;orphan&#39;&quot;, 80), nothing))
+Card{Comment}</code></pre><h2 id="Reading-and-writing-a-card"><a class="docs-heading-anchor" href="#Reading-and-writing-a-card">Reading and writing a card</a><a id="Reading-and-writing-a-card-1"></a><a class="docs-heading-anchor-permalink" href="#Reading-and-writing-a-card" title="Permalink"></a></h2><p>A card is written as it was read, and the image of a parsed card is the image that was read, including the format of the numbers, the position of the values, the units, and the comment. The exceptions are those of the reading, where the value is not changed:</p><ul><li>a number without an integer digit has a zero, e.g., <code>.5</code> is <code>0.5</code>;</li><li>an exponent has at least two digits, and a mantissa has one integer digit, e.g., <code>E+007</code> is <code>E+07</code> and <code>56.53E+13</code> is <code>5.653E+14</code>;</li><li>the sign of an integer zero is lost;</li><li>a number that is longer than before takes the spaces before the comment, but may move the comment, and the end of the comment of a full card is lost.</li></ul><p>Trailing spaces of a string are not significant, and are restored in the written card.</p><h2 id="Changing-the-value"><a class="docs-heading-anchor" href="#Changing-the-value">Changing the value</a><a id="Changing-the-value-1"></a><a class="docs-heading-anchor-permalink" href="#Changing-the-value" title="Permalink"></a></h2><p><code>setvalue!</code> returns the card with a new value, and the units, format, and comment of the card. The new value may have another type. A number keeps the format of the old number, e.g., the digits and the exponent letter, only if the number is written with that format without a loss of digits. A number without units has the units of the card.</p><pre><code class="language-julia-repl hljs">julia&gt; card = Card(&quot;EXPTIME&quot;, 1200.0, &quot;exposure time&quot;);
+
+julia&gt; show_(setvalue!(card, 1500.0))
+EXPTIME =               1500.0 / exposure time
+
+julia&gt; show_(setvalue!(card, 1500.0u&quot;s&quot;))
+EXPTIME =               1500.0 / [s] exposure time
+
+julia&gt; show_(setvalue!(Card(&quot;N&quot;, 1, &quot;c&quot;), &quot;text&quot;))
+N       = &#39;text&#39;               / c
+
+julia&gt; card = parse(Card, rpad(&quot;KEY     = 1.50 / c&quot;, 80));
+
+julia&gt; show_(setvalue!(card, 2.5))
+KEY     = 2.50 / c
+
+julia&gt; show_(setvalue!(card, 2.567))
+KEY     = 2.567 / c</code></pre><p>A string that does not fit is split into the cards of a long string, as by <code>Card</code>. The value of a commentary card is a string or <code>missing</code>, and an END card has no value, otherwise an <code>ArgumentError</code> is raised.</p><p>The keywords of <code>setvalue!</code> are the keywords of <code>Card</code> that format the card, and the default of a layout keyword is the layout of the card, so the new card is formatted as the card was.</p><table><tr><th style="text-align: left">Keyword</th><th style="text-align: left">Default</th></tr><tr><td style="text-align: left"><code>fixed</code></td><td style="text-align: left">the format of the card, fixed or free</td></tr><tr><td style="text-align: left"><code>slash</code></td><td style="text-align: left">the index of the comment separator of the card, and for the cards of a long string the index 32 or more</td></tr><tr><td style="text-align: left"><code>lpad</code></td><td style="text-align: left">0 if the separator follows the value of the card directly, otherwise 1</td></tr><tr><td style="text-align: left"><code>rpad</code></td><td style="text-align: left">the number of spaces after the separator of the card, or 1</td></tr><tr><td style="text-align: left"><code>upad</code></td><td style="text-align: left">the number of spaces after the units of the card, or 1</td></tr><tr><td style="text-align: left"><code>append</code></td><td style="text-align: left"><code>false</code></td></tr><tr><td style="text-align: left"><code>truncate</code></td><td style="text-align: left"><code>true</code>, as in <code>Card</code></td></tr><tr><td style="text-align: left"><code>splitat</code></td><td style="text-align: left"><code>&#39; &#39;</code>, as in <code>Card</code></td></tr></table><p>A keyword formats the card again, even if the value is the same, and a keyword creates the same card as the constructor of a card with the keyword.</p><pre><code class="language-julia-repl hljs">julia&gt; card = parse(Card, rpad(&quot;KEY     = 1.5/ c&quot;, 80));
+
+julia&gt; show_(setvalue!(card, 2.5))
+KEY     = 2.5/ c
+
+julia&gt; show_(setvalue!(card, 2.5; lpad = 3))
+KEY     = 2.5   / c
+
+julia&gt; show_(setvalue!(card, 2.5; slash = 20))
+KEY     = 2.5      / c
+
+julia&gt; show_(setvalue!(card, 2.5; fixed = true))
+KEY     =                  2.5/ c</code></pre><p>A list of cards in a header is changed by <code>setvalue!(cards, key, value)</code> and by <code>cards[key] = value</code>, which also replace the CONTINUE cards of the old value.</p><h2 id="A-list-of-cards"><a class="docs-heading-anchor" href="#A-list-of-cards">A list of cards</a><a id="A-list-of-cards-1"></a><a class="docs-heading-anchor-permalink" href="#A-list-of-cards" title="Permalink"></a></h2><p>A header is a vector of cards, and the cards with a keyword are found by the keyword, without regard to the case.</p><pre><code class="language-julia-repl hljs">julia&gt; cards = Card{&lt;:Any}[Card(&quot;BITPIX&quot;, 16), Card(&quot;BZERO&quot;, 1.5), Card(&quot;OBJECT&quot;, &quot;NGC 1275&quot;),
+                           Card(&quot;HISTORY&quot;, &quot;first step&quot;), Card(&quot;HISTORY&quot;, &quot;second step&quot;)];
+
+julia&gt; cards[&quot;bitpix&quot;], get(cards, &quot;NOPE&quot;, 0), haskey(cards, &quot;OBJECT&quot;)
+(16, 0, true)
+
+julia&gt; get(cards, [&quot;BITPIX&quot;, &quot;BZERO&quot;, &quot;NOPE&quot;], [0, 0, &quot;default&quot;])
+(16, 1.5, &quot;default&quot;)
+
+julia&gt; FITSFiles.getall(cards, &quot;HISTORY&quot;)
+2-element Vector{String}:
+ &quot;first step&quot;
+ &quot;second step&quot;
+
+julia&gt; findall(&quot;HISTORY&quot;, cards)
+2-element Vector{Int64}:
+ 4
+ 5</code></pre><p>The value of a card is the first card with the keyword, for <code>getindex</code>, <code>get</code>, and <code>haskey</code>, and <code>findfirst</code> is the index of the first card. With a list of keys, <code>get</code> is the tuple of the values of the first cards, where the types of the values are the types of the cards and not of the defaults. <code>findall</code> and <code>getall</code> are the indexes and the values of all the cards with a keyword, e.g., the <code>COMMENT</code> and <code>HISTORY</code> cards. The value of a continued string is the joined string, and <code>setvalue!(cards, key, value)</code> replaces the card and the <code>CONTINUE</code> cards of the old string.</p><h2 id="Comparing-and-copying"><a class="docs-heading-anchor" href="#Comparing-and-copying">Comparing and copying</a><a id="Comparing-and-copying-1"></a><a class="docs-heading-anchor-permalink" href="#Comparing-and-copying" title="Permalink"></a></h2><p>Two cards are equal if their images are equal, so a card is equal to the card that is parsed from its image, and equal cards have the same hash. A copy has its own format, so the copy can be changed without changing the card.</p><pre><code class="language-julia-repl hljs">julia&gt; a, b = Card(&quot;A&quot;, 1, &quot;c&quot;), Card(&quot;A&quot;, 1, &quot;c&quot;);
+
+julia&gt; a == b, hash(a) == hash(b), copy(a) == a, copy(a) === a
+(true, true, true, false)
+
+julia&gt; parse(Card, repr(a)) == a
+true</code></pre><p>A card is a scalar in a broadcast, e.g., <code>cards .== a</code>.</p><h2 id="Errors"><a class="docs-heading-anchor" href="#Errors">Errors</a><a id="Errors-1"></a><a class="docs-heading-anchor-permalink" href="#Errors" title="Permalink"></a></h2><table><tr><th style="text-align: left">Error</th><th style="text-align: left">Cause</th></tr><tr><td style="text-align: left"><code>ArgumentError</code></td><td style="text-align: left">a keyword, a string, or a comment with characters that are not allowed</td></tr><tr><td style="text-align: left"><code>ArgumentError</code></td><td style="text-align: left">a value of a type that cannot be written</td></tr><tr><td style="text-align: left"><code>ArgumentError</code></td><td style="text-align: left">a string value for a number, or a value that is not a string for a commentary or CONTINUE card</td></tr><tr><td style="text-align: left"><code>ArgumentError</code></td><td style="text-align: left">a comment, units, or a HIERARCH keyword and value that do not fit on the card</td></tr><tr><td style="text-align: left"><code>DomainError</code></td><td style="text-align: left">a number that is not finite</td></tr></table><p>Reading an image never raises an error. A record that is not valid is an <code>Invalid</code> card.</p></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../">« FITSFiles</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.19.0 on <span class="colophon-date" title="Tuesday 20 October 2026 02:05">Tuesday 20 October 2026</span>. Using Julia version 1.13.2.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
