@@ -931,4 +931,50 @@
     @test hdus[2].data[:heap][1] == expected
     @test eltype(hdus[2].data[:heap][1]) == Int32
 
+    #  Scaling must not round the stored integers to Float32: a UInt32 column is
+    #  Int32 with TZERO = 2^31, and a Float32 TSCAL must not reduce the others
+    cards = [Card("XTENSION", "BINTABLE"),
+             Card("BITPIX", 8),
+             Card("NAXIS", 2),
+             Card("NAXIS1", 14),
+             Card("NAXIS2", 2),
+             Card("PCOUNT", 0),
+             Card("GCOUNT", 1),
+             Card("TFIELDS", 3),
+             Card("TFORM1", "1J"),
+             Card("TTYPE1", "UINT"),
+             Card("TZERO1", 2147483648),
+             Card("TFORM2", "1I"),
+             Card("TTYPE2", "SCALED"),
+             Card("TZERO2", 1.0f0),
+             Card("TSCAL2", 0.5f0),
+             Card("TFORM3", "2J"),
+             Card("TTYPE3", "UINTS"),
+             Card("TZERO3", 2147483648)]
+    data = (UINT=Int32[-2147483602, -2147483520],
+            SCALED=Int16[2, 4],
+            UINTS=[Int32[-2147483602, -2147483520],
+                   Int32[-2147483520, -2147483602]])
+    scaled_io = IOBuffer()
+    write(scaled_io, HDU(data, cards))
+
+    seekstart(scaled_io)
+    columns = read(scaled_io, HDU; record=false, scale=true).data
+    @test columns.UINT == [46.0, 128.0] && eltype(columns.UINT) === Float64
+    @test columns.SCALED == Float32[2, 3] && eltype(columns.SCALED) === Float32
+    @test columns.UINTS == [46.0 128.0; 128.0 46.0]
+
+    seekstart(scaled_io)
+    records = read(scaled_io, HDU; record=true, scale=true).data
+    @test getproperty.(records, :UINT) == [46.0, 128.0]
+    @test getproperty.(records, :SCALED) == Float32[2, 3]
+    @test getproperty.(records, :UINTS) == [[46.0, 128.0], [128.0, 46.0]]
+
+    #  the helper itself
+    @test FITSFiles.scaled(Int32[-2147483602], 1.0f0, 2147483648.0) == [46.0]
+    @test FITSFiles.scaled(Int16[2, 4], 0.5f0, 1.0f0) == Float32[2, 3]
+    @test eltype(FITSFiles.scaled(UInt8[1, 2], 1.0f0, 0.0f0)) === Float32
+    @test FITSFiles.scaled(Int32(-2147483602), 1.0f0, 2147483648.0) === 46.0
+    @test FITSFiles.scaled(Float32[1, 2], 2.0f0, 1.0f0) == Float32[3, 5]
+
 end

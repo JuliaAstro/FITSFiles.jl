@@ -456,6 +456,21 @@ the format from data and then correct the header to match the data.
 """
 verify!(::Type{<:AbstractHDU}, cards::Cards, mankeys::AbstractDict) = cards
 
+"""
+    scaled(data, scale, zero)
+
+Return `zero + scale*data`. The type of the result is the promotion of the types of `data`,
+`scale` and `zero` (a Float32 for 32-bit integer data and a Float32 `scale`, say), but the
+arithmetic is done in at least a Float64 and rounded once at the end. A Float32 product would
+otherwise round the stored integers to 24 bits (e.g., a `UInt32` stored as `Int32` with `TZERO`
+2147483648 and a Float32 `TSCAL` of 1).
+"""
+function scaled(data, scale, zero)
+	T = promote_type(typeof(scale), typeof(zero), eltype(data))
+	W = promote_type(T, Float64)
+	T.(W(zero) .+ W(scale).*W.(data))
+end
+
 function get_reserved_keys(cards::Cards)
 	mankeys = Dict{AbstractString, ValueType}()
 	reskeys = Dict{AbstractString, ValueType}()

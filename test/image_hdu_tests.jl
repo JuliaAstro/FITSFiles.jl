@@ -207,4 +207,13 @@
 
     rm(temppath)
 
+    #  a UInt32 image is Int32 with BZERO = 2^31: scaling must not round to Float32
+    uint = Int32[-2147483602, -2147483520]
+    hdu = HDU(uint, [Card("XTENSION", "IMAGE"), Card("BITPIX", 32), Card("NAXIS", 1),
+                     Card("NAXIS1", 2), Card("BZERO", 2147483648)])
+    uint_io = IOBuffer()
+    write(uint_io, hdu)
+    seekstart(uint_io)
+    @test read(uint_io, HDU; scale=true).data == [46.0, 128.0]
+
 end

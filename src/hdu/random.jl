@@ -330,7 +330,7 @@ function Base.read(io::IO, field::RandomField, format::DataFormat,
         column = reshape(column, (N, shape...))
     end
     #  No missing values
-    scale ? field.zero .+ field.scale.*column : column
+    scale ? scaled(column, field.scale, field.zero) : column
 end
 
 function Base.read(io::IO, field::RandomField; scale::Bool = true)
@@ -342,5 +342,5 @@ function Base.read(io::IO, field::RandomField; scale::Bool = true)
         value = reshape(ntoh.([read(io, type) for j=1:leng]), shape)
     end
     #  No missing values
-    scale ? field.zero .+ field.scale.*value : value
+    scale ? scaled(value, field.scale, field.zero) : value
 end
