@@ -12,6 +12,7 @@ without the trailing spaces.
 ```@meta
 DocTestSetup = quote
     using FITSFiles, Unitful
+    ENV["UNITFUL_FANCY_EXPONENTS"] = "true"  # platform dependent default
     import FITSFiles: setvalue!, join_cards
     show_(card) = println(rstrip(repr(card)))
 end
