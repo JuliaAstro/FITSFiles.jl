@@ -30,7 +30,7 @@ struct Random <: AbstractHDU end
 """
 	Image header-data unit (HDU)
 
-An Image HDU consists of a vector cards and optionally a multidimensional array
+An Image HDU consists of a vector of cards and optionally a multidimensional array
 (<=999 dimensions).
 """
 struct Image <: AbstractHDU end
@@ -58,7 +58,7 @@ struct A3DTable <: AbstractHDU end
 struct Foreign <: AbstractHDU end
 struct Dump <: AbstractHDU end
 
-Cards = Union{Vector{Card}, Vector{Card{<:Any}}}
+const Cards = Union{Vector{Card}, Vector{Card{<:Any}}}
 
 #   HDU type
 """
@@ -68,33 +68,38 @@ Cards = Union{Vector{Card}, Vector{Card{<:Any}}}
 	HDU(type, missing, [cards]; <keywords>)
 	HDU(type, data, [cards]; <keywords>)
 
-Create an header-data unit described by data and cards of type AbstractHDU.
+Create a header-data unit described by data and cards of type AbstractHDU.
 
 The HDU function tries to determine the HDU type based on the data and cards.
 If only data is provided, then an array is interpreted as a Primary HDU and a
-Tuple or NamedTuple as a BinaryTable. If mandatory cards are provided, then
+Tuple or NamedTuple as a Bintable. If mandatory cards are provided, then
 they are used to determine the HDU type. Otherwise, the HDU type must be
 specified.
 
 HDU types are: Primary, Random, Image, Table, Bintable, and Conform.
 
-# arguments
+# Arguments
 
 - `data::U=missing`: the binary or ASCII data, where `U <: Union{AbstractArray,
    Tuple, NamedTuple, Missing}`
-- `cards::U=missing`: the list of cards, where `U <: Union{Card, Vector{Card}, Missing}`
+- `cards::U=missing`: the list of cards, where `U <: Union{Card, Vector{Card}, Vector{Card{<:Any}},
+  Missing}`
 
 # Keywords
 
 - `record::Bool=false`: structure the data as a list of records
 - `scale::Bool=true`: apply the scale and zero keywords to the data
-- `append::Bool=false`: append CONTINUE cards for long strings (>68 characters)
+
+The following keywords format the cards that are created, and are those of [`Card`](@ref), which
+describes them.
+
+- `append::Bool=false`: append an ampersand to a string that is continued by a CONTINUE card
 - `fixed::Bool=true`: create fixed format cards
-- `slash::Integer=32`: character index of the comment separator (/)
+- `slash::Integer=32`: index of the comment separator (/)
 - `lpad::Integer=1`: number of spaces before the comment separator
 - `rpad::Integer=1`: number of spaces after the comment separator
 - `upad::Integer=1`: number of spaces after the units
-- `truncate::Bool=true`: truncate the comment string at the end of the card
+- `truncate::Bool=true`: truncate a comment that is longer than the space at the end of the card
 """
 struct HDU{S <: AbstractHDU}
 	"The vector of cards."
@@ -123,9 +128,9 @@ const OUTTYPE  = Dict(
     UInt8 => Float32, Int16 => Float32, Int32 => Float64, Int64 => Float64,
     Float32 => Float32, Float64 => Float64)
 
-    #  Combine XTENSION values in card.jl and hdu.jl
-const XTENSIONTYPE = Dict("IMAGE   " => Image, "TABLE   " => Table,
-	"BINTABLE" => Bintable)
+    #  Combine XTENSION values in card.jl and hdu.jl. The trailing spaces of a value are not
+    #  significant, so the keys are not padded.
+const XTENSIONTYPE = Dict("IMAGE" => Image, "TABLE" => Table, "BINTABLE" => Bintable)
 
 const MANDATORYKEYS = (
 	#  Mandatory keys, except THEAP (see Table C.1)
@@ -306,13 +311,27 @@ function Base.getproperty(hdu::HDU, name::Symbol)
 end
 
 """
-    Base.read(io, type; <keywords>)
+    Base.read(io::IO, ::Type{HDU}; <keywords>)
 
-Read the specified HDU type from a file.
+Read the next header-data unit (HDU) from `io` and return it. The data of an HDU that is read
+from a file is a lazy array, which is read when the data is accessed, and the data of an HDU that
+is read from another stream is read at once.
+
+# Keywords
+
+- `type=nothing`: the HDU type, e.g., `Image`, which is otherwise determined by the mandatory
+  keywords of the header
+- `strict::Bool=true`: numbers with a lower case exponent letter (d or e) are invalid cards,
+  unless false
+- `units::Bool=true`: the units in the comment of a number are the units of the value, unless
+  false
+- `record::Bool=false`: structure the data as a list of records
+- `scale::Bool=true`: apply the scale and zero keywords to the data
 """
-function Base.read(io::IO, ::Type{HDU}; type = nothing, kwds...)::HDU
+function Base.read(io::IO, ::Type{HDU}; type = nothing, strict::Bool = true, units::Bool = true,
+    kwds...)::HDU
     #  Read cards
-    cards, mankeys, reskeys = read(io, Card)
+    cards, mankeys, reskeys = read(io, Card; strict, units)
 
 	#  Read data
 	type_  = type === nothing ? typeofhdu(mankeys) : type
@@ -337,9 +356,10 @@ function Base.read(io::IO, ::Type{HDU}; type = nothing, kwds...)::HDU
 end
 
 """
-    Base.write(io, hdu; <keywords>)
+    Base.write(io::IO, hdu::HDU; <keywords>)
 
-Write the specified HDU type to a file.
+Write a header-data unit (HDU) to `io`: the header cards, the END card, and blank cards that pad
+the header to a multiple of 2880 bytes, followed by the data.
 """
 function Base.write(io::IO, hdu::HDU{<:AbstractHDU}; kwds...)
 
@@ -356,24 +376,17 @@ function Base.write(io::IO, hdu::HDU{<:AbstractHDU}; kwds...)
 	write(io, type, getfield(hdu, :data), format, fields; kwds...)
 end
 
-function Base.read(io::IO, ::Type{Card})
+function Base.read(io::IO, ::Type{Card}; strict::Bool = true, units::Bool = true)
     #  Read cards
     cards = Card{<:Any}[]
-    mankeys = Dict{AbstractString, ValueType}()
-    reskeys = Dict{AbstractString, ValueType}()
     N, M = BLOCKLEN÷CARDLENGTH, CARDLENGTH
 
     lastblok = false
     block = read(io, BLOCKLEN)
     while !lastblok
         for j=1:N
-            card = parse(Card, String(block[M*(j-1)+1:M*j]))
-            if any(occursin.(MANDATORYKEYS, card.key))
-                mankeys[card.key] = card.value
-            end
-            if any(occursin.(RESERVEDKEYS, card.key))
-                reskeys[card.key] = card.value
-            end
+            card = parse(Card, String(block[M*(j-1)+1:M*j]),
+                         isempty(cards) ? nothing : cards[end]; strict, units)
             if typename(card) == End
                 lastblok = true
                 break
@@ -385,6 +398,9 @@ function Base.read(io::IO, ::Type{Card})
         end
         block = read(io, BLOCKLEN)
     end
+    #  Create dictionaries of mandatory and reserved keywords, which include the END keyword.
+    mankeys, reskeys = get_reserved_keys(cards)
+    mankeys["END"] = missing
     (cards, mankeys, reskeys)
 end
 
@@ -404,15 +420,35 @@ function Base.write(io::IO, cards::Cards)
 end
 
 ####    Utility functions
+"""
+	leastfloat(real::Union{Real, Nothing})
+
+Convert an integer to the smallest float type of Float32, Float64, and BigFloat that holds the
+integer, i.e., a Float32 for a 32-bit integer, a Float64 for a 64-bit integer, and otherwise a
+BigFloat. A value that is not an integer is returned as it is.
+"""
+function leastfloat(value::Union{Real, Nothing})
+	if typeof(value) <: Integer
+		if typemin(Int32) <= value <= typemax(Int32)
+			return convert(Float32, value)
+		elseif typemin(Int64) <= value <= typemax(Int64)
+			return convert(Float64, value)
+		else
+			return convert(BigFloat, value)
+		end
+	end
+	value
+end
+
 function get_reserved_keys(cards::Cards)
 	mankeys = Dict{AbstractString, ValueType}()
 	reskeys = Dict{AbstractString, ValueType}()
-	for card in cards
+	for (j, card) in enumerate(cards)
 		if any(occursin.(MANDATORYKEYS, card.key))
-			mankeys[card.key] = card.value
+			mankeys[card.key] = joinvalue(cards, j)
 		end
 		if any(occursin.(RESERVEDKEYS, card.key))
-			reskeys[card.key] = card.value
+			reskeys[card.key] = joinvalue(cards, j)
 		end
 	end
 	(mankeys, reskeys)
@@ -462,7 +498,7 @@ function typeofhdu(mankeys::Dict{S, V}) where {S <: AbstractString, V <: ValueTy
 	#  Determine HDU type from mandatory keys
 	exval = get(mankeys, "XTENSION", missing)
 	if !ismissing(exval)
-		type = get(XTENSIONTYPE, exval, Conform)
+		type = get(XTENSIONTYPE, exval isa AbstractString ? rstrip(exval) : exval, Conform)
 		if type == Bintable
 			if get(mankeys, "ZIMAGE", false)
 				type = ZImage
@@ -616,10 +652,38 @@ function Base.haskey(cards::Cards, key::AbstractString)
 	false
 end
 
-function Base.getindex(cards::Cards, key::AbstractString)
+"""
+    joinvalue(cards, j)
+
+Return the value of the card at index `j`. The value of a continued string is the value of the
+card joined with the CONTINUE cards that follow it.
+"""
+joinvalue(cards::Cards, j::Integer) =
+	basetype(typename(cards[j])) == Value && continued(cards[j]) ?
+	join_cards(@view cards[j:end]).value : cards[j].value
+
+"""
+    units(card)
+    units(cards, key)
+
+Return the units of a card, or of the first card of a list of cards with the keyword, which are
+`nothing` if the value has no units. The units are not part of the value.
+"""
+units(card::Card) = card.units
+
+function units(cards::Cards, key::AbstractString)
 	for card in cards
 		if uppercase(card.key) == uppercase(key)
-			return card.value
+			return card.units
+		end
+	end
+	throw(KeyError(key))
+end
+
+function Base.getindex(cards::Cards, key::AbstractString)
+	for (j, card) in enumerate(cards)
+		if uppercase(card.key) == uppercase(key)
+			return joinvalue(cards, j)
 		end
 	end
 	throw(KeyError(key))
@@ -627,25 +691,35 @@ end
 
 function Base.get(cards::Cards, key::AbstractString, default = nothing)
 	value = default
-	for card in cards
+	for (j, card) in enumerate(cards)
 		if uppercase(card.key) == uppercase(key)
-			value = card.value
+			value = joinvalue(cards, j)
 			break
 		end
 	end
 	value
 end
 
+"""
+    get(cards, key, default)
+    get(cards, keys, defaults)
+
+Return the value of the first card with the keyword `key`, or `default` if there is no such card.
+With a list of keys, return the tuple of the values of the first cards with the keywords, in the order
+of the keys, where the default of a keyword that is not found is the default at the same position. The
+types of the values are the types of the cards, and not the types of the defaults. The value of a
+continued string is the joined string. See [`getall`](@ref) for the values of all the cards with a
+keyword.
+"""
 function Base.get(cards::Cards, keys::Union{AbstractArray, Tuple},
 	defaults::Union{AbstractArray, Tuple})
 
-	values = [defaults...]
+	length(keys) == length(defaults) ||
+		throw(DimensionMismatch("The keys and the defaults have different lengths."))
+	values = Any[defaults...]
 	for (j, key) in enumerate(keys)
-		for card in cards
-			if uppercase(card.key) == uppercase(key)
-				values[j] = card.value
-			end
-		end
+		k = Base.findfirst(key, cards)
+		ismissing(k) || (values[j] = joinvalue(cards, k))
 	end
 	(values...,)
 end
@@ -659,14 +733,61 @@ function Base.findfirst(key::AbstractString, cards::Cards)
 	missing
 end
 
-function Base.setindex!(cards::Cards, value::ValueType, key::AbstractString)
-    for (j, card) in enumerate(cards)
-        if uppercase(card.key) == uppercase(key)
-            cards[j] = setvalue!(card, value)
-            return
-        end
-    end
-    throw(KeyError(key))
+"""
+    findall(key, cards)
+
+Return the indexes of all the cards with the keyword `key`, in the order of the header. The indexes
+are empty if there is no such card.
+"""
+function Base.findall(key::AbstractString, cards::Cards)
+	upkey = uppercase(key)
+	[j for (j, card) in enumerate(cards) if uppercase(card.key) == upkey]
+end
+
+"""
+    getall(cards, key)
+    getall(cards, keys)
+
+Return the values of all the cards with the keyword `key`, in the order of the header, e.g., the
+values of the `COMMENT` or `HISTORY` cards, which are the vector of the values, or an empty vector if
+there is no such card. With a list of keys, return the tuple of the vectors of the keys. The value of
+a continued string is the joined string, and the `CONTINUE` cards of the string are not values.
+"""
+getall(cards::Cards, key::AbstractString) = [joinvalue(cards, j) for j in Base.findall(key, cards)]
+getall(cards::Cards, keys::Union{AbstractArray, Tuple}) = Tuple(getall(cards, key) for key in keys)
+
+"""
+    setvalue!(cards, key, value; <keywords>)
+
+Replace the value of the first card with the keyword `key`. A string that does not fit on a card
+is split into the cards of a long string, and the CONTINUE cards of a string that is replaced
+are removed. The keywords, i.e., `fixed`, `append`, `slash`, `lpad`, `rpad`, `upad`, `truncate`,
+and `splitat`, are those of `setvalue!(card, value)`, where the default of a layout keyword is the
+layout of the card. The cards are always replaced, which is the way to split the value again.
+"""
+function setvalue!(cards::Cards, key::AbstractString, value::ValueInput; kwds...)
+
+	j = Base.findfirst(key, cards)
+	ismissing(j) && throw(KeyError(key))
+	#  The cards of the old value are the card and the CONTINUE cards that continue its string.
+	n = j
+	while n < length(cards) && continued(cards[n]) && basetype(typename(cards[n+1])) == Continue
+		n += 1
+	end
+	new = setvalue!(cards[j], value; kwds...)
+	splice!(cards, j:n, new isa Card ? [new] : new)
+	cards
+end
+
+#  Setting the value that the cards have leaves the cards as they are, including the pieces
+#  of a long string.
+function Base.setindex!(cards::Cards, value::ValueInput, key::AbstractString)
+	j = Base.findfirst(key, cards)
+	ismissing(j) && throw(KeyError(key))
+	old = joinvalue(cards, j)
+	same = old isa AbstractString && value isa AbstractString && trimvalue(old) == trimvalue(value)
+	same || setvalue!(cards, key, value)
+	return
 end
 
 function Base.popat!(cards::Cards, key::AbstractString, default=Card())

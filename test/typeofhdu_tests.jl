@@ -106,4 +106,28 @@
     mankeys, reskeys = FITSFiles.get_reserved_keys(cards)
     @test FITSFiles.typeofhdu(data, mankeys) == Conform
 
+    ###  test typeofhdu with the XTENSION value.
+
+    #  the trailing spaces of the value are not significant.
+    for (value, type) in (("IMAGE", Image), ("IMAGE   ", Image), ("IMAGE ", Image),
+                          ("TABLE", Table), ("TABLE   ", Table),
+                          ("BINTABLE", Bintable), ("BINTABLE ", Bintable), ("BINTABLE   ", Bintable))
+        mankeys = Dict{AbstractString, FITSFiles.ValueType}("XTENSION" => value)
+        @test FITSFiles.typeofhdu(mankeys) == type
+    end
+
+    #  leading spaces, other values, and values that are not strings are not recognized.
+    for value in (" IMAGE", "image", "A3DTABLE", "IUEIMAGE", "", 5)
+        mankeys = Dict{AbstractString, FITSFiles.ValueType}("XTENSION" => value)
+        @test FITSFiles.typeofhdu(mankeys) == Conform
+    end
+
+    #  a compressed table is a ZTable, whatever the padding of the value.
+    for value in ("BINTABLE", "BINTABLE ")
+        mankeys = Dict{AbstractString, FITSFiles.ValueType}("XTENSION" => value, "ZIMAGE" => true)
+        @test FITSFiles.typeofhdu(mankeys) == ZImage
+        mankeys = Dict{AbstractString, FITSFiles.ValueType}("XTENSION" => value, "ZTABLE" => true)
+        @test FITSFiles.typeofhdu(mankeys) == ZTable
+    end
+
 end

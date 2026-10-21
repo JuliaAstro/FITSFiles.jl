@@ -1,11 +1,15 @@
 using FITSFiles
 using Test
+using Unitful, UnitfulAngles, UnitfulAstro
 
-showfields(card) = Tuple(push!([getfield(card, k) for k in fieldnames(Card)[1:3]], repr(card)))
+showfields(card) = (card.key, card.value, card.comment, repr(card))
 
 io = IOBuffer()
 
 include("card_tests.jl")
+include("header_tests.jl")
+include("units_tests.jl")
+include("format_tests.jl")
 include("typeofhdu_tests.jl")
 include("primary_hdu_tests.jl")
 include("random_hdu_tests.jl")

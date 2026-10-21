@@ -91,11 +91,11 @@ function FieldFormat(::Type{Primary}, format::DataFormat, reskeys::Dict{S, V},
     data::Missing) where {S<:AbstractString, V<:ValueType}
 
     #  Get missing value
-    zero_ = least_float_type(get(reskeys, "BZERO", 0.0f0))
-    scale = least_float_type(get(reskeys, "BSCALE", 1.0f0))
+    zero_ = leastfloat(get(reskeys, "BZERO", 0.0f0))
+    scale = leastfloat(get(reskeys, "BSCALE", 1.0f0))
     miss  = format.type in MISSTYPE ? get(reskeys, "BLANK", nothing) : nothing
-    dmin  = least_float_type(get(reskeys, "DATAMIN", nothing))
-    dmax  = least_float_type(get(reskeys, "DATAMAX", nothing))
+    dmin  = leastfloat(get(reskeys, "DATAMIN", nothing))
+    dmax  = leastfloat(get(reskeys, "DATAMAX", nothing))
     ImageField(format.type, zero_, scale, miss, dmin, dmax)
 end
 
@@ -116,11 +116,11 @@ function FieldFormat(::Type{Primary}, format::DataFormat, reskeys::Dict{S, V},
     data::AbstractArray) where {S<:AbstractString, V<:ValueType}
 
     #  Get missing value
-    zero_ = least_float_type(get(reskeys,  "BZERO", 0.0f0))
-    scale = least_float_type(get(reskeys, "BSCALE", 1.0f0))
+    zero_ = leastfloat(get(reskeys,  "BZERO", 0.0f0))
+    scale = leastfloat(get(reskeys, "BSCALE", 1.0f0))
     miss  = format.type in MISSTYPE ? get(reskeys, "BLANK", nothing) : nothing
-    dmin  = least_float_type(get(reskeys, "DATAMIN", nothing))
-    dmax  = least_float_type(get(reskeys, "DATAMAX", nothing))
+    dmin  = leastfloat(get(reskeys, "DATAMIN", nothing))
+    dmax  = leastfloat(get(reskeys, "DATAMAX", nothing))
     ImageField(format.type, zero_, scale, miss, dmin, dmax)
 end
 

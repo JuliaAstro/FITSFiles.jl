@@ -3,7 +3,8 @@
 """
 	LazyArray(filnam, mtime, begpos, format, fields, keywds)
 
-	Lazy array file descriptor
+The lazy array file descriptor of the data of an HDU, which is read from the file when the data is
+accessed.
 """
 struct LazyArray
 	"File name"

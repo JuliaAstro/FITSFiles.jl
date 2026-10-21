@@ -1,0 +1,283 @@
+####  Format Card Image  ####
+
+function Base.show(io::IO, cards::Vector{Card{<:Any}})
+	print(io, join(Tuple(repr(card) for card in cards), "\n"))
+end
+
+function Base.show(io::IO, card::Card)
+	print(io, card_image(card))
+end
+
+#  The image of a card. The writers of the values are found by the type of the card, and not by
+#  the type of the card as an argument, which is slower for the types that have a parameter.
+card_image(card::Card{Value{T}}) where T = format_value(card.key, card.value, card.units,
+	card.comment, card.format)
+card_image(card::Card{Hierarch{T}}) where T = format_hierarch(card.key, card.value, card.units,
+	card.comment, card.format)
+card_image(card::Card{T}) where T = format_card(T, card.key, card.value, card.units,
+	card.comment, card.format)
+
+#  Format End card using only keyword.
+function format_card(::Type{End}, key::K, value::V, units, comment::C,
+	format::F) where {K <: AbstractString, V <: ValueType, C <: AbstractString,
+	F <: CardFormat}
+
+	rpad_image(key)
+end
+
+#  Format Comment card using only keyword and value.
+function format_card(::Type{Comment}, key::K, value::V, units, comment::C,
+	format::F) where {K <: AbstractString, V <: Union{Missing, AbstractString},
+	C <: AbstractString, F <: CardFormat}
+
+	rpad_image(rpad_key(key) * (ismissing(value) ? "" : value))
+end
+
+#  Ensure Comment card value is only a string.
+function format_card(::Type{Comment}, key::K, value::N, units, comment::C,
+	format::F) where {K <: AbstractString, N <: Number, C <: AbstractString,
+	F <: CardFormat}
+
+	throw(ArgumentError("Value is not a string."))
+end
+
+#  Format Continue card value by adding ampersand to end of string.
+function format_card(::Type{Continue}, key::K, value::V, units, comment::C,
+	format::F) where {K <: AbstractString, V <: AbstractString, C <: AbstractString,
+	F <: CardFormat}
+
+	rpad_image(key, stringvalue(value, format), "", comment, format)
+end
+
+function format_card(::Type{Continue}, key::K, value::V, units, comment::C,
+	format::F) where {K <: AbstractString, V <: Union{Missing, Number},
+	C <: AbstractString, F <: CardFormat}
+
+	throw(ArgumentError("Continue contains non-string value."))
+end
+
+#  Add HIERARCH key, then format value and comment fields
+function format_hierarch(key::K, value::V, units, comment::C,
+	format::F) where {K <: AbstractString, V <: ValueType, C <: AbstractString,
+	F <: CardFormat}
+
+	if value isa AbstractString && format.vbeg > format.ampr
+		#  The string is padded to the end of the value field, which restores the spaces that
+		#  are not part of the string.
+		text = " "^(format.vbeg-format.ampr-1) * "'" *
+			rpad(replace(value, "'" => "''"), format.vend-format.vbeg-1) * "'"
+	elseif format.vbeg > format.ampr && !ismissing(value)
+		#  The value begins at the index of the image.
+		text = " "^(format.vbeg-format.ampr-1) *
+			(isempty(format.vfmt) ? value_image(value) : printfmt(format.vfmt, value))
+	else
+		text = lpad(isempty(format.vfmt) ? value_image(value) : printfmt(format.vfmt, value),
+			format.vend-format.ampr)
+	end
+	valu = rpad(key, format.ampr-1) * "=" * text
+	padl = repeat(" ", gaplength(format.slsh, format.vend, format.ampr + length(text)))
+	slash = format.slsh > 0 ? "/" : " "
+	if format.ubeg > 0
+		padr = repeat(" ", max(0, format.ubeg-1 - format.slsh))
+		unts = "[$(formunit(units, format.ufmt))]"
+		padu = repeat(" ", max(0, format.cbeg-1 - format.uend))
+	else
+		padr = repeat(" ", max(0, (format.cbeg-1) - format.slsh))
+		unts, padu = "", ""
+	end
+	rpad_image("HIERARCH " * valu * padl * slash * padr * unts * padu * comment)
+end
+
+#  Format History card using only keyword and value.
+function format_card(::Type{History}, key::K, value::V, units, comment::C,
+	format::F) where {K <: AbstractString, V <: Union{AbstractString, Missing},
+	C <: AbstractString, F <: CardFormat}
+
+	rpad_image(rpad_key(key) * (ismissing(value) ? "" : value))
+end
+
+#  Ensure History card value is only a string.
+function format_card(::Type{History}, key::K, value::N, units, comment::C,
+	format::F) where {K <: AbstractString, N <: Number, C <: AbstractString,
+	F <: CardFormat}
+
+	throw(ArgumentError("Value is not a string."))
+end
+
+#  Format Invalid card
+function format_card(::Type{Invalid}, key::K, value::V, units, comment::C,
+	format::F) where {K <: AbstractString, V <: AbstractString, C <: AbstractString,
+	F <: CardFormat}
+
+	rpad_key(key)*value
+end
+
+#  Format Value card for missing value.
+function format_value(key::K, value::M, units, comment::C,
+	format::F) where {K <: AbstractString, M <: Missing, C <: AbstractString,
+	F <: CardFormat}
+
+	rpad_image(key, "", "", comment, format)
+end
+
+#  Format Value card for string value.
+function format_value(key::K, value::V, units, comment::C,
+	format::F) where {K <: AbstractString, V <: AbstractString, C <: AbstractString,
+	F <: CardFormat}
+
+	#  Fixed format strings begin at index 11
+	rpad_image(key, stringvalue(value, format), "", comment, format)
+end
+
+#  Format Value card for boolean value.
+function format_value(key::K, value::V, units, comment::C,
+	format::F) where {K <: AbstractString, V <: Bool, C <: AbstractString,
+	F <: CardFormat}
+
+	#  Fixed format boolean value is at index 30, and a free format value is at the beginning index.
+	padlen = format.fixd ? FIXEDINDEX - 1 : max(0, format.vbeg - 1)
+	value = repeat(" ", padlen) * (value == true ? "T" : "F")
+	rpad_image(key, value, "", comment, format)
+end
+
+#  Format Value card for integer value.
+function format_value(key::K, value::I, units, comment::C,
+	format::F) where {K <: AbstractString,
+	I <: Integer,
+	C <: AbstractString, F <: CardFormat}
+
+	units = formunit(units, format.ufmt)
+	isempty(format.vfmt) || return rpad_image(key, alignnumber(printfmt(format.vfmt, value), format),
+		units, comment, format)
+	#  Fixed format integer value ends at index 30
+	padlen = max(0, FIXEDINDEX - (format.vend-format.vbeg+1))
+	#  If fixed format, pad value string.
+	strval = (format.fixd ? repeat(" ", padlen) : "") * string(value)
+	rpad_image(key, strval, units, comment, format)
+end
+
+#  Format Value card for 32-bit float value.
+function format_value(key::K, value::V, units, comment::C,
+	format::F) where {K <: AbstractString,
+	V <: Float32,
+	C <: AbstractString, F <: CardFormat}
+
+	#  Fixed format float value ends at index 30
+	#  Replace (lowercase) 'e' and 'f' with (uppercase) 'E'
+	units = formunit(units, format.ufmt)
+	isempty(format.vfmt) || return rpad_image(key, alignnumber(printfmt(format.vfmt, value), format),
+		units, comment, format)
+	value = replace(string(value), "f" => "E", "e" => "E")
+	padlen = max(0, FIXEDINDEX - length(value))
+	#  If fixed format, pad value string.
+	value = (format.fixd ? repeat(" ", padlen) : "") * value
+	rpad_image(key, value, units, comment, format)
+end
+
+#  Format Value card for non-32-bit float values.
+function format_value(key::K, value::V, units, comment::C,
+	format::F) where {K <: AbstractString,
+	V <: AbstractFloat,
+	C <: AbstractString, F <: CardFormat}
+
+	#  Fixed format float value ends at index 30
+	#  Replace (lowercase) 'e' with (uppercase) 'D'.
+	units = formunit(units, format.ufmt)
+	isempty(format.vfmt) || return rpad_image(key, alignnumber(printfmt(format.vfmt, value), format),
+		units, comment, format)
+	value = replace(string(value), "e" => "D")
+	#  Truncate mantissa, so value contains 20 characters.
+	if format.fixd && length(value) > FIXEDINDEX
+		n = something(findfirst('D', value), length(value)+1)
+		value = value[1:(n-1-length(value)+FIXEDINDEX)] * value[n:end]
+	end
+	padlen = max(0, FIXEDINDEX - length(value))
+	#  If fixed format, pad value string.
+	value = (format.fixd ? repeat(" ", padlen) : "") * value
+	rpad_image(key, value, units, comment, format)
+end
+
+#  Format Value card for complex integer value.
+function format_value(key::K, value::V, units, comment::C,
+	format::F) where {K <: AbstractString,
+	V <: Complex{<:Integer},
+	C <: AbstractString, F <: CardFormat}
+
+	#  Fixed format complex values do not exist.
+	units = formunit(units, format.ufmt)
+	isempty(format.vfmt) || return rpad_image(key, alignnumber(printfmt(format.vfmt, value), format),
+		units, comment, format)
+	value = "($(string(real(value))), $(string(imag(value))))"
+	rpad_image(key, value, units, comment, format)
+end
+
+#  Format Value card for complex 32-bit float value.
+function format_value(key::K, value::V, units, comment::C,
+	format::F) where {K <: AbstractString,
+	V <: Complex{Float32},
+	C <: AbstractString, F <: CardFormat}
+
+	#  Fixed format complex values do not exist.
+	#  Replace (lowercase) 'e' and 'f' with (uppercase) 'E'.
+	units = formunit(units, format.ufmt)
+	isempty(format.vfmt) || return rpad_image(key, alignnumber(printfmt(format.vfmt, value), format),
+		units, comment, format)
+	real_ = replace(string(real(value)), "f" => "E", "e" => "E")
+	imag_ = replace(string(imag(value)), "f" => "E", "e" => "E")
+	#  Add parentheses.
+	value = "($real_, $imag_)"
+	rpad_image(key, value, units, comment, format)
+end
+
+#  Format Value card for all other complex float values.
+function format_value(key::K, value::V, units, comment::C,
+	format::F) where {K <: AbstractString,
+	V <: Complex{<:AbstractFloat},
+	C <: AbstractString, F <: CardFormat}
+
+	#  Fixed format complex values do not exist.
+	#  Replace (lowercase) 'e' with (uppercase) 'D'.
+	units = formunit(units, format.ufmt)
+	isempty(format.vfmt) || return rpad_image(key, alignnumber(printfmt(format.vfmt, value), format),
+		units, comment, format)
+	real_ = replace(string(real(value)), "e" => "D")
+	imag_ = replace(string(imag(value)), "e" => "D")
+	#  Add parentheses.
+	value = "($real_, $imag_)"
+	rpad_image(key, value, units, comment, format)
+end
+
+#  The number of spaces between the value and the comment separator. A value that is longer than the
+#  value of the image, e.g., 0.5 for .5, takes the spaces of the gap, and not the comment, but a gap of
+#  one space or more is never less than one space, and a gap of no spaces is kept.
+function gaplength(slash::Integer, vend::Integer, extent::Integer)
+	gap = max(0, (slash-1) - vend)
+	max(min(1, gap), gap - max(0, extent - vend))
+end
+
+#  Format card for key, value, and comment arguments
+function rpad_image(key::K, value::V, units::U, comment::C, format::F) where
+{K <: AbstractString, V <: AbstractString, U <: AbstractString,
+	C <: AbstractString, F <: CardFormat}
+
+	#  Ensure value and comment are properly padded.
+	equal = key == "CONTINUE" ? "  " : EQUAL_TOKEN
+	valu = rpad(value, max(0, (format.vend > CARDLENGTH ? CARDLENGTH : format.vend)))
+	padl = repeat(" ", gaplength(format.slsh, format.vend, length(value)))
+	slash = format.slsh > 0 ? "/" : " "
+	if format.ubeg > 0
+		padr = repeat(" ", max(0, format.ubeg-1 - format.slsh))
+		unts = "[$units]"
+		padu = repeat(" ", max(0, format.cbeg-1 - format.uend))
+	else
+		padr = repeat(" ", max(0, format.cbeg-1 - format.slsh))
+		unts, padu = "", ""
+	end
+	rpad_image(rpad_key(key) * equal * valu * padl * slash * padr *
+			   unts * padu * comment)
+end
+
+#  Format card to 80 characters by either padding or truncating length.
+function rpad_image(card::AbstractString)
+	length(card) < CARDLENGTH ? card * " "^(CARDLENGTH - length(card)) : first(card, CARDLENGTH)
+end
