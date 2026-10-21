@@ -314,8 +314,9 @@ Card{End}
 ```
 
 The type of a number is the smallest type that holds the number, and a floating-point number is
-a `Float32` if it is exactly the shortest `Float32` of its text. An integer is an `Int64`, an
-`Int128`, or a `BigInt`.
+a `Float32` only if no precision is lost, i.e., the `Float32` is exactly the `Float64` of its
+text, e.g., `0.5` is a `Float32`, but `0.1` and `266.4` are a `Float64`. An integer is an
+`Int64`, an `Int128`, or a `BigInt`.
 
 A record with a malformed value is an `Invalid` card, which keeps the text of the record
 and is written as it was read. Only a record that is not a value, e.g., a keyword without the

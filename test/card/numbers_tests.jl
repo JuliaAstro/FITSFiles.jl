@@ -2,9 +2,9 @@
     ###  Regression tests: numbers  ###
 
     #  a floating-point number is a Float32 only if no precision is lost.
-    @test FITSFiles.parse_number("1.489") === 1.489f0
-    @test FITSFiles.parse_number("-99.9") === -99.9f0
-    @test FITSFiles.parse_number("1.5E-5") === 1.5f-5
+    @test FITSFiles.parse_number("1.489") === 1.489
+    @test FITSFiles.parse_number("-99.9") === -99.9
+    @test FITSFiles.parse_number("1.5E-5") === 1.5e-5
     @test FITSFiles.parse_number("1E5") === 1.0f5
     @test FITSFiles.parse_number("1234567.891") === 1234567.891
     @test FITSFiles.parse_number("12345678901.5") === 12345678901.5
@@ -13,6 +13,15 @@
     @test FITSFiles.parse_number("1.0D5") === 1.0e5
     @test FITSFiles.parse_number("123") === 123
     @test parse(Card, rpad("KEY     =          1234567.891", 80)).value === 1234567.891
+
+    #  a number that is exact in single precision is a Float32, and otherwise a Float64.
+    @test FITSFiles.parse_number("0.5") === 0.5f0
+    @test FITSFiles.parse_number("1.0") === 1.0f0
+    @test FITSFiles.parse_number("1.0E2") === 100.0f0
+    @test FITSFiles.parse_number("0.1") === 0.1
+    @test FITSFiles.parse_number("1E30") === 1.0e30
+    @test FITSFiles.parse_number("266.400000") === 266.4
+    @test parse(Card, rpad("CRVAL1  =           266.400000", 80)).value === 266.4
 
     #  complex numbers with E exponents are single precision.
     @test parse(Card, rpad("KEY     = (1.0E3, -2.0E1)", 80)).value === 1000.0f0 - 20.0f0im
@@ -88,7 +97,7 @@
         @test FITSFiles.parse_complex("1.5", "2.5") === ComplexF32(1.5, 2.5)
         @test FITSFiles.parse_complex("1", "2.5") === ComplexF32(1, 2.5)
         @test FITSFiles.parse_complex("1.5D0", "2") === ComplexF64(1.5, 2)
-        @test FITSFiles.parse_complex("756478251", "121.804") === ComplexF64(756478251, 121.804f0)
+        @test FITSFiles.parse_complex("756478251", "121.804") === ComplexF64(756478251, 121.804)
         @test real(FITSFiles.parse_complex("756478251", "121.804")) == 756478251
         @test FITSFiles.parse_complex("2.5", "3847950226") isa ComplexF64
         @test FITSFiles.parse_complex("16777216", "1.5") isa ComplexF32

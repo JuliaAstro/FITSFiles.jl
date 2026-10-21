@@ -90,7 +90,8 @@ alignnumber(text::AbstractString, format::CardFormat) =
 	parse_number(real::AbstractString)
 
 Determine the type of a number as a Float32, Float64, Int64, Int128, or BigInt. A floating-point
-number is a Float32 only if it is represented exactly by its shortest Float32 string.
+number is a Float32 only if the Float32 is exactly the Float64 of its text, so that no precision
+is lost, e.g., 0.5 is a Float32, but 0.1 is a Float64.
 """
 function parse_number(real::AbstractString)
 	real = uppercase(real)
@@ -98,7 +99,7 @@ function parse_number(real::AbstractString)
 		value = parse(Float64, replace(real, "D" => "e"))
 	elseif occursin(r"[.E]", real)
 		value = parse(Float64, replace(real, "E" => "e"))
-		value = parse(Float64, string(Float32(value))) == value ? Float32(value) : value
+		value = Float64(Float32(value)) == value ? Float32(value) : value
 	else
 		value = try
 			parse(Int64, real)
