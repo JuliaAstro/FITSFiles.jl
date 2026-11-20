@@ -29,7 +29,7 @@ function Base.read(io::IO, ::Type{Primary}, format::DataFormat,
     #  Seek to end of the last data block
     # seek(io, position(io) + BLOCKLEN*div(M*N, BLOCKLEN, RoundUp))
 
-    data = scale ? fields.zero .+ fields.scale.*data : data
+    data = _has_active_scaling(fields, scale) ? fields.zero .+ fields.scale.*data : data
     #=
     if get(kwds, :unit, true)
         data = apply_unit(data, fields)
@@ -161,17 +161,16 @@ function Base.read(io::IO, format::DataFormat, fields::ImageField)
         reinterpret(format.type, read(io, M*N))), shape)
     #  Assign missing values
     if !isnothing(fields.miss)
+        data = Array{Union{Missing, format.type}}(data)
         data[data .== fields.miss] .= missing
     end
     data
 end
 
 function Base.write(io::IO, data::AbstractArray, fields::ImageField)
-    #  Assign missing values
-    if !isnothing(fields.miss)
-        data[data .== missing] .= fields.miss
-    end
-    n = Base.write(io, hton.(reshape(data, :)))
+    #  A missing value is written as BLANK
+    values = isnothing(fields.miss) ? data : coalesce.(data, convert(fields.type, fields.miss))
+    n = Base.write(io, hton.(reshape(values, :)))
 end
 
 function apply_units(data::AbstractArray, fields::ImageField)

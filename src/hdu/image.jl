@@ -10,7 +10,7 @@ function Base.read(io::IO, ::Type{Image}, format::DataFormat,
     #  Seek to end of the last data block
     # seek(io, begpos + BLOCKLEN*div(M*N, BLOCKLEN, RoundUp))
 
-    data = scale ? fields.zero .+ fields.scale.*data : data
+    data = _has_active_scaling(fields, scale) ? fields.zero .+ fields.scale.*data : data
     #=
     if get(kwds, :unit, true)
         apply_unit(data, cards)

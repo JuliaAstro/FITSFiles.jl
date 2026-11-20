@@ -19,6 +19,8 @@ The default data structure for Random and Bintable HDUs is a named tuple of arra
   unless false
 - `units::Bool=true`: the units in the comment of a number are the units of the value, unless
   false
+- `lazy::Bool=true`: for file-backed reads, keep data disk-backed; use
+  `lazy=false` to eagerly materialize data
 """
 function fits(io::IO; kwds...)
 	hdus = HDU{<:AbstractHDU}[]

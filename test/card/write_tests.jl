@@ -52,4 +52,14 @@
         @test string.(Card("KEY", 1), [1, 2]) == [repr(Card("KEY", 1)) * "1", repr(Card("KEY", 1)) * "2"]
     end
 
+    @testset "exponent letter" begin
+        @test repr(Card("FREQ", 2.2710000001e11)) == rpad("FREQ    =      2.2710000001D11", 80)
+        @test repr(Card("FREQ", 2.2710000001e11; exponent='E')) == rpad("FREQ    =      2.2710000001E11", 80)
+        @test parse(Card, repr(Card("FREQ", 2.2710000001e11; exponent='E'))).value == 2.2710000001e11
+        @test repr(Card("TINY", 1.2345678901234567e-100; exponent='E')) ==
+            rpad("TINY    = 1.2345678901234E-100", 80)
+        @test startswith(repr(Card("CPLX", 1.0e20 + 2.0im; exponent='E')), "CPLX    = (1.0E20, 2.0)")
+        @test_throws "The exponent letter is 'D' or 'E', not 'Q'." Card("X", 1.0; exponent='Q')
+    end
+
 end

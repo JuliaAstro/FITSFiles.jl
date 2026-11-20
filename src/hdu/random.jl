@@ -27,7 +27,6 @@ end
 function Base.read(io::IO, ::Type{Random}, format::DataFormat,
     fields::Vector{RandomField}; record::Bool = false, kwds...)
 
-    begpos = position(io)
     M, N = sizeof(format.type), format.leng
     #  Read data array
     names = [field.name for field in fields]
@@ -44,12 +43,10 @@ function Base.read(io::IO, ::Type{Random}, format::DataFormat,
                 for (name, ndx) in ndxs]... ) )
         end
     else
-        #  Return data as NamedTuple of arrays
-        #  Concatenate (horizontally) columns having the same name.
-        cols = [read(io, field, format, begpos; kwds...)
-            for field in fields]
-        data = (; [Symbol(name) => (length(ndx) > 1 ? hcat(cols[ndx]...) :
-            cols[ndx...]) for (name, ndx) in ndxs]...)
+        #  Return data as NamedTuple of arrays, read in one pass. Columns having the same name
+        #  are the columns of a matrix.
+        values = read!(io, Vector{format.type}(undef, random_values(format)))
+        data = map(collect, mapped_fields(values, format, fields, get(kwds, :scale, true)))
     end
     #   Seek to end of the last data block
     # seek(io, begpos + BLOCKLEN*div(M*N, BLOCKLEN, RoundUp))
@@ -222,7 +219,8 @@ function DataFormat(::Type{Random}, data::U, mankeys::Dict{S, V}) where
     #  Determine format from data
     type  = eltype(data[end])
     shape = size(data[end])[2:end]
-    param = length(data)-1
+    #  Each column of a matrix is a parameter, e.g. DATE as an N × 2 matrix.
+    param = sum(j -> size(data[j], 2), 1:length(data)-1; init = 0)
     group = length(data[1])
     heap  = 0
     leng  = group*(param + prod(shape))
@@ -237,9 +235,13 @@ function FieldFormat(::Type{Random}, format::DataFormat, reskeys::Dict{S, V},
 
     indices = Dict{AbstractString, Integer}()
     fields = Vector{RandomField}(undef, P+1)
+    #  Each column of a matrix is a parameter, e.g. DATE as an N × 2 matrix.
+    names = typeof(data) <: NamedTuple ?
+        [rstrip(String(key)) for (key, value) in zip(keys(data)[1:end-1], Tuple(data)[1:end-1])
+            for _ in axes(value, 2)] :
+        [rstrip(get(reskeys, "PTYPE$j", "param$j")) for j = 1:P]
     for j = 1:P
-        name  = typeof(data) <: NamedTuple ? rstrip(String(keys(data)[j])) :
-            rstrip(get(reskeys, "PTYPE$j", "param$j"))
+        name  = names[j]
         index = indices[name] = get!(indices, name, 0) + 1
         leng  = 1
         pzero = leastfloat(get(reskeys, "PZERO$j", 0.0f0))
@@ -308,31 +310,6 @@ function create_data(::Type{Random}, format::DataFormat,
     data
 end
 
-function Base.read(io::IO, field::RandomField, format::DataFormat,
-    begpos::Integer; scale::Bool = true)
-
-    L = sizeof(format.type)*(format.param + prod(format.shape))
-    M, N = first(field.slice)-1, format.group
-    type, leng, shape = field.type, field.leng, field.shape
-
-    if leng == 1
-        column = Array{type}(undef, N)
-        for j=1:N
-            seek(io, begpos + L*(j-1) + M)
-            column[j] = ntoh(read(io, type))
-        end
-    else
-        column = Array{type}(undef, (N, leng))
-        for j=1:N
-            seek(io, begpos + L*(j-1) + M)
-            column[j,:] = ntoh.([read(io, type) for k=1:leng])
-        end
-        column = reshape(column, (N, shape...))
-    end
-    #  No missing values
-    scale ? field.zero .+ field.scale.*column : column
-end
-
 function Base.read(io::IO, field::RandomField; scale::Bool = true)
 
     name, type, leng, shape = field.name, field.type, field.leng, field.shape
@@ -342,5 +319,5 @@ function Base.read(io::IO, field::RandomField; scale::Bool = true)
         value = reshape(ntoh.([read(io, type) for j=1:leng]), shape)
     end
     #  No missing values
-    scale ? field.zero .+ field.scale.*value : value
+    _has_active_scaling(field, scale) ? field.zero .+ field.scale.*value : value
 end

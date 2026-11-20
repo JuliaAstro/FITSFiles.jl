@@ -109,6 +109,14 @@
 
     #  test Table type with data being an array of records and cards and scale == false
 
-
+    #  a number of a lazy ASCII table may be missing
+    temppath = joinpath(tempdir(), "table_lazy.fits")
+    cards = [Card("TFIELDS", 2), Card("TTYPE1", "x"), Card("TTYPE2", "s"), Card("TFORM1", "F6.2"),
+             Card("TBCOL1", 1), Card("TFORM2", "A4"), Card("TBCOL2", 8)]
+    write(temppath, HDU[HDU(Primary), HDU(Table, [(x = 1.5, s = "ab"), (x = 2.5, s = "cd")], cards)])
+    lazy = fits(temppath)[2].data
+    @test eltype(lazy[:x]) == Union{Missing, Float64} && collect(lazy[:x]) == [1.5, 2.5]
+    @test eltype(lazy[:s]) == String
+    rm(temppath)
 
 end

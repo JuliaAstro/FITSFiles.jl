@@ -15,9 +15,10 @@ export Comment, Continue, End, Hierarch, History
 export Invalid, Value
 export Primary, Conform, Random, Image, Table, Bintable, ZImage, ZTable
 export IUEImage, A3DTable, Foreign, Dump
-export Card, HDU, fits
+export Card, HDU, fits, mapdata
 export info, units
 
+using Mmap: Mmap
 using Printf, Unitful, UnitfulAngles, UnitfulAstro, UnitfulAtomic
 
 #  V0.1   Implement Card type. Card only handles syntax, i.e., parsing and
@@ -45,6 +46,7 @@ include("hdu.jl")
 include("hdu/primary.jl")
 include("hdu/conform.jl")
 include("hdu/random.jl")
+include("mapped.jl")
 include("hdu/image.jl")
 include("hdu/table.jl")
 include("hdu/bintable.jl")

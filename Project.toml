@@ -2,10 +2,11 @@ name = "FITSFiles"
 uuid = "358a0a88-3548-4ad6-b652-8bdbf64af8e5"
 repo = "https://github.com/JuliaAstro/FITSFiles.jl"
 authors = ["Paul Barrett <pebarrett@gmail.com> and contributors"]
-version = "0.3.2"
+version = "0.4.0-DEV"
 
 [deps]
 CodecZlib = "944b1d66-785c-5afd-91f1-9de20f533193"
+Mmap = "a63ad114-7e13-5084-954f-fe012c677804"
 Printf = "de0858da-6303-5e67-8744-51eddeeeb8d7"
 Unitful = "1986cc42-f94f-5a68-af5c-568840ba703d"
 UnitfulAngles = "6fb2a4bd-7999-5318-a3b2-8ad61056cd98"
@@ -14,6 +15,7 @@ UnitfulAtomic = "a7773ee8-282e-5fa2-be4e-bd808c38a91a"
 
 [compat]
 CodecZlib = "0.7"
+Mmap = "1"
 Printf = "1.8, < 0.0.1"
 Unitful = "1.22"
 UnitfulAngles = "0.7"

@@ -17,7 +17,7 @@ function Base.read(io::IO, ::Type{Conform}, format::DataFormat,
     #  Seek to end of the last data block
     # seek(io, begpos + BLOCKLEN*div(format.leng, BLOCKLEN, RoundUp))
 
-    data = scale ? fields.zero .+ fields.scale.*data : data
+    data = _has_active_scaling(fields, scale) ? fields.zero .+ fields.scale.*data : data
     #=
     data = if get(kwds, :unit, true)
         apply_unit(data, cards)

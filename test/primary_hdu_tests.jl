@@ -215,6 +215,17 @@
 
     @test (ndims(hdu.data) == 2 && size(hdu.data) == (3, 3) && length(hdu.data) == 9 &&
            eltype(hdu.data) == Float32 && all(hdu.data .== 1.1f0))
+    @test getfield(hdu, :data) isa FITSFiles.LazyArray
+    @test getfield(hdu, :data) isa AbstractArray
+    @test hdu.data[1, 1] == 1.1f0
+    @test hdu.data[1:2, 2] == fill(1.1f0, 2)
+    @test read(hdu.data) == fill(1.1f0, 3, 3)
+
+    fileio = open(temppath)
+    hdu = read(fileio, HDU; type=Primary, lazy=false)
+    close(fileio)
+    @test getfield(hdu, :data) isa Matrix{Float32}
+    @test read(hdu) === hdu
 
     rm(temppath)
 

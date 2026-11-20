@@ -444,23 +444,17 @@ function Base.read(io::IO, field::BinaryField, format::DataFormat,
             seek(io, begpos + L*(j-1) + M)
             column[j] = rstrip(type(read(io, length(field.slice))))
         end
-    elseif leng == 1
-        column = Array{type}(undef, N)
-        for j = 1:N
-            seek(io, begpos + L*(j-1) + M)
-            column[j] = ntoh(read(io, type))
-        end
-        column = scale ? field.zero .+ field.scale.*column : column
     else
-        column = Array{type}(undef, (N, leng))
-        for j = 1:N
-            seek(io, begpos + L*(j-1) + M)
-            column[j,:] .= ntoh.([read(io, type) for k=1:leng])
-        end
-        column = scale ? field.zero .+ field.scale.*column : column
+        #  Fixed-width numbers, read a chunk of rows at a time
+        column = Array{lazy_eltype(type, field, scale)}(undef, N, leng)
+        read_strided!(io, column, StridedField(begpos, L, field, scale), 1:N, 1:leng)
+        column = leng == 1 ? vec(column) : column
     end
     column
 end
+
+is_strided(field::BinaryField) =
+    isnothing(field.pntr) && !(field.type <: Union{Bool, BitVector, AbstractString})
 
 function Base.read(io::IO, field::BinaryField; scale::Bool = true)
 

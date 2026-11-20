@@ -1,7 +1,9 @@
 function Card(key::K = "", value::V = missing, comment::C = ""; fixed::B = true,
 	append::B = false, slash::I = 32, lpad::I = 1, rpad::I = 1, upad::I = 1,
-	truncate::B = true, warn::B = true, splitat::Union{Char, Nothing} = ' ') where
+	truncate::B = true, warn::B = true, splitat::Union{Char, Nothing} = ' ', exponent::Char = 'D') where
 	{B <: Bool, I <: Integer, K <: AbstractString, V <: ValueInput, C <: AbstractString}
+
+	exponent in ('D', 'E') || throw(ArgumentError("The exponent letter is 'D' or 'E', not '$exponent'."))
 
 	#  Convert key to uppercase and remove trailing spaces. The spaces at the ends of a comment are
 	#  not significant, since they are not read.
@@ -27,15 +29,16 @@ function Card(key::K = "", value::V = missing, comment::C = ""; fixed::B = true,
 		cunits, ccomment, cpad, cstyle = commentunits(upkey, value, units, comment, upad)
 		isnothing(units) && !isnothing(cunits) &&
 			return makecard(upkey, value, cunits, ccomment, cstyle; fixed, append, slash, lpad, rpad,
-				upad = cpad, truncate, splitat)
+				upad = cpad, truncate, splitat, exponent)
 	end
-	makecard(upkey, value, units, comment, ""; fixed, append, slash, lpad, rpad, upad, truncate, splitat)
+	makecard(upkey, value, units, comment, ""; fixed, append, slash, lpad, rpad, upad, truncate, splitat,
+		exponent)
 end
 
 #  Make a card, or the cards of a long string, from the keyword, the value, the units, and the comment.
 function makecard(upkey::AbstractString, value, units, comment::AbstractString, ufmt::AbstractString;
 	fixed::Bool, append::Bool, slash::Integer, lpad::Integer, rpad::Integer, upad::Integer,
-	truncate::Bool, splitat::Union{Char, Nothing})
+	truncate::Bool, splitat::Union{Char, Nothing}, exponent::Char = 'D')
 
 	#  Check for invalid characters in key, value string, and comment.
 	if !is_hierarch(upkey) && occursin(NON_KEY_TEXT, upkey)
@@ -100,6 +103,7 @@ function makecard(upkey::AbstractString, value, units, comment::AbstractString, 
 	end
 
 	typeof(cards) <: AbstractArray && return cards
+	format.expn = exponent
 	#  The comment of a commentary card is not on the card.
 	type <: Union{Comment, History} || (comment = fitcomment(comment, format))
 	Card(type, upkey, value, units, comment, format)

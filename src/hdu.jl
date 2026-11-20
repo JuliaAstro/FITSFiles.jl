@@ -104,8 +104,8 @@ describes them.
 struct HDU{S <: AbstractHDU}
 	"The vector of cards."
 	cards::Cards
-	"The data, either an AbstractArray, LazyArray, Tuple, NamedTuple, or Missing"
-	data::Union{AbstractArray, LazyArray, Tuple, NamedTuple, Missing}
+	"The data, either an AbstractArray, lazy data descriptor, Tuple, NamedTuple, or Missing"
+	data::Union{AbstractArray, AbstractLazyData, Tuple, NamedTuple, Missing}
 end
 
 const BLOCKLEN    = 2880
@@ -296,18 +296,12 @@ function Base.show(io::IO, ::MIME"text/plain", hdu::HDU)
 	print(io, "      $typ  $nam  $ver  $crd  $eltype   $siz")
 end
 
-function Base.getproperty(hdu::HDU, name::Symbol)
-	if name === :data && getfield(hdu, :data) isa LazyArray
-		desc = getfield(hdu, :data)
-		io = open(desc.filnam)
-		seek(io, desc.begpos)
-		field = read(io, typeofhdu(hdu), desc.format, desc.fields;
-			desc.keywds...)
-		close(io)
-	else
-		field = getfield(hdu, name)
-	end
-	field
+Base.getproperty(hdu::HDU, name::Symbol) = getfield(hdu, name)
+
+function Base.read(hdu::HDU)
+	data = getfield(hdu, :data)
+	data isa Union{LazyArray, AbstractLazyData} ?
+		HDU{typeofhdu(hdu)}(getfield(hdu, :cards), read(data)) : hdu
 end
 
 """
@@ -328,8 +322,8 @@ is read from another stream is read at once.
 - `record::Bool=false`: structure the data as a list of records
 - `scale::Bool=true`: apply the scale and zero keywords to the data
 """
-function Base.read(io::IO, ::Type{HDU}; type = nothing, strict::Bool = true, units::Bool = true,
-    kwds...)::HDU
+function Base.read(io::IO, ::Type{HDU}; type = nothing, lazy::Bool = true, strict::Bool = true,
+    units::Bool = true, kwds...)::HDU
     #  Read cards
     cards, mankeys, reskeys = read(io, Card; strict, units)
 
@@ -339,15 +333,16 @@ function Base.read(io::IO, ::Type{HDU}; type = nothing, strict::Bool = true, uni
 	cards  = verify!(type_, cards, format, mankeys)
 	fields = FieldFormat(type_, format, reskeys, missing)
 	if format.leng > 0
-		if io isa IOStream
+		pos = position(io)
+		if lazy && io isa IOStream && type_ in (Primary, Image, Conform, Random, Table, Bintable)
 			# create a lazy array for the HDU data field and move to next HDU
-			name, mtime, pos = io.name[7:end-1], stat(io).mtime, position(io)
-			data = LazyArray(name, mtime, pos, format, fields, (;kwds...))
+			name, mtime = abspath(io.name[7:end-1]), stat(io).mtime
+			data = lazydata(type_, name, mtime, pos, format, fields, (;kwds...))
 		else
 			data = read(io, type_, format, fields; kwds...)
 		end
 		N = sizeof(format.type)*format.leng
-		seek(io, position(io) + BLOCKLEN*div(N, BLOCKLEN, RoundUp))
+		seek(io, pos + BLOCKLEN*div(N, BLOCKLEN, RoundUp))
 	else
 		# indicate data is missing
 		data = missing
@@ -365,15 +360,28 @@ function Base.write(io::IO, hdu::HDU{<:AbstractHDU}; kwds...)
 
 	cards = getfield(hdu, :cards)
 	mankeys, reskeys = get_reserved_keys(cards)
+	data = getfield(hdu, :data)
 
 	type   = typeofhdu(hdu)
 	format = DataFormat(type, missing, mankeys)
 	cards  = verify!(type, cards, format, mankeys)
-	fields = FieldFormat(type, format, reskeys, missing)
+	fields = data isa AbstractLazyData ?
+		FieldFormat(type, format, reskeys, missing; record = getfield(data, :record)) :
+		FieldFormat(type, format, reskeys, missing)
+	if data isa Union{LazyArray, AbstractLazyData}
+		format == lazy_format(data) ||
+			error("Cannot raw-copy lazy FITS data after structural header changes.")
+		fields == lazy_fields(data) ||
+			error("Cannot raw-copy lazy FITS data after field layout changes.")
+	end
 	#  Write cards
 	write(io, cards)
 	#  Write data
-	write(io, type, getfield(hdu, :data), format, fields; kwds...)
+	if data isa Union{LazyArray, AbstractLazyData}
+		copy_lazy_data_block(io, data)
+	else
+		write(io, type, data, format, fields; kwds...)
+	end
 end
 
 function Base.read(io::IO, ::Type{Card}; strict::Bool = true, units::Bool = true)

@@ -648,6 +648,100 @@
 
     @test (length(hdu.data) == 4 && ndims(hdu.data[:data]) == 4 &&
            size(hdu.data[:data]) == (3, 2, 3, 4) && eltype(hdu.data[:data]) == Float32)
+    @test getfield(hdu, :data) isa FITSFiles.LazyStructuredData
+    @test hdu.data[:par1] isa FITSFiles.MappedField
+    @test propertynames(hdu.data) == (:par1, :par2, :par3, :data)
+    @test :fields ∈ propertynames(hdu.data, true)
+    @test hasproperty(hdu.data, :par1)
+    @test hdu.data.par1[1:2] == Float32[1, 2]
+    @test hdu.data[:par1][1:2] == Float32[1, 2]
+    @test hdu.data[:data][1, :, 1, 1] == Float32[1, 2]
+
+    rm(temppath)
+
+    #  test unmodified lazy Random HDU raw-copies scaled random parameters
+    data = [
+       (PARAM1=1.0f0, PARAM2=2.0f0,
+        data=Float32[1 2; 3 4]),
+       (PARAM1=3.0f0, PARAM2=4.0f0,
+        data=Float32[5 6; 7 8])]
+    cards = [Card("SIMPLE", true),
+             Card("BITPIX", -32),
+             Card("NAXIS", 3),
+             Card("NAXIS1", 0),
+             Card("NAXIS2", 2),
+             Card("NAXIS3", 2),
+             Card("GROUPS", true),
+             Card("PCOUNT", 2),
+             Card("GCOUNT", 2),
+             Card("PTYPE1", "PARAM1"),
+             Card("PZERO1", 1.0),
+             Card("PSCAL1", 0.1),
+             Card("PTYPE2", "PARAM2"),
+             Card("PZERO2", 2.0),
+             Card("PSCAL2", 0.5)]
+    temppath = joinpath(tempdir(), "random_hdu_scaled.fits")
+    fileio = open(temppath, "w+")
+    write(fileio, HDU(Random, data, cards))
+    close(fileio)
+
+    fileio = open(temppath)
+    hdu = read(fileio, HDU; type=Random)
+    close(fileio)
+    @test hdu.data[:PARAM1][1:2] == Float32[1.1, 1.3]
+    @test hdu.data[:PARAM2][1:2] == Float32[3.0, 4.0]
+
+    copypath = joinpath(tempdir(), "random_hdu_scaled_copy.fits")
+    fileio = open(copypath, "w+")
+    write(fileio, hdu)
+    close(fileio)
+    fileio = open(copypath)
+    copied = read(fileio, HDU; type=Random, scale=false)
+    close(fileio)
+    @test copied.data[:PARAM1][1:2] == Float32[1, 3]
+    @test copied.data[:PARAM2][1:2] == Float32[2, 4]
+    @test filesize(copypath) == filesize(temppath)
+
+    rm(temppath)
+    rm(copypath)
+
+    #  test mapped, eager and lazy reads agree, with scaling and a repeated name
+    params = (UU = Float32[1, 2, 3], DATE = Float32[10 0.25; 20 0.5; 30 0.75],
+              data = reshape(Float32.(1:36), 3, 3, 2, 2))
+    cards = [Card("SIMPLE", true),
+             Card("BITPIX", -32),
+             Card("NAXIS", 4),
+             Card("NAXIS1", 0),
+             Card("NAXIS2", 3),
+             Card("NAXIS3", 2),
+             Card("NAXIS4", 2),
+             Card("GROUPS", true),
+             Card("PCOUNT", 3),
+             Card("GCOUNT", 3),
+             Card("PTYPE1", "UU"),
+             Card("PSCAL1", 2.0),
+             Card("PTYPE2", "DATE"),
+             Card("PZERO2", 2.4e6),
+             Card("PTYPE3", "DATE"),
+             Card("BZERO", 1.0),
+             Card("BSCALE", 0.5)]
+    temppath = joinpath(tempdir(), "random_hdu_mapped.fits")
+    open(io -> write(io, HDU(Random, params, cards)), temppath, "w+")
+    lazy = open(io -> read(io, HDU; type=Random), temppath)
+    eager = open(io -> read(io, HDU; type=Random, lazy=false), temppath)
+    mapped = mapdata(getfield(lazy, :data))
+    @test keys(mapped) == keys(eager.data) == (:UU, :DATE, :data)
+    for k in keys(mapped)
+        @test mapped[k] == eager.data[k] == read(lazy.data[k])
+        @test eltype(mapped[k]) == eltype(eager.data[k]) == eltype(lazy.data[k])
+    end
+    #  values are written as stored and read scaled
+    @test mapped.UU == 2 .* params.UU
+    @test mapped.DATE[:, 2] == params.DATE[:, 2]
+    @test mapped.data == 1 .+ 0.5 .* params.data
+    raw = mapdata(getfield(open(io -> read(io, HDU; type=Random, scale=false), temppath), :data))
+    @test raw.UU == params.UU
+    @test raw.data == params.data
 
     rm(temppath)
 

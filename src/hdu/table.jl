@@ -329,7 +329,7 @@ function Base.read(io::IO, field::TableField, format::DataFormat,
                 column[j] = Base.parse(type, replace(item, "D" => "e", "E" =>"e"))
             end
         end
-        column = scale ? field.zero .+ field.scale.*skipmissing(column) : column
+        column = _has_active_scaling(field, scale) ? field.zero .+ field.scale.*skipmissing(column) : column
     end
     column
 end
@@ -346,7 +346,7 @@ function Base.read(row::AbstractString, field::TableField; scale::Bool = true,
         value = missing
     else
         value = Base.parse(type, replace(item, "D" => "e", "E" => "e"))
-        value = scale ? field.zero + field.scale * value : value
+        value = _has_active_scaling(field, scale) ? field.zero + field.scale * value : value
     end
     #  Append units
     # if !ismissing(format.unit) value *= uparse(format.unit) end

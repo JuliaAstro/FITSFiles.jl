@@ -918,6 +918,15 @@
 
     @test (length(hdu.data[1]) == 5 && length(hdu.data) == 3 &&
         all([hdu.data[j][:par4] for j=1:3] .== [1.0, 2.0, 3.0]))
+    @test getfield(hdu, :data) isa FITSFiles.LazyStructuredData
+    @test hdu.data[:par4] isa FITSFiles.MappedColumn
+    @test propertynames(hdu.data) == (:par1, :par2, :par3, :par4, :par5)
+    @test :fields ∈ propertynames(hdu.data, true)
+    @test hasproperty(hdu.data, :par4)
+    @test hdu.data.par4[2] == 2.0
+    @test hdu.data[:par4][2] == 2.0
+    @test hdu.data[:par2][1] == BitVector([1, 0, 0])
+    @test hdu.data[2][:par5] == "2.0"
 
     rm(temppath)
 
@@ -930,5 +939,47 @@
     @test vec(hdus[2].data[:fixed]) == expected
     @test hdus[2].data[:heap][1] == expected
     @test eltype(hdus[2].data[:heap][1]) == Int32
+
+    #  lazy, eager, chunked and row reads of fixed-width columns agree
+    rows = [(a = Int32(j), b = Float32[j, 2j, 3j], c = Float64(j) / 4) for j in 1:7]
+    temppath = joinpath(tempdir(), "bintable_strided.fits")
+    write(temppath, HDU[HDU(Primary), HDU(Bintable, rows)])
+    lazy = fits(temppath)[2]
+    eager = fits(temppath; lazy=false)[2]
+    @test lazy.data[:b][2:5, 2:3] == eager.data.b[2:5, 2:3]
+    @test all(read(lazy.data[k]) == eager.data[k] for k in (:a, :b, :c))
+    @test @inferred(size(lazy.data[:b])) == (7, 3)
+    unit = getfield(lazy, :data)
+    out = zeros(Float32, 7, 2)
+    FITSFiles.read_strided!(IOBuffer(unit.bytes), out, FITSFiles.StridedField(unit, unit.fields[2]), 1:7, 2:3;
+        chunkbytes=1)
+    @test out == eager.data.b[:, 2:3]
+    #  a mapped read releases each chunk's pages, and reading them again refaults them
+    for _ in 1:2
+        out = zeros(Float32, 7, 2)
+        FITSFiles.read_mapped!(unit.bytes, out, FITSFiles.StridedField(unit, unit.fields[2]), 1:7, 2:3;
+            chunkbytes=1)
+        @test out == eager.data.b[:, 2:3]
+    end
+    @test_throws BoundsError FITSFiles.release_pages(unit.bytes, length(unit.bytes) - 1, 2)
+    @test [lazy.data[:b][r, c] for r in 1:7, c in 1:3] == eager.data.b
+    @test fits(temppath; record=true)[2].data[3] == rows[3]
+    rm(temppath)
+
+    #  lazy data behave as the NamedTuple or rows they read as, and a column may share a name
+    #  with an internal field
+    rows = [(a = Int32(j), format = Float32[j, 2j], c = "r$j") for j in 1:4]
+    temppath = joinpath(tempdir(), "bintable_namedtuple.fits")
+    write(temppath, HDU[HDU(Primary), HDU(Bintable, rows)])
+    lazy, eager = fits(temppath)[2].data, fits(temppath; lazy=false)[2].data
+    @test keys(lazy) == keys(eager) == (:a, :format, :c)
+    @test lazy.format == eager.format
+    @test haskey(lazy, :a) && !haskey(lazy, :b)
+    @test [collect(column) for column in lazy] == collect(eager)
+    @test values(lazy) == values(eager)
+    @test map(collect, NamedTuple(pairs(lazy))) == eager
+    @test lazy == eager
+    @test collect(fits(temppath; record=true)[2].data) == fits(temppath; record=true, lazy=false)[2].data
+    rm(temppath)
 
 end

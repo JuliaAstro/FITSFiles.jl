@@ -37,12 +37,13 @@ mutable struct CardFormat
 	cend::Int8
 	vfmt::String   # printf format of the number
 	ufmt::String   # style of the units string
+	expn::Char     # exponent letter of a float that is not 32-bit, 'D' or 'E'
 	function CardFormat(fixed::Bool = true, vbeg::I = 0, vend::I = 0,
 		amper::I = 0, slash::I = 0, ubeg::I = 0, uend::I = 0, cbeg::I = 0,
 		cend::I = 0) where I<:Integer
 
 		new(Bool(fixed), Int8(vbeg), Int8(vend), Int8(amper), Int8(slash),
-			Int8(ubeg), Int8(uend), Int8(cbeg), Int8(cend), "", "")
+			Int8(ubeg), Int8(uend), Int8(cbeg), Int8(cend), "", "", 'D')
 	end
 end
 
@@ -93,6 +94,8 @@ Value{T}.
 - `warn::Bool=true`: warn when a keyword longer than 8 characters creates a HIERARCH card
 - `splitat::Union{Char, Nothing}=' '`: split a long string and its comment into the cards after
   the last character that fits, instead of splitting at any character if `nothing`
+- `exponent::Char='D'`: the exponent letter of a float that is not 32-bit, `'D'` or `'E'`, which
+  the FITS standard both allow
 """
 struct Card{T <: AbstractCardType}
 	key::String
@@ -124,7 +127,7 @@ function Base.copy(format::CardFormat)
 		format.slsh
 	copied.ubeg, copied.uend, copied.cbeg, copied.cend = format.ubeg, format.uend, format.cbeg,
 		format.cend
-	copied.vfmt, copied.ufmt = format.vfmt, format.ufmt
+	copied.vfmt, copied.ufmt, copied.expn = format.vfmt, format.ufmt, format.expn
 	copied
 end
 
