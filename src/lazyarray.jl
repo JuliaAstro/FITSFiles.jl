@@ -187,6 +187,41 @@ function read_strided!(
     return out
 end
 
+# `read_strided!` from `bytes`, a mapped data unit, copying only the values `inner` of each row.
+# Each chunk's pages are released once it is decoded, so about `chunkbytes` of the file stays
+# mapped however many rows are read.
+function read_mapped!(
+        bytes::Vector{UInt8}, out::AbstractMatrix, field::StridedField{R}, rows::AbstractUnitRange,
+        inner::AbstractUnitRange; chunkbytes::Integer = STRIDED_CHUNK_BYTES
+    ) where {R}
+    nchunk = max(1, chunkbytes ÷ field.rowbytes)
+    values = Vector{R}(undef, length(inner))
+    raw = reinterpret(UInt8, values)
+    start = field.begpos + field.offset + (first(inner) - 1) * sizeof(R)
+    for chunk in Iterators.partition(eachindex(rows), nchunk)
+        for j in chunk
+            copyto!(raw, 1, bytes, (rows[j] - 1) * field.rowbytes + start + 1, length(raw))
+            for (k, x) in zip(axes(out, 2), values)
+                out[j - first(eachindex(rows)) + firstindex(out, 1), k] =
+                    isnothing(field.zero) ? ntoh(x) : field.zero + field.scale * ntoh(x)
+            end
+        end
+        release_pages(bytes, field.begpos + (rows[first(chunk)] - 1) * field.rowbytes,
+            length(chunk) * field.rowbytes)
+    end
+    return out
+end
+
+# Unmaps bytes `pos + 1:pos + n` of the read-only mapping `bytes`. The mapping stays valid: a later
+# read refaults the pages from the file.
+function release_pages(bytes::Vector{UInt8}, pos::Integer, n::Integer)
+    checkbounds(bytes, (pos + 1):(pos + n))
+    @static if Sys.isunix()
+        GC.@preserve bytes Mmap.madvise!(unsafe_wrap(Array, pointer(bytes, pos + 1), n), Mmap.MADV_DONTNEED)
+    end
+    return nothing
+end
+
 data_nbytes(format::DataFormat) = sizeof(format.type) * format.leng
 data_padded_nbytes(format::DataFormat) = BLOCKLEN * div(data_nbytes(format), BLOCKLEN, RoundUp)
 
@@ -295,9 +330,9 @@ Base.size(c::MappedColumn) = c.dims
     return isnothing(f.zero) ? x : f.zero + f.scale * x
 end
 
-# Rows `rows` and values `inner` of the column, copied a row at a time.
+# Rows `rows` and values `inner` of the column.
 function column_block(c::MappedColumn{T}, rows::AbstractUnitRange, inner::AbstractUnitRange) where {T}
-    return read_strided!(IOBuffer(c.bytes), Matrix{T}(undef, length(rows), length(inner)), c.field, rows, inner)
+    return read_mapped!(c.bytes, Matrix{T}(undef, length(rows), length(inner)), c.field, rows, inner)
 end
 
 Base.getindex(c::MappedColumn{T, 1}, rows::Union{Colon, AbstractUnitRange{<:Integer}}) where {T} =

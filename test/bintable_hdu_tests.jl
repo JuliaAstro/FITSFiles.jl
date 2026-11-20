@@ -954,6 +954,14 @@
     FITSFiles.read_strided!(IOBuffer(unit.bytes), out, FITSFiles.StridedField(unit, unit.fields[2]), 1:7, 2:3;
         chunkbytes=1)
     @test out == eager.data.b[:, 2:3]
+    #  a mapped read releases each chunk's pages, and reading them again refaults them
+    for _ in 1:2
+        out = zeros(Float32, 7, 2)
+        FITSFiles.read_mapped!(unit.bytes, out, FITSFiles.StridedField(unit, unit.fields[2]), 1:7, 2:3;
+            chunkbytes=1)
+        @test out == eager.data.b[:, 2:3]
+    end
+    @test_throws BoundsError FITSFiles.release_pages(unit.bytes, length(unit.bytes) - 1, 2)
     @test [lazy.data[:b][r, c] for r in 1:7, c in 1:3] == eager.data.b
     @test fits(temppath; record=true)[2].data[3] == rows[3]
     rm(temppath)
