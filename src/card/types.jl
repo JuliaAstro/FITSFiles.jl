@@ -1,7 +1,9 @@
 #  The type of the value of a card, where the units of a quantity are not part of the value, so
 #  a quantity is not a value type. The input of a value is a value or a quantity.
 const ValueType = Union{AbstractString, Missing, Real, Complex}
-const ValueInput = Union{ValueType, Quantity}
+#  A value that is input is a value type or a quantity of any backend, where the quantities are split
+#  into a number and units, so a type that is not supported is an ArgumentError.
+const ValueInput = Any
 
 abstract type AbstractCardType end
 abstract type CommentCardType <: AbstractCardType end

@@ -17,7 +17,7 @@ The default data structure for Random and Bintable HDUs is a named tuple of arra
 - `scale::Bool=true`: apply the scale and zero keywords to the data
 - `strict::Bool=true`: numbers with a lower case exponent letter (d or e) are invalid cards,
   unless false
-- `units::Bool=true`: the units in the comment of a number are the units of the value, unless
+- `units::Union{Bool, Module}=true`: the units in the comment of a number are the units of the value (`true` is Unitful, or the module `DynamicQuantities` when it is loaded), unless
   false
 """
 function fits(io::IO; kwds...)

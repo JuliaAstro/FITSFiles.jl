@@ -12,7 +12,7 @@ function commentunits(key::AbstractString, value, units, comment::AbstractString
 		return units, comment, upad, ""
 	m = match(r"^\[([^\]]*)\]( *)", comment)
 	parsed = isnothing(m) ? nothing : parseunit(m[1])
-	parsed isa Unitful.Units || return units, comment, upad, ""
+	isunit(parsed) || return units, comment, upad, ""
 	parsed, comment[(length(m.match)+1):end], length(m[2]), unitstyle(m[1])
 end
 

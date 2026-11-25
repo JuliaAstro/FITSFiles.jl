@@ -14,7 +14,8 @@ digits and a mantissa has one integer digit, e.g., `E+007` is `E+07` and `56.53E
 the sign of an integer zero is lost; and a number that is longer than before takes the spaces before
 the comment, but may move the comment, and the end of the comment of a full card is lost.
 """
-function Base.parse(::Type{Card}, image::AbstractString; strict::Bool = true, units::Bool = true)
+function Base.parse(::Type{Card}, image::AbstractString; strict::Bool = true,
+	units::Union{Bool, Module} = true)
 	#  Parse Card image for keys, values, and comments. Construct Card.
 	#
 	#  Card is a parametric type containing Comment, Continue, End, Hierarch, History, and
@@ -30,7 +31,7 @@ function Base.parse(::Type{Card}, image::AbstractString; strict::Bool = true, un
 		elseif key != "END" && (m = match(VALUE_CARD_RE, image[1:TOKENLEN])) !== nothing
 			#  The mandatory keywords have no units.
 			parsed = parse_value_comment(Value, image[(TOKENLEN+1):end]; strict,
-				units = units && !is_fixed_key(key))
+				units = is_fixed_key(key) ? false : units)
 			card = isnothing(parsed) ?
 				Card(Invalid, key, image[(KEYLENGTH+1):end], "", CardFormat()) :
 				Card(Value{typeof(parsed[1])}, m[:key], parsed...)
@@ -83,7 +84,7 @@ Parse 80 character card image that follows the card `previous`, or `nothing`. A 
 card that does not continue a string is commentary text.
 """
 function Base.parse(::Type{Card}, image::AbstractString, previous; strict::Bool = true,
-	units::Bool = true)
+	units::Union{Bool, Module} = true)
 	card = parse(Card, image; strict, units)
 	if typename(card) == Continue && !(!isnothing(previous) && continued(previous))
 		card = Card(Comment, "CONTINUE", rstrip(image[(KEYLENGTH+1):end]), "",
@@ -116,7 +117,7 @@ ismalformed(valus::Union{RegexMatch, Nothing}) =
 	isnothing(valus) || (!isnothing(valus[:comment]) && isnothing(valus[:slash]))
 
 function parse_value_comment(::Type{Value}, image::AbstractString; strict::Bool = true,
-	units::Bool = true)
+	units::Union{Bool, Module} = true)
 	valus = match(strict ? VALUE_FSC_2 : VALUE_LOWER, image)
 	ismalformed(valus) && return nothing
 	offsets = named_offsets(valus, VALUE_GROUPS)
@@ -182,7 +183,7 @@ function parse_value(::Type{Missing}, valus::RegexMatch,
 end
 
 function parse_value_comment(::Type{Hierarch}, image::AbstractString; strict::Bool = true,
-	units::Bool = true)
+	units::Union{Bool, Module} = true)
 	values = match(strict ? HIERARCH_FSC : HIERARCH_LOWER, image)
 	ismalformed(values) && return nothing
 	offsets = named_offsets(values, HIERARCH_GROUPS)
@@ -215,7 +216,7 @@ function parse_value_comment(::Type{Hierarch}, image::AbstractString; strict::Bo
 	(key, value, unit, comment, format)
 end
 
-function parse_comment!(format::F, values::R, offsets::N; units::Bool = true) where
+function parse_comment!(format::F, values::R, offsets::N; units::Union{Bool, Module} = true) where
 {F <: CardFormat, R <: RegexMatch, N <: NamedTuple}
 
 	unit = nothing
@@ -228,10 +229,11 @@ function parse_comment!(format::F, values::R, offsets::N; units::Bool = true) wh
 			format.cbeg, format.cend = Int8(cbeg), Int8(cbeg+clen-1)
 			#  The units of a number are in square brackets at the beginning of the comment
 			#  (Sect. 4.3.2). Text that is not a unit string, or has a scale factor, is a comment.
-			m = units && (!isnothing(values[:numr]) || !isnothing(values[:cplx])) ?
+			backend = unitsbackend(units)
+			m = !isnothing(backend) && (!isnothing(values[:numr]) || !isnothing(values[:cplx])) ?
 				match(r"^\[([^\]]*)\]( *)", comment) : nothing
-			parsed = isnothing(m) ? nothing : parseunit(m[1])
-			if parsed isa Unitful.Units
+			parsed = isnothing(m) ? nothing : parseunit(backend, m[1])
+			if isunit(parsed)
 				unit, comment = parsed, comment[(length(m.match)+1):end]
 				format.ubeg, format.uend = Int8(cbeg), Int8(cbeg+length(m.match)-length(m[2])-1)
 				format.ufmt = unitstyle(m[1])
