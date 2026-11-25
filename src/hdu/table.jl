@@ -108,7 +108,7 @@ end
 function verify!(::Type{Table}, cards::Cards, format::DataFormat,
     mankeys::AbstractDict)
 
-    verify_shape!(cards, mankeys, format)
+    verifyshape!(cards, mankeys, format)
 end
 
 function DataFormat(::Type{Table}, data::Missing, mankeys::Dict{S, V}) where
@@ -254,7 +254,7 @@ function FieldFormat(::Type{Table}, format::DataFormat, reskeys::Dict{S, V},
     fields
 end
 
-function create_cards!(::Type{Table}, format::DataFormat,
+function createcards!(::Type{Table}, format::DataFormat,
     fields::Vector{TableField}, cards::Cards; kwds...)
     M, N = length(format.shape) == 2 ? format.shape : (0, 0)
     T = length(fields)

@@ -47,7 +47,7 @@ function FieldFormat(::Type{ZTable}, mankeys::DataFormat, reskeys::Dict{S, V},
 
 end
 
-function create_cards!(::Type{ZTable}, format::DataFormat,
+function createcards!(::Type{ZTable}, format::DataFormat,
     fields::Vector{ZTableField}, cards::Cards; kwds...)
 
 end

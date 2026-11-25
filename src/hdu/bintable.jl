@@ -123,8 +123,8 @@ end
 function verify!(::Type{Bintable}, cards::Cards, format::DataFormat,
     mankeys::AbstractDict)
 
-    verify_shape!(cards, mankeys, format)
-    verify_counts!(cards, mankeys, format)
+    verifyshape!(cards, mankeys, format)
+    verifycounts!(cards, mankeys, format)
 end
 
 function DataFormat(::Type{Bintable}, data::Missing, mankeys::Dict{S, V}) where
@@ -313,7 +313,7 @@ function field_descriptor(field)
     (type, leng, byts)
 end
 
-function create_cards!(::Type{Bintable}, format::DataFormat,
+function createcards!(::Type{Bintable}, format::DataFormat,
     fields::Vector{BinaryField}, cards::Cards; kwds...)
 
     M, N = length(format.shape) == 2 ? format.shape : (0, 0)

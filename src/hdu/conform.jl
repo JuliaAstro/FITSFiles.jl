@@ -44,7 +44,7 @@ end
 function verify!(::Type{Conform}, cards::Cards, format::DataFormat,
     mankeys::AbstractDict)
 
-    verify_shape!(cards, mankeys, format)
+    verifyshape!(cards, mankeys, format)
 end
 
 function DataFormat(::Type{Conform}, data::Missing, mankeys::Dict{S, V}) where
@@ -66,7 +66,7 @@ function FieldFormat(::Type{Conform}, format::DataFormat, reskeys::D) where
     [ConformField()]
 end
 
-function create_cards!(::Type{Conform}, format::DataFormat,
+function createcards!(::Type{Conform}, format::DataFormat,
     fields::ConformField, cards::Cards, kwds...)
 
     N, B = length(format.shape), TYPE2BITS[format.type]

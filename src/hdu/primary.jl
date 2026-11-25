@@ -59,7 +59,7 @@ function verify!(::Type{Primary}, cards::Cards, format::DataFormat,
     mankeys::AbstractDict)
 
     !get(mankeys, "SIMPLE", true) && @warn "Primary HDU is nonconformant."
-    verify_shape!(cards, mankeys, format)
+    verifyshape!(cards, mankeys, format)
 end
 
 function DataFormat(::Type{Primary}, data::Missing, mankeys::Dict{S, V}) where
@@ -112,7 +112,7 @@ function FieldFormat(::Type{Primary}, format::DataFormat, reskeys::Dict{S, V},
     ImageField(format.type, zero_, scale, miss, dmin, dmax)
 end
 
-function create_cards!(::Type{Primary}, format::DataFormat, fields::ImageField,
+function createcards!(::Type{Primary}, format::DataFormat, fields::ImageField,
     cards::Cards; kwds...)
 
     N, B = length(format.shape), TYPE2BITS[format.type]

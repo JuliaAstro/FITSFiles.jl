@@ -207,7 +207,7 @@ function HDU(type::Type, ::Missing = missing, cards::C = missing; kwds...) where
 	format = DataFormat(type, missing, mankeys)
 	kards  = verify!(type, kards, format, mankeys)
 	fields = FieldFormat(type, format, reskeys, missing)
-	kards  = create_cards!(type, format, fields, kards; kwds...)
+	kards  = createcards!(type, format, fields, kards; kwds...)
 	data   = create_data(type, format, fields; kwds...)
 
 	HDU{type}(kards, data)
@@ -230,7 +230,7 @@ function HDU(type::Type, data::AbstractArray, cards::C = missing; kwds...) where
 	format = DataFormat(type, data, mankeys)
 	kards  = verify!(type, kards, format, mankeys)
 	fields = FieldFormat(type, format, reskeys, data)
-	kards  = create_cards!(type, format, fields, kards; kwds...)
+	kards  = createcards!(type, format, fields, kards; kwds...)
 	if eltype(data) <: Tuple
 		data = [(; [Symbol(fields[j].name) => data[k][j]
 					for j ∈ 1:format.param]..., data = data[k][end]) for k ∈ 1:format.group]
@@ -257,7 +257,7 @@ function HDU(type::Type, data::U, cards::C = missing; kwds...) where
 	format = DataFormat(type, data, mankeys)
 	kards  = verify!(type, kards, format, mankeys)
 	fields = FieldFormat(type, format, reskeys, data; kwds...)
-	kards  = create_cards!(type, format, fields, kards; kwds...)
+	kards  = createcards!(type, format, fields, kards; kwds...)
 	if typeof(data) <: Tuple
 		data = (; [Symbol(fields[j].name) => data[j] for j ∈ 1:format.param]...,
 			data = data[end])
@@ -457,13 +457,13 @@ the format from data and then correct the header to match the data.
 verify!(::Type{<:AbstractHDU}, cards::Cards, mankeys::AbstractDict) = cards
 
 """
-	verify_shape!(cards, mankeys, format; first = 1)
+	verifyshape!(cards, mankeys, format; first = 1)
 
 Correct BITPIX and the NAXIS keywords of `cards` to match the data format `format`, and return
 the cards. `first` is the index of the first NAXISn keyword that describes the data, which is 2
 for random groups, where NAXIS1 is 0.
 """
-function verify_shape!(cards::Cards, mankeys::AbstractDict, format::DataFormat; first::Integer = 1)
+function verifyshape!(cards::Cards, mankeys::AbstractDict, format::DataFormat; first::Integer = 1)
 	if haskey(mankeys, "BITPIX") && format.type != BITS2TYPE[mankeys["BITPIX"]]
 		setindex!(cards, TYPE2BITS[format.type], "BITPIX")
 		@warn "BITPIX set to $(TYPE2BITS[format.type])."
@@ -479,11 +479,11 @@ function verify_shape!(cards::Cards, mankeys::AbstractDict, format::DataFormat; 
 end
 
 """
-	verify_counts!(cards, mankeys, format)
+	verifycounts!(cards, mankeys, format)
 
 Correct PCOUNT and GCOUNT of `cards` to match the data format `format`, and return the cards.
 """
-function verify_counts!(cards::Cards, mankeys::AbstractDict, format::DataFormat)
+function verifycounts!(cards::Cards, mankeys::AbstractDict, format::DataFormat)
 	for (key, value) in (("PCOUNT", format.param), ("GCOUNT", format.group))
 		if haskey(mankeys, key) && value != mankeys[key]
 			setindex!(cards, value, key)

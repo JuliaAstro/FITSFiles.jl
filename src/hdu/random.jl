@@ -104,12 +104,12 @@ function verify!(::Type{Random}, cards::Cards, format::DataFormat,
     mankeys::AbstractDict)
 
     !get(mankeys, "SIMPLE", true) && @warn "Primary HDU is nonconformant."
-    verify_shape!(cards, mankeys, format; first = 2)
+    verifyshape!(cards, mankeys, format; first = 2)
     if !get(mankeys, "GROUPS", true)
         setindex!(cards, true, "GROUPS")
         @warn "GROUPS set to true"
     end
-    verify_counts!(cards, mankeys, format)
+    verifycounts!(cards, mankeys, format)
 end
 
 function DataFormat(::Type{Random}, data::Missing, mankeys::Dict{S, V}) where
@@ -238,7 +238,7 @@ function FieldFormat(::Type{Random}, format::DataFormat, reskeys::Dict{S, V},
     fields
 end
 
-function create_cards!(::Type{Random}, format::DataFormat,
+function createcards!(::Type{Random}, format::DataFormat,
     fields::Vector{RandomField}, cards::Cards; kwds...)
 
     N, B = length(format.shape)+1, TYPE2BITS[format.type]

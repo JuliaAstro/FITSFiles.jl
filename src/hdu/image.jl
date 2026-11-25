@@ -39,7 +39,7 @@ end
 function verify!(::Type{Image}, cards::Cards, format::DataFormat,
     mankeys::AbstractDict)
 
-    verify_shape!(cards, mankeys, format)
+    verifyshape!(cards, mankeys, format)
 end
 
 function DataFormat(::Type{Image}, data::Missing, mankeys::Dict{S, V}) where
@@ -92,7 +92,7 @@ function FieldFormat(::Type{Image}, format::DataFormat, reskeys::Dict{S, V},
     ImageField(format.type, zero_, scale, miss, dmin, dmax)
 end
 
-function create_cards!(::Type{Image}, format::DataFormat, fields::ImageField,
+function createcards!(::Type{Image}, format::DataFormat, fields::ImageField,
     cards::Cards; kwds...)
 
     N, B = length(format.shape), TYPE2BITS[format.type]
