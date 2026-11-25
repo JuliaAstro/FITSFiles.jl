@@ -216,4 +216,25 @@
     seekstart(uint_io)
     @test read(uint_io, HDU; scale=true).data == [46.0, 128.0]
 
+    #  scaled computes zero + scale*data in at least double precision, rounded to the promoted type
+    ints = Int32.(round.(range(-2.0^31, 2.0^31 - 1, length = 20001)))
+    for (scale, zero) in ((1.0f0, 2147483648.0f0), (1.0f0, 2147483648.0), (0.1f0, 0.5f0), (1.0e-3, 1.0e5),
+                          (2.5, -1.0f0), (1.0f0, 0.0f0))
+        T = promote_type(typeof(scale), typeof(zero), Int32)
+        expected = [T(BigFloat(zero) + BigFloat(scale)*BigFloat(x)) for x in ints]
+        @test FITSFiles.scaled(ints, scale, zero) == expected
+        @test eltype(FITSFiles.scaled(ints, scale, zero)) == T
+    end
+    #  the types of the data, the scale, and the zero
+    @test eltype(FITSFiles.scaled(Int16[1, 2], 0.5f0, 3.0f0)) == Float32
+    @test eltype(FITSFiles.scaled(UInt8[1, 2], 0.5f0, 3.0)) == Float64
+    @test eltype(FITSFiles.scaled(Int64[1, 2], 1.0, 0.0)) == Float64
+    @test FITSFiles.scaled(UInt8[1, 2], 2.0f0, 1.0f0) == Float32[3, 5]
+    @test FITSFiles.scaled(reshape(Int16[1, 2, 3, 4], 2, 2), 2.0f0, 0.5f0) == Float32[2.5 6.5; 4.5 8.5]
+    @test FITSFiles.scaled(5, 2.0f0, 1.0f0) === 11.0f0
+    @test FITSFiles.scaled(Int32[], 2.0f0, 1.0f0) == Float32[]
+    #  a stored integer that does not fit in a Float32 is not rounded to 24 bits before the scale
+    @test FITSFiles.scaled(Int32[2147483647], 1.0f0, 2147483648.0) == [4294967295.0]
+    @test FITSFiles.scaled(Int32[-2147483602], 1.0f0, 2147483648.0f0) == Float32[46]
+
 end

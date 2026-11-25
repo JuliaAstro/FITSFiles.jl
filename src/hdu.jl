@@ -461,14 +461,15 @@ verify!(::Type{<:AbstractHDU}, cards::Cards, mankeys::AbstractDict) = cards
 
 Return `zero + scale*data`. The type of the result is the promotion of the types of `data`,
 `scale` and `zero` (a Float32 for 32-bit integer data and a Float32 `scale`, say), but the
-arithmetic is done in at least a Float64 and rounded once at the end. A Float32 product would
+operands are converted to at least a Float64 before the multiplication and the addition, which
+`muladd` fuses into a single rounding where the hardware allows it. A Float32 product would
 otherwise round the stored integers to 24 bits (e.g., a `UInt32` stored as `Int32` with `TZERO`
 2147483648 and a Float32 `TSCAL` of 1).
 """
 function scaled(data, scale, zero)
 	T = promote_type(typeof(scale), typeof(zero), eltype(data))
 	W = promote_type(T, Float64)
-	T.(W(zero) .+ W(scale).*W.(data))
+	T.(muladd.(W(scale), W.(data), W(zero)))
 end
 
 function get_reserved_keys(cards::Cards)
