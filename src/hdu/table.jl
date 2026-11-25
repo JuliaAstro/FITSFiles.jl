@@ -269,6 +269,10 @@ isundefined(field::TableField, item::AbstractString) = isempty(item) || all(==('
 function Base.read(io::IO, field::TableField, format::DataFormat,
     begpos::Integer; scale::Bool = true)
 
+    #  Without TSCAL/TZERO (the defaults are 1.0 and 0.0, Sect. 7.2.2) the data pass through unchanged;
+    #  scaling by the Float32 defaults would round integers above 2^24
+    scale = scale && !(field.scale == 1 && field.zero == 0)
+
     type, leng = field.type, length(field.slice)
     L, M, N = format.shape[1], first(field.slice)-1, format.shape[2]
     #  Read data array
@@ -298,6 +302,10 @@ end
 
 function Base.read(row::AbstractString, field::TableField; scale::Bool = true,
     invalid::Bool = true)
+
+    #  Without TSCAL/TZERO (the defaults are 1.0 and 0.0, Sect. 7.2.2) the data pass through unchanged;
+    #  scaling by the Float32 defaults would round integers above 2^24
+    scale = scale && !(field.scale == 1 && field.zero == 0)
 
     type, leng = field.type, length(field.slice)
     item = row[field.slice]

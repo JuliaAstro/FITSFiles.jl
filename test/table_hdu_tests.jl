@@ -146,6 +146,20 @@
         data = reread(tablebytes(cards, ["   1  1.5", "   2  2.5"])).data
         @test data.column1 isa Vector{Float32} && data.column1 == Float32[12, 14]
 
+        #  without TSCALn and TZEROn the values are not scaled, so an integer above 2^24 is exact (Sect. 7.2.2)
+        cards = ["TFIELDS =                    2", "TFORM1  = 'I10     '", "TBCOL1  =                    1",
+            "TFORM2  = 'F5.1    '", "TBCOL2  =                   11"]
+        bytes = tablebytes(cards, ["1234567891  1.5", "       -17  2.5"])
+        data = reread(bytes).data
+        @test data.column1 == [1234567891, -17] && data.column1 isa Vector{Int64}
+        @test data.column2 == [1.5, 2.5]
+        @test [r.column1 for r in reread(bytes; record = true).data] == [1234567891, -17]
+        @test reread(bytes; scale = false).data == data
+        #  a column with only one of TSCALn and TZEROn is scaled
+        shifted = reread(tablebytes([cards[1:3]; "TZERO1  =                  1.0"; cards[4:5]],
+            ["1234567891  1.5", "       -17  2.5"])).data
+        @test shifted.column1 ≈ [1234567892, -16] rtol = 1e-6
+
         #  TNULLn is space filled to the width of the field (Sect. 7.2.2)
         cards = ["TFIELDS =                    1", "TFORM1  = 'I6      '", "TBCOL1  =                    1",
             "TNULL1  = 'NULL'"]
