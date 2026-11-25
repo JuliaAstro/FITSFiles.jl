@@ -6,11 +6,24 @@
     FITSFiles.verify!(::Type{ProbeHDU}, cards::FITSFiles.Cards, mankeys::AbstractDict) =
         error("verified $(sort(collect(keys(mankeys))))")
 
-    #  the generic method accepts all values and returns the cards.
+    #  the generic method returns the cards, and leaves the keywords unchanged.
     cards = Card{<:Any}[Card("SIMPLE", true), Card("BITPIX", 16), Card("NAXIS", 0)]
-    mankeys = Dict{AbstractString, FITSFiles.ValueType}("BITPIX" => "sixteen")
+    mankeys = Dict{AbstractString, FITSFiles.ValueType}("BITPIX" => 16, "BSCALE" => 2.5)
     @test FITSFiles.verify!(FITSFiles.Primary, cards, mankeys) === cards
-    @test mankeys == Dict("BITPIX" => "sixteen")
+    @test mankeys == Dict("BITPIX" => 16, "BSCALE" => 2.5)
+
+    #  the keywords of the structure of an HDU must be integers (Sects. 4.4.1, 7.2.1, 7.3.1), even if
+    #  the value of a floating-point number is a whole number; other keywords are not checked.
+    for key in ("BITPIX", "NAXIS", "NAXIS1", "NAXIS12", "PCOUNT", "GCOUNT", "TFIELDS", "TBCOL3", "THEAP")
+        for value in (2.5, 3.0, "two", true, missing)
+            mankeys = Dict{AbstractString, FITSFiles.ValueType}(key => value)
+            @test_throws ArgumentError("$key must be an integer, but its value is $(repr(value)).") FITSFiles.verify!(
+                FITSFiles.Primary, cards, mankeys)
+        end
+        mankeys = Dict{AbstractString, FITSFiles.ValueType}(key => 3)
+        @test FITSFiles.verify!(FITSFiles.Primary, cards, mankeys) === cards
+    end
+    @test_throws ArgumentError FITSFiles.verify!(Image, cards, Dict{AbstractString, FITSFiles.ValueType}("NAXIS1" => 2.0))
 
     #  mandatory keywords are verified before the data format is created when an HDU is read,
     #  written, or created without data. The data format of ProbeHDU is not defined.
