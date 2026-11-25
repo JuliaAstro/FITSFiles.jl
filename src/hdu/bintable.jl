@@ -424,7 +424,7 @@ function Base.read(io::IO, field::BinaryField, format::DataFormat,
             beg = ntoh(read(io, field.pntr))
             seek(io, begpos + format.heap + beg)
             col = ntoh.([read(io, type) for k = 1:K])
-            column[j] = scale ? field.zero .+ field.scale.*col : col
+            column[j] = scale ? scaled(col, field.scale, field.zero) : col
         end
     elseif type <: Bool
         column = Array{type}(undef, N)
@@ -450,14 +450,14 @@ function Base.read(io::IO, field::BinaryField, format::DataFormat,
             seek(io, begpos + L*(j-1) + M)
             column[j] = ntoh(read(io, type))
         end
-        column = scale ? field.zero .+ field.scale.*column : column
+        column = scale ? scaled(column, field.scale, field.zero) : column
     else
         column = Array{type}(undef, (N, leng))
         for j = 1:N
             seek(io, begpos + L*(j-1) + M)
             column[j,:] .= ntoh.([read(io, type) for k=1:leng])
         end
-        column = scale ? field.zero .+ field.scale.*column : column
+        column = scale ? scaled(column, field.scale, field.zero) : column
     end
     column
 end
@@ -479,10 +479,10 @@ function Base.read(io::IO, field::BinaryField; scale::Bool = true)
         value = nothing
     elseif leng == 1
         value = ntoh(read(io, type))
-        value = scale ? field.zero + field.scale*value : value
+        value = scale ? scaled(value, field.scale, field.zero) : value
     else
         value = ntoh.([read(io, type) for j=1:leng])
-        value = scale ? field.zero .+ field.scale.*value : value
+        value = scale ? scaled(value, field.scale, field.zero) : value
     end
 
     #  Append units

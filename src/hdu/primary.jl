@@ -29,7 +29,7 @@ function Base.read(io::IO, ::Type{Primary}, format::DataFormat,
     #  Seek to end of the last data block
     # seek(io, position(io) + BLOCKLEN*div(M*N, BLOCKLEN, RoundUp))
 
-    data = scale ? fields.zero .+ fields.scale.*data : data
+    data = scale ? scaled(data, fields.scale, fields.zero) : data
     #=
     if get(kwds, :unit, true)
         data = apply_unit(data, fields)
