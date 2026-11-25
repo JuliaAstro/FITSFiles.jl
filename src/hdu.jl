@@ -121,6 +121,10 @@ const BITS2TYPE = Dict(8 => UInt8, 16 => Int16, 32 => Int32, 64 => Int64,
 const TYPE2BITS = Dict(UInt8 => 8, Int16 => 16, Int32 => 32, Int64 => 64,
 	Float32 => -32, Float64 => -64)
 
+#  The valid values of BITPIX (Table 8 of the standard), and the largest number of axes
+const BITPIXVALUES = (8, 16, 32, 64, -32, -64)
+const MAXAXES = 999
+
 const MISSTYPE = (UInt8, Int16, Int32, Int64)
 const TEMPTYPE = Dict(-2^7 => Int16, 2^15 => UInt32, UInt32(2)^31 => UInt64,
 	UInt64(2)^63 => UInt128)
@@ -487,6 +491,56 @@ function verifyinteger(keys::AbstractDict, pattern::Regex)
 		occursin(pattern, key) || continue
 		value isa Integer && !(value isa Bool) && continue
 		throw(ArgumentError("$key must be an integer, but its value is $(repr(value))."))
+	end
+	nothing
+end
+
+"""
+	verifyvalue(keys, key, allowed, requirement)
+
+Raise an `ArgumentError` that names the keyword and its value if the keyword `key` is in the dictionary
+`keys`, of the mandatory keywords, and its value is not in `allowed`, e.g., a range or a tuple of values.
+`requirement` describes the allowed values for the message, e.g., "the integer 0". A keyword that is not in
+`keys` is not verified, since the header of an HDU that is created without cards has no keywords. The
+value is an integer, which `verifyinteger` verifies first.
+"""
+function verifyvalue(keys::AbstractDict, key::AbstractString, allowed, requirement::AbstractString)
+	haskey(keys, key) && !(keys[key] in allowed) &&
+		throw(ArgumentError("$key must be $requirement, but its value is $(repr(keys[key]))."))
+	nothing
+end
+
+#  The requirement of the value of BITPIX of the data types of an array (Table 8)
+verifybitpix(mankeys::AbstractDict) = verifyvalue(mankeys, "BITPIX", BITPIXVALUES,
+	"one of $(join(BITPIXVALUES[1:end-1], ", ")), or $(BITPIXVALUES[end])")
+
+#  The structure of a table extension, ASCII or binary, which is an array of bytes with NAXIS = 2 axes, the
+#  length of a row and the number of rows (Sects. 7.2.1 and 7.3.1)
+function verifyrows(mankeys::AbstractDict)
+	verifyvalue(mankeys, "BITPIX", 8:8, "the integer 8")
+	verifyvalue(mankeys, "NAXIS", 2:2, "the integer 2")
+	verifyaxes(mankeys)
+end
+
+"""
+	verifyaxes(mankeys; first = 1)
+
+Verify the NAXISn keywords of an HDU, from the index `first` to NAXIS, in the dictionary `mankeys` of the
+mandatory keywords. It is an error, since the size of the data cannot be determined, if NAXISn is missing for
+an n from `first` to NAXIS, or if it is negative. It is a warning, since the extra keywords are not used, if
+NAXISn is present for an n greater than NAXIS. A header with no NAXIS is not verified. `first` is 2 for random
+groups, where NAXIS1 is 0 (Sects. 4.4.1.1, 6.1.1, 7.1.1, 7.2.1, and 7.3.1).
+"""
+function verifyaxes(mankeys::AbstractDict; first::Integer = 1)
+	N = get(mankeys, "NAXIS", nothing)
+	isnothing(N) && return nothing
+	for j = first:N
+		haskey(mankeys, "NAXIS$j") || throw(ArgumentError("NAXIS$j is missing, but NAXIS is $N."))
+		verifyvalue(mankeys, "NAXIS$j", 0:typemax(Int), "non-negative")
+	end
+	for key in sort!(collect(keys(mankeys)))
+		m = match(r"^NAXIS(\d+)$", key)
+		!isnothing(m) && Base.parse(Int, m[1]) > max(N, 0) && @warn "$key is beyond NAXIS $N, and is not used."
 	end
 	nothing
 end

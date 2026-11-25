@@ -92,6 +92,20 @@ getgroup(data::AbstractArray, field, j::Integer, format::DataFormat) =
 getgroup(data::NamedTuple, field, j::Integer, format::DataFormat) =
     reshape(data[Symbol(field.name)], (format.group, :))[j, :]
 
+function verify!(::Type{Random}, cards::Cards, mankeys::AbstractDict, reskeys::AbstractDict)
+    cards = invoke(verify!, Tuple{Type{<:AbstractHDU}, Cards, AbstractDict, AbstractDict}, Random, cards,
+        mankeys, reskeys)
+    #  NAXIS1 is 0, and NAXIS2 to NAXIS are the axes of the array of a group. PCOUNT is the number of parameters
+    #  and GCOUNT is the number of groups (Sect. 6.1.1).
+    verifybitpix(mankeys)
+    verifyvalue(mankeys, "NAXIS", 1:MAXAXES, "an integer from 1 to $MAXAXES")
+    verifyvalue(mankeys, "NAXIS1", 0:0, "the integer 0")
+    verifyaxes(mankeys; first = 2)
+    verifyvalue(mankeys, "PCOUNT", 0:typemax(Int), "non-negative")
+    verifyvalue(mankeys, "GCOUNT", 0:typemax(Int), "non-negative")
+    cards
+end
+
 function verify!(::Type{Random}, cards::Cards, format::DataFormat,
     mankeys::AbstractDict)
 

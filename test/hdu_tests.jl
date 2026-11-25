@@ -37,6 +37,70 @@
         end
     end
 
+    #  the structure keywords of each type of HDU have the values that the standard defines for it (Sects. 4.4.1,
+    #  6.1.1, 7.1.1, 7.2.1, and 7.3.1). The header is given as pairs, and a value of nothing removes the keyword.
+    structures = Dict(
+        FITSFiles.Primary => ["SIMPLE" => true, "BITPIX" => 16, "NAXIS" => 2, "NAXIS1" => 3, "NAXIS2" => 4],
+        FITSFiles.Conform => ["SIMPLE" => true, "BITPIX" => 16, "NAXIS" => 2, "NAXIS1" => 3, "NAXIS2" => 4],
+        Image => ["XTENSION" => "IMAGE", "BITPIX" => -32, "NAXIS" => 2, "NAXIS1" => 3, "NAXIS2" => 4, "PCOUNT" => 0,
+            "GCOUNT" => 1],
+        Random => ["SIMPLE" => true, "BITPIX" => 16, "NAXIS" => 3, "NAXIS1" => 0, "NAXIS2" => 2, "NAXIS3" => 4,
+            "GROUPS" => true, "PCOUNT" => 3, "GCOUNT" => 10],
+        Table => ["XTENSION" => "TABLE", "BITPIX" => 8, "NAXIS" => 2, "NAXIS1" => 20, "NAXIS2" => 3, "PCOUNT" => 0,
+            "GCOUNT" => 1],
+        Bintable => ["XTENSION" => "BINTABLE", "BITPIX" => 8, "NAXIS" => 2, "NAXIS1" => 20, "NAXIS2" => 3,
+            "PCOUNT" => 100, "GCOUNT" => 1])
+    function structureheader(type, changes...)
+        pairs = [get(Dict(changes), key, value) for (key, value) in structures[type]]
+        names = first.(structures[type])
+        extra = [key => value for (key, value) in changes if !(key in names) && !isnothing(value)]
+        Card{<:Any}[Card(key, value) for (key, value) in [[(k, v) for (k, v) in zip(names, pairs) if !isnothing(v)];
+            extra]]
+    end
+    function invalidstructure(type, message, changes...)
+        @test_throws ArgumentError(message) verified(type, structureheader(type, changes...))
+    end
+    for type in Base.keys(structures)
+        cards = structureheader(type)
+        @test verified(type, cards) === cards
+    end
+    bitpixmessage = "BITPIX must be one of 8, 16, 32, 64, -32, or -64, but its value is"
+    for type in (FITSFiles.Primary, FITSFiles.Conform, Image, Random)
+        invalidstructure(type, "$bitpixmessage 17.", "BITPIX" => 17)
+        invalidstructure(type, "$bitpixmessage 0.", "BITPIX" => 0)
+        invalidstructure(type, "NAXIS2 must be non-negative, but its value is -4.", "NAXIS2" => -4)
+    end
+    for type in (FITSFiles.Primary, FITSFiles.Conform, Image)
+        invalidstructure(type, "NAXIS must be an integer from 0 to 999, but its value is -1.", "NAXIS" => -1)
+        invalidstructure(type, "NAXIS must be an integer from 0 to 999, but its value is 1000.", "NAXIS" => 1000)
+        invalidstructure(type, "NAXIS2 is missing, but NAXIS is 2.", "NAXIS2" => nothing)
+        invalidstructure(type, "NAXIS1 must be non-negative, but its value is -4.", "NAXIS1" => -4)
+        invalidstructure(type, "NAXIS1 is missing, but NAXIS is 2.", "NAXIS1" => nothing, "NAXIS2" => nothing)
+        #  the axes of an array of no axes, and a header with no NAXIS, are not used
+        cards = structureheader(type, "NAXIS" => 0)
+        @test_logs (:warn, r"NAXIS1 is beyond NAXIS 0") (:warn, r"NAXIS2 is beyond NAXIS 0") verified(type, cards)
+        cards = structureheader(type, "NAXIS" => nothing)
+        @test_logs verified(type, cards)
+    end
+    invalidstructure(Image, "PCOUNT must be the integer 0, but its value is 3.", "PCOUNT" => 3)
+    invalidstructure(Image, "GCOUNT must be the integer 1, but its value is 2.", "GCOUNT" => 2)
+    invalidstructure(Random, "NAXIS3 is missing, but NAXIS is 3.", "NAXIS3" => nothing)
+    invalidstructure(Random, "NAXIS must be an integer from 1 to 999, but its value is 0.", "NAXIS" => 0)
+    invalidstructure(Random, "NAXIS1 must be the integer 0, but its value is 4.", "NAXIS1" => 4)
+    invalidstructure(Random, "PCOUNT must be non-negative, but its value is -1.", "PCOUNT" => -1)
+    invalidstructure(Random, "GCOUNT must be non-negative, but its value is -1.", "GCOUNT" => -1)
+    @test verified(Random, structureheader(Random, "GCOUNT" => 0)) isa Any
+    for type in (Table, Bintable)
+        invalidstructure(type, "BITPIX must be the integer 8, but its value is 16.", "BITPIX" => 16)
+        invalidstructure(type, "NAXIS must be the integer 2, but its value is 3.", "NAXIS" => 3)
+        invalidstructure(type, "NAXIS2 is missing, but NAXIS is 2.", "NAXIS2" => nothing)
+        invalidstructure(type, "NAXIS1 must be non-negative, but its value is -1.", "NAXIS1" => -1)
+        invalidstructure(type, "GCOUNT must be the integer 1, but its value is 2.", "GCOUNT" => 2)
+    end
+    invalidstructure(Table, "PCOUNT must be the integer 0, but its value is 1.", "PCOUNT" => 1)
+    invalidstructure(Bintable, "PCOUNT must be non-negative, but its value is -1.", "PCOUNT" => -1)
+    @test verified(Bintable, structureheader(Bintable, "PCOUNT" => 0)) isa Any
+
     #  the HDU types are independent: a keyword of one type is not verified by another type, and the other
     #  keywords are not checked
     others = Dict(FITSFiles.Primary => ["TFIELDS", "THEAP", "TNULL1", "ZBITPIX"], Image => ["TBCOL1", "ZNAXIS"],

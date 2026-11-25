@@ -25,14 +25,14 @@ end
 #  BITPIX), and DATAMIN and DATAMAX.
 const ImageHDU = Union{Primary, Image}
 
-#  The undefined value of the array is an integer (Sect. 4.4.2.5).
-function verify!(::Type{T}, cards::Cards, mankeys::AbstractDict, reskeys::AbstractDict) where
-    T<:Union{Primary, Image, Conform}
-
-    cards = invoke(verify!, Tuple{Type{<:AbstractHDU}, Cards, AbstractDict, AbstractDict}, T, cards,
-        mankeys, reskeys)
+#  The keywords of an image array, which Primary, Image, and Conform verify: BITPIX is one of the values of
+#  Table 8, NAXIS is from 0 to 999 and each NAXISn is a non-negative integer (Sects. 4.4.1.1 and 7.1.1), and
+#  BLANK is an integer (Sect. 4.4.2.5).
+function verifyarray(mankeys::AbstractDict, reskeys::AbstractDict)
+    verifybitpix(mankeys)
+    verifyvalue(mankeys, "NAXIS", 0:MAXAXES, "an integer from 0 to $MAXAXES")
+    verifyaxes(mankeys)
     verifyinteger(reskeys, r"^BLANK$")
-    cards
 end
 
 #  The data format of an array, from the mandatory keywords or from the data.

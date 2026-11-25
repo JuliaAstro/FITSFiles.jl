@@ -39,6 +39,13 @@ function Base.write(io::IO, ::Type{Conform}, data::AbstractArray,
     println(dbytes+pbytes)
 end
 
+function verify!(::Type{Conform}, cards::Cards, mankeys::AbstractDict, reskeys::AbstractDict)
+    cards = invoke(verify!, Tuple{Type{<:AbstractHDU}, Cards, AbstractDict, AbstractDict}, Conform, cards,
+        mankeys, reskeys)
+    verifyarray(mankeys, reskeys)
+    cards
+end
+
 function verify!(::Type{Conform}, cards::Cards, format::DataFormat,
     mankeys::AbstractDict)
 

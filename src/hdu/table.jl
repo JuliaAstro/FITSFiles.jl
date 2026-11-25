@@ -95,6 +95,10 @@ end
 function verify!(::Type{Table}, cards::Cards, mankeys::AbstractDict, reskeys::AbstractDict)
     cards = invoke(verify!, Tuple{Type{<:AbstractHDU}, Cards, AbstractDict, AbstractDict}, Table, cards,
         mankeys, reskeys)
+    verifyrows(mankeys)
+    #  An ASCII table has a single table and no heap (Sect. 7.2.1)
+    verifyvalue(mankeys, "PCOUNT", 0:0, "the integer 0")
+    verifyvalue(mankeys, "GCOUNT", 1:1, "the integer 1")
     #  The number of fields and the first columns of the fields are integers (Sect. 7.2.1)
     verifyinteger(mankeys, r"^(TFIELDS|TBCOL\d+)$")
     verifyfields!(cards, mankeys; columns = true)
