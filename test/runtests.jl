@@ -1,6 +1,8 @@
 using FITSFiles
 using Test
 using Unitful, UnitfulAngles, UnitfulAstro
+using DynamicQuantities: DynamicQuantities
+const DQ = DynamicQuantities
 
 showfields(card) = (card.key, card.value, card.comment, repr(card))
 
@@ -9,6 +11,7 @@ io = IOBuffer()
 include("card_tests.jl")
 include("header_tests.jl")
 include("units_tests.jl")
+include("dynamicquantities_tests.jl")
 include("format_tests.jl")
 include("hdu_tests.jl")
 include("typeofhdu_tests.jl")

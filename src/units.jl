@@ -13,15 +13,18 @@ Return the ASCII string of a unit in the FITS standard (Sect. 4.3). The style of
 a unit with a negative power follows a slash, or `-` if it has the negative power; and the style
 of a power, `d` for digits following the unit, `^`, or `*` for `**`. The default is ` -d`.
 """
-function formunit(unit::Unitful.Units, ufmt::AbstractString = "")
+formunit(unit::Unitful.Units, ufmt::AbstractString = "") =
+	joinunits([(fitsname(f), Rational(f.power)) for f in typeof(unit).parameters[1]], ufmt)
+
+#  Join the names and the powers of units in the style of the units.
+function joinunits(factors::AbstractVector, ufmt::AbstractString = "")
 	sep, div, pow = isempty(ufmt) ? (' ', '-', 'd') : (ufmt[1], ufmt[2], ufmt[3])
-	factors = typeof(unit).parameters[1]
-	numer = filter(f -> f.power > 0, collect(factors))
-	denom = filter(f -> f.power < 0, collect(factors))
+	numer = filter(f -> f[2] > 0, factors)
+	denom = filter(f -> f[2] < 0, factors)
 	if div == '/' && !isempty(numer) && !isempty(denom)
 		#  The units with negative powers follow a slash.
-		join(formfactor.(numer, pow), sep) * join(["/" * formfactor(typeof(f)(f.tens, -f.power), pow)
-			for f in denom])
+		join(formfactor.(numer, pow), sep) * join(["/" * formfactor((name, -power), pow)
+			for (name, power) in denom])
 	else
 		join(formfactor.(factors, pow), sep)
 	end
@@ -40,19 +43,32 @@ formunit(unit::Unitful.AffineUnits, ufmt::AbstractString = "") =
 
 formunit(::Nothing, ufmt::AbstractString = "") = ""
 
+#  A parsed unit is a unit of a backend. The extension of a backend adds the methods for its units.
+isunit(::Any) = false
+isunit(::Unitful.Units) = true
+
+#  The backend of the `units` keyword of the parsers, which is `true` for Unitful, `false` for no units,
+#  or the module of a backend.
+unitsbackend(units::Bool) = units ? Unitful : nothing
+unitsbackend(units::Module) = units
+
 #  The units of the writers of a card format, where no units are missing.
 unitstring(::Nothing, ufmt::AbstractString = "") = missing
 unitstring(unit, ufmt::AbstractString = "") = formunit(unit, ufmt)
 
-function formfactor(unit::Unitful.Unit, pow::Char = 'd')
+#  The FITS name of a Unitful unit, which has a prefix and an abbreviation.
+function fitsname(unit::Unitful.Unit)
 	name = get(FITS_UNIT_NAMES, Unitful.abbr(unit), Unitful.abbr(unit))
 	prefix = get(FITS_UNIT_NAMES, Unitful.prefix(unit), Unitful.prefix(unit))
-	power = unit.power.den == 1 ? (unit.power.num == 1 ? "" :
-		(pow == '^' ? "^" : pow == '*' ? "**" : "") * string(unit.power.num)) :
-		"**($(unit.power.num)/$(unit.power.den))"
-	text = prefix * name * power
-	isascii(text) || throw(ArgumentError("The unit $(Unitful.abbr(unit)) has no FITS name."))
-	text
+	isascii(prefix * name) || throw(ArgumentError("The unit $(Unitful.abbr(unit)) has no FITS name."))
+	prefix * name
+end
+
+#  The name of a unit and its power in the style of a power: digits, ^, or ** (`pow`).
+function formfactor((name, power)::Tuple{<:AbstractString, Rational}, pow::Char = 'd')
+	name * (power.den == 1 ? (power.num == 1 ? "" :
+		(pow == '^' ? "^" : pow == '*' ? "**" : "") * string(power.num)) :
+		"**($(power.num)/$(power.den))")
 end
 
 ####  Parse FITS units  ####
@@ -115,19 +131,28 @@ const FITS_PREFIXES = ("da", "Y", "Z", "E", "P", "T", "G", "M", "k", "h", "d", "
 
 #  The units of the names that are looked up, which are cached by the name. The lock makes the cache
 #  safe when cards are parsed by several threads, and is not held while a unit is looked up.
-const UNIT_CACHE = Dict{String, Any}()
+const UNIT_CACHE = Dict{Any, Any}()
 const UNIT_LOCK = ReentrantLock()
 
 #  Return the Unitful unit of a FITS unit name, which is a base unit with an optional prefix,
 #  or nothing. A base unit has priority over a prefix, e.g., min is minutes and not milli-in.
-function unitname(name::AbstractString)
-	name = String(name)
-	cached = @lock UNIT_LOCK get(UNIT_CACHE, name, missing)
+unitname(name::AbstractString) = unitname(Val(:Unitful), name)
+
+#  The cache keys of the Unitful units are the names, and those of other backends have the backend.
+cachekey(::Val{:Unitful}, name::AbstractString) = String(name)
+cachekey(backend::Val, name::AbstractString) = (backend, String(name))
+
+#  The unit of a backend is looked up by the method `lookupunit(backend, name)` of the backend.
+function unitname(backend::Val, name::AbstractString)
+	key = cachekey(backend, name)
+	cached = @lock UNIT_LOCK get(UNIT_CACHE, key, missing)
 	ismissing(cached) || return cached
-	unit = lookupunit(name)
-	@lock UNIT_LOCK UNIT_CACHE[name] = unit
+	unit = lookupunit(backend, String(name))
+	@lock UNIT_LOCK UNIT_CACHE[key] = unit
 	unit
 end
+
+lookupunit(::Val{:Unitful}, name::AbstractString) = lookupunit(name)
 
 function lookupunit(name::AbstractString)
 	candidates = [("", name)]
@@ -151,7 +176,7 @@ end
 #  The units of the strings that are parsed, since the same strings are in many cards. The result of
 #  a string that is not a unit string is nothing. The cache is emptied when it is full, since the
 #  comment of a card may be any text.
-const PARSEUNIT_CACHE = Dict{String, Any}()
+const PARSEUNIT_CACHE = Dict{Any, Any}()
 const PARSEUNIT_LOCK = ReentrantLock()
 const PARSEUNIT_CACHE_SIZE = 1000
 
@@ -165,39 +190,50 @@ an integer following the unit, by a decimal number or a ratio in parentheses fol
 or by `**` or `^` followed by an integer, a decimal number, or a ratio in parentheses.
 A scale factor, `10**k`, `10^k`, or `10+k`, is followed by a unit and returns a quantity.
 """
-function parseunit(str::AbstractString)
+parseunit(str::AbstractString) = parseunit(Val(:Unitful), str)
+
+"""
+	parseunit(backend, string)
+
+Parse the unit string with the units of the `backend`, which is the module `Unitful` or
+`DynamicQuantities`, the latter when it is loaded.
+"""
+parseunit(backend::Module, str::AbstractString) = parseunit(Val(nameof(backend)), str)
+
+function parseunit(backend::Val, str::AbstractString)
 	str = String(strip(str))
-	cached = @lock PARSEUNIT_LOCK get(PARSEUNIT_CACHE, str, missing)
+	key = cachekey(backend, str)
+	cached = @lock PARSEUNIT_LOCK get(PARSEUNIT_CACHE, key, missing)
 	ismissing(cached) || return cached
-	unit, i = parse_units(str, firstindex(str))
+	unit, i = parse_units(backend, str, firstindex(str))
 	unit = isnothing(unit) || i <= lastindex(str) ? nothing : unit
 	@lock PARSEUNIT_LOCK begin
 		length(PARSEUNIT_CACHE) >= PARSEUNIT_CACHE_SIZE && empty!(PARSEUNIT_CACHE)
-		PARSEUNIT_CACHE[str] = unit
+		PARSEUNIT_CACHE[key] = unit
 	end
 	unit
 end
 
 #  Parse a unit string from the index `i`, and return the unit and the index after the unit.
 #  Products and quotients are evaluated from the left to the right.
-function parse_units(str::AbstractString, i::Integer)
+function parse_units(be::Val, str::AbstractString, i::Integer)
 	#  A unit string may begin with a division, e.g., /m3.
 	j = skipspaces(str, i)
 	if j <= lastindex(str) && str[j] == '/'
-		unit, i = parse_factor(str, skipspaces(str, j + 1))
+		unit, i = parse_factor(be, str, skipspaces(str, j + 1))
 		isnothing(unit) || (unit = inv(unit))
 	else
-		unit, i = parse_factor(str, i)
+		unit, i = parse_factor(be, str, i)
 	end
 	while !isnothing(unit)
 		j = skipspaces(str, i)
 		op = j <= lastindex(str) ? str[j] : ' '
 		if op in ('*', '.', '/')
-			factor, k = parse_factor(str, skipspaces(str, j + 1))
+			factor, k = parse_factor(be, str, skipspaces(str, j + 1))
 			isnothing(factor) && return nothing, i
 			unit, i = op == '/' ? unit / factor : unit * factor, k
 		elseif j > i && j <= lastindex(str) && str[j] != ')'
-			factor, k = parse_factor(str, j)
+			factor, k = parse_factor(be, str, j)
 			isnothing(factor) && return nothing, i
 			unit, i = unit * factor, k
 		else
@@ -208,11 +244,11 @@ function parse_units(str::AbstractString, i::Integer)
 end
 
 #  Parse a unit with a power, a unit string in parentheses, or a scale factor.
-function parse_factor(str::AbstractString, i::Integer)
+function parse_factor(be::Val, str::AbstractString, i::Integer)
 	i = skipspaces(str, i)
 	i > lastindex(str) && return nothing, i
 	if str[i] == '('
-		unit, j = parse_units(str, i + 1)
+		unit, j = parse_units(be, str, i + 1)
 		(isnothing(unit) || skipspaces(str, j) > lastindex(str) || str[skipspaces(str, j)] != ')') && return nothing, i
 		return parse_power(str, skipspaces(str, j) + 1, unit)
 	elseif (m = match(r"^10(?:[+-]\d+|(?=\*\*|\^))", str[i:end])) !== nothing
@@ -221,17 +257,17 @@ function parse_factor(str::AbstractString, i::Integer)
 		power, j = m.match == "10" ? parse_exponent(str, i + 2 + ncodeunits(op.match)) :
 			(parse(Int, m.match[3:end]) // 1, i + ncodeunits(m.match))
 		isnothing(power) && return nothing, i
-		unit, k = parse_factor(str, skipspaces(str, j))
+		unit, k = parse_factor(be, str, skipspaces(str, j))
 		isnothing(unit) && return nothing, i
 		return 10.0^power * unit, k
 	elseif (m = match(r"^([A-Za-z]+)([+-]?\d+)?", str[i:end])) !== nothing
 		name, j = m[1], i + ncodeunits(m.match)
 		if name == "sqrt" && j <= lastindex(str) && str[j] == '('
-			unit, k = parse_units(str, j + 1)
+			unit, k = parse_units(be, str, j + 1)
 			(isnothing(unit) || k > lastindex(str) || str[k] != ')') && return nothing, i
 			return unit^(1//2), k + 1
 		end
-		unit = unitname(name)
+		unit = unitname(be, name)
 		isnothing(unit) && return nothing, i
 		isnothing(m[2]) ? parse_power(str, j, unit) : (unit^parse(Int, m[2]), j)
 	else

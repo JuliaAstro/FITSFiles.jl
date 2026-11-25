@@ -324,12 +324,12 @@ is read from another stream is read at once.
   keywords of the header
 - `strict::Bool=true`: numbers with a lower case exponent letter (d or e) are invalid cards,
   unless false
-- `units::Bool=true`: the units in the comment of a number are the units of the value, unless
+- `units::Union{Bool, Module}=true`: the units in the comment of a number are the units of the value (`true` is Unitful, or the module `DynamicQuantities` when it is loaded), unless
   false
 - `record::Bool=false`: structure the data as a list of records
 - `scale::Bool=true`: apply the scale and zero keywords to the data
 """
-function Base.read(io::IO, ::Type{HDU}; type = nothing, strict::Bool = true, units::Bool = true,
+function Base.read(io::IO, ::Type{HDU}; type = nothing, strict::Bool = true, units::Union{Bool, Module} = true,
     kwds...)::HDU
     #  Read cards
     cards, mankeys, reskeys = read(io, Card; strict, units)
@@ -379,7 +379,7 @@ function Base.write(io::IO, hdu::HDU{<:AbstractHDU}; kwds...)
 	write(io, type, getfield(hdu, :data), format, fields; kwds...)
 end
 
-function Base.read(io::IO, ::Type{Card}; strict::Bool = true, units::Bool = true)
+function Base.read(io::IO, ::Type{Card}; strict::Bool = true, units::Union{Bool, Module} = true)
     #  Read cards
     cards = Card{<:Any}[]
     N, M = BLOCKLEN÷CARDLENGTH, CARDLENGTH
