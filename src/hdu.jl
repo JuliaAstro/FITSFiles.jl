@@ -130,6 +130,8 @@ const OUTTYPE  = Dict(
 
     #  Combine XTENSION values in card.jl and hdu.jl. The trailing spaces of a value are not
     #  significant, so the keys are not padded.
+#  The XTENSION value is padded to 8 characters.
+const XTENSIONLENGTH = 8
 const XTENSIONTYPE = Dict("IMAGE" => Image, "TABLE" => Table, "BINTABLE" => Bintable)
 
 const MANDATORYKEYS = (
@@ -449,12 +451,35 @@ end
 Verify the values of the mandatory keywords of a header before the data format is created
 from them. Return the cards. A verify! method of an HDU type corrects the cards and the
 mandatory keywords, `mankeys`, when it is possible, and otherwise raises an error that names
-the keyword and its value. The generic method accepts all values.
+the keyword and its value. The generic method warns if the XTENSION value is not padded.
 
 The verify! methods that also have a data format argument are for the HDU types that create
 the format from data and then correct the header to match the data.
 """
-verify!(::Type{<:AbstractHDU}, cards::Cards, mankeys::AbstractDict) = cards
+function verify!(::Type{<:AbstractHDU}, cards::Cards, mankeys::AbstractDict)
+	verifyxtension!(cards)
+end
+
+"""
+	verifyxtension!(cards)
+
+Warn if the value of the XTENSION card is not padded to 8 characters, as the standard requires,
+and return the cards unchanged. A file may have the value written without the padding, e.g.,
+`'TABLE'`, which is read without error, since the trailing spaces of a string are not significant,
+and the file is written as it was read, so the card is not changed. The width of the value is the
+width of the string on the card, and not the value.
+"""
+function verifyxtension!(cards::Cards)
+	j = Base.findfirst("XTENSION", cards)
+	ismissing(j) && return cards
+	card = cards[j]
+	value, format = card.value, card.format
+	if value isa AbstractString && rstrip(uppercase(value)) in XTENSION_VALUES && format.vbeg > 0 &&
+		format.vend - format.vbeg - 1 < XTENSIONLENGTH
+		@warn "The XTENSION value '$value' is not padded to $XTENSIONLENGTH characters."
+	end
+	cards
+end
 
 """
 	verifyshape!(cards, mankeys, format; first = 1)

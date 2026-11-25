@@ -107,4 +107,41 @@
             @test [c.key for c in kards] == [first, "BITPIX", "NAXIS", "NAXIS1", "NAXIS2"]
         end
     end
+
+    ####    Test the padding of the XTENSION value    ####
+
+    @testset "verifyxtension!" begin
+        card(text) = parse(Card, rpad(text, 80))
+
+        #  a value that is padded to 8 characters is not changed, and a card without XTENSION is not changed.
+        for value in ("IMAGE   ", "TABLE   ", "BINTABLE")
+            cards = Card{<:Any}[card("XTENSION= '$value'"), Card("BITPIX", 8)]
+            @test_logs FITSFiles.verifyxtension!(cards) === cards
+            @test cards[1].value == rstrip(value) && cards[1].format.vend - cards[1].format.vbeg == 9
+        end
+        cards = Card{<:Any}[Card("SIMPLE", true), Card("BITPIX", 8)]
+        @test_logs FITSFiles.verifyxtension!(cards) === cards
+        @test length(cards) == 2
+        @test_logs FITSFiles.verifyxtension!(Card{<:Any}[Card("XTENSION", "TABLE")])
+
+        #  a value that is shorter than 8 characters is a warning, and the cards are not changed.
+        for (text, value) in (("'IMAGE'", "IMAGE"), ("'TABLE  '", "TABLE"), ("'TABLE'", "TABLE"))
+            cards = Card{<:Any}[card("XTENSION= $text"), Card("BITPIX", 8, "bits")]
+            before = copy(cards)
+            @test_logs (:warn, "The XTENSION value '$value' is not padded to 8 characters.") FITSFiles.verifyxtension!(cards)
+            @test cards == before && cards[1].value == value
+            @test repr(cards[1]) == rpad("XTENSION= $text", 80)
+        end
+
+        #  an HDU that is read with the value is written as it was read.
+        header = ["XTENSION= 'IMAGE'", "BITPIX  =                    8", "NAXIS   =                    0",
+            "PCOUNT  =                    0", "GCOUNT  =                    1", "END"]
+        buffer = IOBuffer(join(rpad.(header, 80)) * " "^(2880 - 80length(header)))
+        hdu = @test_logs (:warn, r"XTENSION value 'IMAGE' is not padded") read(buffer, HDU)
+        @test hdu.cards[1].value == "IMAGE"
+        io = IOBuffer()
+        write(io, hdu)
+        @test String(take!(io))[1:80] == rpad("XTENSION= 'IMAGE'", 80)
+    end
 end
+
