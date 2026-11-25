@@ -132,6 +132,8 @@ const OUTTYPE  = Dict(
     #  significant, so the keys are not padded.
 #  The XTENSION value is padded to 8 characters.
 const XTENSIONLENGTH = 8
+#  The maximum number of fields of a table (Sects. 7.2.1 and 7.3.1)
+const MAXFIELDS = 999
 const XTENSIONTYPE = Dict("IMAGE" => Image, "TABLE" => Table, "BINTABLE" => Bintable)
 
 const MANDATORYKEYS = (
@@ -483,6 +485,56 @@ function verifyintegers(mankeys::AbstractDict)
 		throw(ArgumentError("$key must be an integer, but its value is $(repr(value))."))
 	end
 	nothing
+end
+
+"""
+	verifyfields!(cards, mankeys; columns = false)
+
+Verify the keywords that describe the fields of a table extension, and return the cards unchanged
+(Sects. 7.2.1 and 7.3.1 of the standard). It is an error, since the fields cannot be read, if TFIELDS
+is negative, if TFORMn is missing for an n from 1 to TFIELDS, or, for an ASCII table (`columns = true`),
+if TBCOLn is missing or less than 1, since the first column of a row is numbered 1. It is a warning,
+since the extra keywords are not used, if TFIELDS is more than 999, the maximum, or if TFORMn or TBCOLn
+is present for an n greater than TFIELDS. A header with no TFIELDS is not verified.
+"""
+function verifyfields!(cards::Cards, mankeys::AbstractDict; columns::Bool = false)
+	N = get(mankeys, "TFIELDS", nothing)
+	isnothing(N) && return cards
+	N < 0 && throw(ArgumentError("TFIELDS must be non-negative, but its value is $N."))
+	N > MAXFIELDS && @warn "TFIELDS $N is more than the maximum of $MAXFIELDS."
+	for j = 1:N
+		haskey(mankeys, "TFORM$j") || throw(ArgumentError("TFORM$j is missing, but TFIELDS is $N."))
+		if columns
+			haskey(mankeys, "TBCOL$j") || throw(ArgumentError("TBCOL$j is missing, but TFIELDS is $N."))
+			mankeys["TBCOL$j"] >= 1 || throw(ArgumentError(
+				"TBCOL$j must be at least 1, the first column of a row, but its value is $(mankeys["TBCOL$j"])."))
+		end
+	end
+	for key in sort!(collect(keys(mankeys)))
+		m = match(r"^(TFORM|TBCOL)(\d+)$", key)
+		!isnothing(m) && Base.parse(Int, m[2]) > N && (columns || m[1] == "TFORM") &&
+			@warn "$key is beyond TFIELDS $N, and is not used."
+	end
+	cards
+end
+
+"""
+	verifyheap!(cards, mankeys)
+
+Warn if THEAP of a binary table is outside of the range that the standard allows (Sect. 7.3.2), and
+return the cards unchanged. The heap starts THEAP bytes after the start of the main data table, so THEAP
+cannot be less than NAXIS1*NAXIS2 or more than that plus PCOUNT, the bytes of the gap and the heap.
+"""
+function verifyheap!(cards::Cards, mankeys::AbstractDict)
+	haskey(mankeys, "THEAP") || return cards
+	heap = mankeys["THEAP"]
+	table = get(mankeys, "NAXIS1", 0) * get(mankeys, "NAXIS2", 0)
+	if heap < table
+		@warn "THEAP $heap is less than NAXIS1*NAXIS2, $table, and the heap overlaps the table."
+	elseif heap > table + get(mankeys, "PCOUNT", 0)
+		@warn "THEAP $heap is more than NAXIS1*NAXIS2 + PCOUNT, $(table + get(mankeys, "PCOUNT", 0)), and the heap is past the data."
+	end
+	cards
 end
 
 """

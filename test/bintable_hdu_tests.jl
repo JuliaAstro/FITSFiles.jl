@@ -1027,6 +1027,14 @@
         io = IOBuffer(); write(io, reread(bytes))
         @test take!(io) == codeunits(bytes)[2881:end]
 
+        #  the fields and the heap are verified when an HDU is read (Sects. 7.3.1 and 7.3.2)
+        @test_throws ArgumentError("TFORM2 is missing, but TFIELDS is 2.") reread(
+            bintablebytes(["TFIELDS =                    2"; cards[2:3]], 1, 2, UInt8[T, F]))
+        @test_throws ArgumentError r"TFIELDS must be an integer" reread(
+            bintablebytes(["TFIELDS =                  1.0"; cards[2:3]], 1, 2, UInt8[T, F]))
+        @test_logs (:warn, r"THEAP 1 is less than NAXIS1\*NAXIS2, 2") reread(
+            bintablebytes([cards; "THEAP   =                    1"], 1, 2, UInt8[T, F]))
+
         #  a variable-length array of logical values
         cardsp = ["TFIELDS =                    1", "TFORM1  = '1PL(3)  '", "TTYPE1  = 'flags   '"]
         descriptors = UInt8[0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 3]

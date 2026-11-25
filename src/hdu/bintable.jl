@@ -109,6 +109,12 @@ function Base.write(io::IO, ::Type{Bintable}, data::Union{AbstractArray, NamedTu
     end
 end
 
+function verify!(::Type{Bintable}, cards::Cards, mankeys::AbstractDict)
+    cards = invoke(verify!, Tuple{Type{<:AbstractHDU}, Cards, AbstractDict}, Bintable, cards, mankeys)
+    verifyfields!(cards, mankeys)
+    verifyheap!(cards, mankeys)
+end
+
 function verify!(::Type{Bintable}, cards::Cards, format::DataFormat,
     mankeys::AbstractDict)
 

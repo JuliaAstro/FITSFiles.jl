@@ -92,6 +92,11 @@ function Base.write(io::IO, ::Type{Table}, data::Union{AbstractArray, NamedTuple
     end
 end
 
+function verify!(::Type{Table}, cards::Cards, mankeys::AbstractDict)
+    cards = invoke(verify!, Tuple{Type{<:AbstractHDU}, Cards, AbstractDict}, Table, cards, mankeys)
+    verifyfields!(cards, mankeys; columns = true)
+end
+
 function verify!(::Type{Table}, cards::Cards, format::DataFormat,
     mankeys::AbstractDict)
 

@@ -37,6 +37,51 @@
     #  the format of the data is created before the header is corrected to match the data.
     @test_throws MethodError HDU(ProbeHDU, [1, 2, 3], cards)
 
+    ####    Test the keywords of the fields and the heap of a table    ####
+
+    @testset "verifyfields! and verifyheap!" begin
+        cards = Card{<:Any}[Card("TFIELDS", 2)]
+        keys(pairs...) = Dict{AbstractString, FITSFiles.ValueType}(pairs...)
+        ok = keys("TFIELDS" => 2, "TFORM1" => "I4", "TFORM2" => "F5.1", "TBCOL1" => 1, "TBCOL2" => 5)
+
+        #  the cards are returned unchanged, and a header without TFIELDS is not verified (Sects. 7.2.1, 7.3.1)
+        @test FITSFiles.verifyfields!(cards, ok; columns = true) === cards
+        @test FITSFiles.verifyfields!(cards, keys("TFORM3" => "I4")) === cards
+        @test FITSFiles.verifyfields!(cards, keys("TFIELDS" => 0)) === cards
+
+        #  TFIELDS is not negative, and TFORMn and TBCOLn are present for each field
+        @test_throws ArgumentError("TFIELDS must be non-negative, but its value is -1.") FITSFiles.verifyfields!(
+            cards, keys("TFIELDS" => -1))
+        @test_throws ArgumentError("TFORM2 is missing, but TFIELDS is 2.") FITSFiles.verifyfields!(
+            cards, keys("TFIELDS" => 2, "TFORM1" => "I4"))
+        @test_throws ArgumentError("TBCOL2 is missing, but TFIELDS is 2.") FITSFiles.verifyfields!(
+            cards, delete!(copy(ok), "TBCOL2"); columns = true)
+        @test FITSFiles.verifyfields!(cards, delete!(copy(ok), "TBCOL2")) === cards
+
+        #  the first column of a row is 1
+        @test_throws ArgumentError FITSFiles.verifyfields!(cards, merge(ok, keys("TBCOL1" => 0)); columns = true)
+        @test FITSFiles.verifyfields!(cards, merge(ok, keys("TBCOL1" => 0))) === cards
+
+        #  more than 999 fields, and keywords of fields that are beyond TFIELDS, are warnings
+        @test_logs (:warn, r"TFIELDS 1000 is more than the maximum of 999") FITSFiles.verifyfields!(
+            cards, keys("TFIELDS" => 1000, [("TFORM$j" => "I4") for j = 1:1000]...))
+        @test_logs (:warn, r"TFORM3 is beyond TFIELDS 2") FITSFiles.verifyfields!(cards, merge(ok, keys("TFORM3" => "I4")))
+        @test_logs (:warn, r"TBCOL3 is beyond TFIELDS 2") FITSFiles.verifyfields!(
+            cards, merge(ok, keys("TBCOL3" => 9)); columns = true)
+        @test_logs FITSFiles.verifyfields!(cards, merge(ok, keys("TBCOL3" => 9)))
+
+        #  the heap starts at the end of the main data table or later, and within PCOUNT bytes of it (Sect. 7.3.2)
+        table = keys("NAXIS1" => 8, "NAXIS2" => 3, "PCOUNT" => 10)
+        @test_logs FITSFiles.verifyheap!(cards, table)
+        @test_logs FITSFiles.verifyheap!(cards, merge(table, keys("THEAP" => 24)))
+        @test_logs FITSFiles.verifyheap!(cards, merge(table, keys("THEAP" => 34)))
+        @test_logs (:warn, r"THEAP 23 is less than NAXIS1\*NAXIS2, 24") FITSFiles.verifyheap!(
+            cards, merge(table, keys("THEAP" => 23)))
+        @test_logs (:warn, r"THEAP 35 is more than NAXIS1\*NAXIS2 \+ PCOUNT, 34") FITSFiles.verifyheap!(
+            cards, merge(table, keys("THEAP" => 35)))
+        @test FITSFiles.verifyheap!(cards, merge(table, keys("THEAP" => 23))) === cards
+    end
+
     ####    Test the correction of the shape and the counts    ####
 
     @testset "verifyshape! and verifycounts!" begin
