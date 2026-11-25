@@ -152,6 +152,8 @@ const RESERVEDKEYS = (
 	"PTYPE", "PSCAL", "PZERO",
 	#  Image field keys
 	"BSCALE", "BZERO", "BUNIT", "BLANK", "DATAMAX", "DATAMIN",
+	#  World-coordinate and time keys that are integers
+	"WCSAXES", "MJDREFI", "JDREFI",
 	#  Table field keys
 	"TFIELDS", "TFORM", "TBCOL", "TSCAL", "TZERO", "TNULL", "TTYPE", "TUNIT",
 	"TDISP", "TDMAX", "TDMIN", "TLMAX", "TLMIN",
@@ -160,7 +162,7 @@ const RESERVEDKEYS = (
 	"TDISP", "TDIM", "TDMAX", "TDMIN", "TLMAX", "TLMIN",
 	#  ZImage field keys
 	"ZTILE", "ZNAME", "ZVAL", "ZMASKCMP", "ZQUANTIZ", "ZDITHER0", "ZSIMPLE",
-	"ZEXTEND", "ZBLOCKED", "ZTENSION", "ZPCOUNT", "ZGCOUNT", "ZHECKSUM",
+	"ZEXTEND", "ZBLOCKED", "ZTENSION", "ZPCOUNT", "ZGCOUNT", "ZBLANK", "ZHECKSUM",
 	"ZDATASUM",
 	#  ZTable field keys
 	"FZTILELN", "FZALGOR", "FZALG", "ZTHEAP", "ZHECKSUM", "ZDATASUM")
@@ -207,7 +209,7 @@ function HDU(type::Type, ::Missing = missing, cards::C = missing; kwds...) where
 	#  Create dictionaries of mandatory and reserved keywords
 	mankeys, reskeys = getreservedkeys(kards)
 
-	kards  = verify!(type, kards, mankeys)
+	kards  = verify!(type, kards, mankeys, reskeys)
 	format = DataFormat(type, missing, mankeys)
 	kards  = verify!(type, kards, format, mankeys)
 	fields = FieldFormat(type, format, reskeys, missing)
@@ -340,7 +342,7 @@ function Base.read(io::IO, ::Type{HDU}; type = nothing, strict::Bool = true, uni
 
 	#  Read data
 	type_  = type === nothing ? typeofhdu(mankeys) : type
-	cards  = verify!(type_, cards, mankeys)
+	cards  = verify!(type_, cards, mankeys, reskeys)
 	format = DataFormat(type_, missing, mankeys)
 	cards  = verify!(type_, cards, format, mankeys)
 	fields = FieldFormat(type_, format, reskeys, missing)
@@ -373,7 +375,7 @@ function Base.write(io::IO, hdu::HDU{<:AbstractHDU}; kwds...)
 	mankeys, reskeys = getreservedkeys(cards)
 
 	type   = typeofhdu(hdu)
-	cards  = verify!(type, cards, mankeys)
+	cards  = verify!(type, cards, mankeys, reskeys)
 	format = DataFormat(type, missing, mankeys)
 	cards  = verify!(type, cards, format, mankeys)
 	fields = FieldFormat(type, format, reskeys, missing)
@@ -448,10 +450,10 @@ function leastfloat(value::Union{Real, Nothing})
 end
 
 """
-    verify!(type, cards, mankeys)
+    verify!(type, cards, mankeys, reskeys)
 
-Verify the values of the mandatory keywords of a header before the data format is created
-from them. Return the cards. A verify! method of an HDU type corrects the cards and the
+Verify the values of the mandatory and reserved keywords of a header, `mankeys` and `reskeys`, before
+the data format is created from them. Return the cards. A verify! method of an HDU type corrects the cards and the
 mandatory keywords, `mankeys`, when it is possible, and otherwise raises an error that names
 the keyword and its value. The generic method raises an error if the value of a keyword that
 must be an integer is not (see [`verifyinteger`](@ref)), and warns if the XTENSION value is
@@ -460,27 +462,29 @@ not padded.
 The verify! methods that also have a data format argument are for the HDU types that create
 the format from data and then correct the header to match the data.
 """
-function verify!(::Type{<:AbstractHDU}, cards::Cards, mankeys::AbstractDict)
-	verifyinteger(mankeys)
+function verify!(::Type{<:AbstractHDU}, cards::Cards, mankeys::AbstractDict, reskeys::AbstractDict)
+	#  The integer keywords that are common to all HDUs: BITPIX, NAXIS, NAXISn, PCOUNT, and GCOUNT (Sects. 4.4.1.1,
+	#  4.4.1.2, and 6.1.1) are mandatory, and EXTVER and EXTLEVEL (Sect. 4.4.2.6), WCSAXES, with an optional alternate
+	#  version letter (Sect. 8.2), and MJDREFI and JDREFI (Sect. 9.2.2) are reserved. The integer keywords of one
+	#  type of HDU, e.g., TFIELDS or BLANK, are verified by the verify! method of that type.
+	verifyinteger(mankeys, r"^(BITPIX|NAXIS\d*|PCOUNT|GCOUNT)$")
+	verifyinteger(reskeys, r"^(EXTVER|EXTLEVEL|WCSAXES[A-Z]?|MJDREFI|JDREFI)$")
 	verifyxtension!(cards)
 end
 
-#  The mandatory and reserved keywords of the structure of an HDU whose value must be an integer: BITPIX,
-#  NAXIS, and NAXISn (Sect. 4.4.1.1), PCOUNT and GCOUNT (Sect. 4.4.1.2), TFIELDS and TBCOLn (Sects. 7.2.1
-#  and 7.3.1), and THEAP (Sect. 7.3.2).
-const INTEGERKEYS = r"^(BITPIX|NAXIS\d*|PCOUNT|GCOUNT|TFIELDS|TBCOL\d+|THEAP)$"
-
 """
-	verifyinteger(mankeys)
+	verifyinteger(keys, pattern)
 
-Raise an `ArgumentError` that names the keyword and its value if the value of a keyword that the
-standard requires to be an integer is not an integer, e.g., NAXIS1 = 2.0 or PCOUNT = 'two'. A
-floating-point value, even of a whole number, is not an integer, and the size of the data cannot be
-determined from it, so the HDU cannot be read.
+Raise an `ArgumentError` that names the keyword and its value if the value of a keyword of the dictionary
+`keys` that matches the regular expression `pattern` is not an integer, e.g., NAXIS1 = 2.0 or PCOUNT = 'two'.
+`keys` is the dictionary of the mandatory keywords, `mankeys`, or of the reserved keywords, `reskeys`, of a
+header (see `MANDATORYKEYS` and `RESERVEDKEYS`), and a verify! method calls `verifyinteger` once for each. A
+floating-point value, even of a whole number, is not an integer, and the size of the data cannot be determined
+from it, so the HDU cannot be read. The values of other keywords are not checked.
 """
-function verifyinteger(mankeys::AbstractDict)
-	for (key, value) in mankeys
-		occursin(INTEGERKEYS, key) || continue
+function verifyinteger(keys::AbstractDict, pattern::Regex)
+	for (key, value) in keys
+		occursin(pattern, key) || continue
 		value isa Integer && !(value isa Bool) && continue
 		throw(ArgumentError("$key must be an integer, but its value is $(repr(value))."))
 	end

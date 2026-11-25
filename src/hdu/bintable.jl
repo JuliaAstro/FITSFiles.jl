@@ -109,8 +109,12 @@ function Base.write(io::IO, ::Type{Bintable}, data::Union{AbstractArray, NamedTu
     end
 end
 
-function verify!(::Type{Bintable}, cards::Cards, mankeys::AbstractDict)
-    cards = invoke(verify!, Tuple{Type{<:AbstractHDU}, Cards, AbstractDict}, Bintable, cards, mankeys)
+function verify!(::Type{Bintable}, cards::Cards, mankeys::AbstractDict, reskeys::AbstractDict)
+    cards = invoke(verify!, Tuple{Type{<:AbstractHDU}, Cards, AbstractDict, AbstractDict}, Bintable, cards,
+        mankeys, reskeys)
+    #  The number of fields, the heap offset, and the null values are integers (Sects. 7.3.1 and 7.3.2)
+    verifyinteger(mankeys, r"^(TFIELDS|THEAP)$")
+    verifyinteger(reskeys, r"^TNULL\d+$")
     verifyfields!(cards, mankeys)
     verifyheap!(cards, mankeys)
 end

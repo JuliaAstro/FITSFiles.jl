@@ -3,27 +3,72 @@
 
     #  an HDU type that raises an error when its mandatory keywords are verified
     struct ProbeHDU <: FITSFiles.AbstractHDU end
-    FITSFiles.verify!(::Type{ProbeHDU}, cards::FITSFiles.Cards, mankeys::AbstractDict) =
+    FITSFiles.verify!(::Type{ProbeHDU}, cards::FITSFiles.Cards, mankeys::AbstractDict, reskeys::AbstractDict) =
         error("verified $(sort(collect(keys(mankeys))))")
+
+    #  the verification of the cards of a header, with its mandatory and reserved keywords
+    function verified(type, cards)
+        mankeys, reskeys = FITSFiles.getreservedkeys(cards)
+        FITSFiles.verify!(type, cards, mankeys, reskeys)
+    end
 
     #  the generic method returns the cards, and leaves the keywords unchanged.
     cards = Card{<:Any}[Card("SIMPLE", true), Card("BITPIX", 16), Card("NAXIS", 0)]
-    mankeys = Dict{AbstractString, FITSFiles.ValueType}("BITPIX" => 16, "BSCALE" => 2.5)
-    @test FITSFiles.verify!(FITSFiles.Primary, cards, mankeys) === cards
-    @test mankeys == Dict("BITPIX" => 16, "BSCALE" => 2.5)
+    mankeys = Dict{AbstractString, FITSFiles.ValueType}("BITPIX" => 16)
+    reskeys = Dict{AbstractString, FITSFiles.ValueType}("BSCALE" => 2.5)
+    @test FITSFiles.verify!(FITSFiles.Primary, cards, mankeys, reskeys) === cards
+    @test mankeys == Dict("BITPIX" => 16) && reskeys == Dict("BSCALE" => 2.5)
 
-    #  the keywords of the structure of an HDU must be integers (Sects. 4.4.1, 7.2.1, 7.3.1), even if
-    #  the value of a floating-point number is a whole number; other keywords are not checked.
-    for key in ("BITPIX", "NAXIS", "NAXIS1", "NAXIS12", "PCOUNT", "GCOUNT", "TFIELDS", "TBCOL3", "THEAP")
+    #  the values of the keywords that the standard requires to be integers must be integers (Sects. 4.4.1, 4.4.2,
+    #  6.1.1, 7.2.1, 7.3.1, 7.3.2, 8.2, 9.2.2, and 10), even if the value of a floating-point number is a whole number.
+    #  Each type of HDU verifies the keywords that it defines, and all of them verify the common keywords.
+    common = ["BITPIX", "NAXIS", "NAXIS1", "NAXIS12", "PCOUNT", "GCOUNT", "EXTVER", "EXTLEVEL", "WCSAXES",
+        "WCSAXESA", "MJDREFI", "JDREFI"]
+    integerkeys = [
+        FITSFiles.Primary => ["BLANK"], FITSFiles.Conform => ["BLANK"], Image => ["BLANK"], Random => String[],
+        Table => ["TFIELDS", "TBCOL3"], Bintable => ["TFIELDS", "THEAP", "TNULL1", "TNULL12"],
+        FITSFiles.ZImage => ["ZBITPIX", "ZNAXIS", "ZNAXIS2", "ZTILE1", "ZDITHER0", "ZPCOUNT", "ZGCOUNT", "ZBLANK"],
+        FITSFiles.ZTable => ["ZNAXIS1", "ZNAXIS2", "ZPCOUNT", "ZTILELEN", "ZTHEAP"]]
+    for (type, keys) in integerkeys, key in [common; keys]
         for value in (2.5, 3.0, "two", true, missing)
-            mankeys = Dict{AbstractString, FITSFiles.ValueType}(key => value)
-            @test_throws ArgumentError("$key must be an integer, but its value is $(repr(value)).") FITSFiles.verify!(
-                FITSFiles.Primary, cards, mankeys)
+            cards = Card{<:Any}[Card("SIMPLE", true), Card(key, value)]
+            @test_throws ArgumentError("$key must be an integer, but its value is $(repr(value)).") verified(
+                type, cards)
         end
-        mankeys = Dict{AbstractString, FITSFiles.ValueType}(key => 3)
-        @test FITSFiles.verify!(FITSFiles.Primary, cards, mankeys) === cards
     end
-    @test_throws ArgumentError FITSFiles.verify!(Image, cards, Dict{AbstractString, FITSFiles.ValueType}("NAXIS1" => 2.0))
+
+    #  the HDU types are independent: a keyword of one type is not verified by another type, and the other
+    #  keywords are not checked
+    others = Dict(FITSFiles.Primary => ["TFIELDS", "THEAP", "TNULL1", "ZBITPIX"], Image => ["TBCOL1", "ZNAXIS"],
+        Random => ["BLANK", "TFIELDS"], Table => ["BLANK", "THEAP", "TNULL1", "ZTHEAP"],
+        Bintable => ["BLANK", "TBCOL1", "ZTILELEN"], FITSFiles.ZImage => ["BLANK", "TFIELDS", "ZTHEAP"],
+        FITSFiles.ZTable => ["BLANK", "THEAP", "ZBLANK"])
+    for (type, keys) in others, key in [keys; "BSCALE"; "EQUINOX"; "NAXISX"; "OBJECT"]
+        cards = Card{<:Any}[Card(key, 2.5)]
+        @test verified(type, cards) === cards
+    end
+    cards = Card{<:Any}[Card("TNULL1", "NULL")]
+    @test verified(Table, cards) === cards
+    @test_throws ArgumentError("TNULL1 must be an integer, but its value is \"NULL\".") verified(Bintable, cards)
+
+    #  verifyinteger verifies the keywords of one dictionary that match the pattern
+    dict(pairs...) = Dict{AbstractString, FITSFiles.ValueType}(pairs...)
+    @test FITSFiles.verifyinteger(dict("BITPIX" => 8, "NAXIS" => 0), r"^(BITPIX|NAXIS\d*)$") === nothing
+    @test FITSFiles.verifyinteger(dict("NAXIS" => 1.5), r"^BITPIX$") === nothing
+    @test FITSFiles.verifyinteger(dict(), r"^BITPIX$") === nothing
+    @test_throws ArgumentError("NAXIS2 must be an integer, but its value is 2.5.") FITSFiles.verifyinteger(
+        dict("BITPIX" => 8, "NAXIS2" => 2.5), r"^(BITPIX|NAXIS\d*)$")
+
+    #  the keywords that are verified are in the dictionary of the mandatory or of the reserved keywords that
+    #  the verify! method of the type verifies
+    for (key, mandatory) in ["BITPIX" => true, "NAXIS3" => true, "PCOUNT" => true, "GCOUNT" => true, "TFIELDS" => true,
+        "TBCOL2" => true, "THEAP" => true, "ZBITPIX" => true, "ZNAXIS1" => true, "ZPCOUNT" => true, "ZTILELEN" => true,
+        "EXTVER" => false, "EXTLEVEL" => false, "WCSAXES" => false, "MJDREFI" => false, "JDREFI" => false,
+        "BLANK" => false, "TNULL3" => false, "ZTILE2" => false, "ZDITHER0" => false, "ZGCOUNT" => false,
+        "ZBLANK" => false, "ZTHEAP" => false]
+        mankeys, reskeys = FITSFiles.getreservedkeys(Card{<:Any}[Card(key, 3)])
+        @test haskey(mandatory ? mankeys : reskeys, key)
+    end
 
     #  mandatory keywords are verified before the data format is created when an HDU is read,
     #  written, or created without data. The data format of ProbeHDU is not defined.

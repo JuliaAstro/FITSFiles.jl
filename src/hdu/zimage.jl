@@ -21,6 +21,15 @@ function Base.write(io::IO, ::Type{ZImage}, cards::Vector{Card}; kwds...)
 
 end
 
+#  The keywords that describe the compressed image are integers (Sect. 10.1)
+function verify!(::Type{ZImage}, cards::Cards, mankeys::AbstractDict, reskeys::AbstractDict)
+    cards = invoke(verify!, Tuple{Type{<:AbstractHDU}, Cards, AbstractDict, AbstractDict}, ZImage, cards,
+        mankeys, reskeys)
+    verifyinteger(mankeys, r"^(ZBITPIX|ZNAXIS\d*|ZPCOUNT)$")
+    verifyinteger(reskeys, r"^(ZTILE\d+|ZDITHER0|ZGCOUNT|ZBLANK)$")
+    cards
+end
+
 function verify!(::Type{ZImage}, type::Type, shape::Tuple, cards::Cards,
     mankeys::D) where D<:Dict{AbstractString, ValueType}
 

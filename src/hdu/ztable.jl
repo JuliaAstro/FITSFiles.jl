@@ -21,6 +21,15 @@ function Base.write(io::IO, ::Type{ZTable}, cards::Vector{Card}; kwds...)
 
 end
 
+#  The keywords that describe the compressed table are integers (Sect. 10.3)
+function verify!(::Type{ZTable}, cards::Cards, mankeys::AbstractDict, reskeys::AbstractDict)
+    cards = invoke(verify!, Tuple{Type{<:AbstractHDU}, Cards, AbstractDict, AbstractDict}, ZTable, cards,
+        mankeys, reskeys)
+    verifyinteger(mankeys, r"^(ZNAXIS\d*|ZPCOUNT|ZTILELEN)$")
+    verifyinteger(reskeys, r"^ZTHEAP$")
+    cards
+end
+
 function verify!(::Type{ZTable}, type::Type, shape::Tuple, cards::Cards,
     mankeys::D) where D<:Dict{AbstractString, ValueType}
 
