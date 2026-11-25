@@ -106,19 +106,9 @@ function Base.write(io::IO, ::Type{Table}, data::NamedTuple, format::DataFormat,
 end
 
 function verify!(::Type{Table}, cards::Cards, format::DataFormat,
-    mankeys::D) where D<:Dict{AbstractString, ValueType}
+    mankeys::AbstractDict)
 
-    if haskey(mankeys, "BITPIX") && format.type != BITS2TYPE[mankeys["BITPIX"]]
-        setindex!(cards, TYPE2BITS[format.type], "BITPIX")
-        println("Warning: BITPIX set to $(TYPE2BITS[format.type])).")
-    end
-    if haskey(mankeys, "NAXIS1") && format.shape != datasize(cards, 1)
-        N = length(format.shape)
-        setindex!(cards, N, "NAXIS")
-        for j=1:N setindex!(cards, format.shape[j], "NAXIS$j") end
-        println("Warning: NAXIS$(1:N) set to $(format.shape)")
-    end
-    cards
+    verifyshape!(cards, mankeys, format)
 end
 
 function DataFormat(::Type{Table}, data::Missing, mankeys::Dict{S, V}) where
@@ -155,10 +145,10 @@ function FieldFormat(::Type{Table}, format::DataFormat, reskeys::Dict{S, V},
         tscal = leastfloat(get(reskeys, "TSCAL$j",
             type <: String ? nothing : 1.0f0))
         null  = get(reskeys, "TNULL$j", nothing)
-        dmin  = parse_string(get(reskeys, "TDMIN$j", nothing))
-        dmax  = parse_string(get(reskeys, "TDMAX$j", nothing))
-        lmin  = parse_string(get(reskeys, "TLMIN$j", nothing))
-        lmax  = parse_string(get(reskeys, "TLMAX$j", nothing))
+        dmin  = parsestring(get(reskeys, "TDMIN$j", nothing))
+        dmax  = parsestring(get(reskeys, "TDMAX$j", nothing))
+        lmin  = parsestring(get(reskeys, "TLMIN$j", nothing))
+        lmax  = parsestring(get(reskeys, "TLMAX$j", nothing))
 
         fields[j] = TableField(name, type, k:k+leng-1, unit, form, disp,
             tzero, tscal, null, dmin, dmax, lmin, lmax)
@@ -204,10 +194,10 @@ function FieldFormat(::Type{Table}, format::DataFormat, reskeys::Dict{S, V},
         tscal = leastfloat(get(reskeys, "TSCAL$j",
             type <: String ? nothing : 1.0f0))
         null  = get(reskeys, "TNULL$j", nothing)
-        dmin  = parse_string(get(reskeys, "TDMIN$j", nothing))
-        dmax  = parse_string(get(reskeys, "TDMAX$j", nothing))
-        lmin  = parse_string(get(reskeys, "TLMIN$j", nothing))
-        lmax  = parse_string(get(reskeys, "TLMAX$j", nothing))
+        dmin  = parsestring(get(reskeys, "TDMIN$j", nothing))
+        dmax  = parsestring(get(reskeys, "TDMAX$j", nothing))
+        lmin  = parsestring(get(reskeys, "TLMIN$j", nothing))
+        lmax  = parsestring(get(reskeys, "TLMAX$j", nothing))
 
         fields[j] = TableField(name, type, k:k+leng, unit, form, disp,
             tzero, tscal, null, dmin, dmax, lmin, lmax)
@@ -253,10 +243,10 @@ function FieldFormat(::Type{Table}, format::DataFormat, reskeys::Dict{S, V},
         tscal = leastfloat(get(reskeys, "TSCAL$j",
             type <: String ? nothing : 1.0f0))
         null  = get(reskeys, "TNULL$j", nothing)
-        dmin  = parse_string(get(reskeys, "TDMIN$j", nothing))
-        dmax  = parse_string(get(reskeys, "TDMAX$j", nothing))
-        lmin  = parse_string(get(reskeys, "TLMIN$j", nothing))
-        lmax  = parse_string(get(reskeys, "TLMAX$j", nothing))
+        dmin  = parsestring(get(reskeys, "TDMIN$j", nothing))
+        dmax  = parsestring(get(reskeys, "TDMAX$j", nothing))
+        lmin  = parsestring(get(reskeys, "TLMIN$j", nothing))
+        lmax  = parsestring(get(reskeys, "TLMAX$j", nothing))
 
         fields[j] = TableField(name, type, k:k+leng, unit, form, disp,
             tzero, tscal, null, dmin, dmax, lmin, lmax)
@@ -264,38 +254,17 @@ function FieldFormat(::Type{Table}, format::DataFormat, reskeys::Dict{S, V},
     fields
 end
 
-function create_cards!(::Type{Table}, format::DataFormat,
+function createcards!(::Type{Table}, format::DataFormat,
     fields::Vector{TableField}, cards::Cards; kwds...)
-    M, N = length(format.shape) == 2 ? format.shape : (0, 0)
-    T = length(fields)
-    #  create mandatory header cards and remove them from the deck if necessary
-    required = Vector{Card{<:Any}}(undef, 8+2*T)
-    required[1] = popat!(cards, "XTENSION", Card("XTENSION", "TABLE   "))
-    required[2] = popat!(cards, "BITPIX", Card("BITPIX", 8))
-    required[3] = popat!(cards, "NAXIS",  Card("NAXIS", 2))
-    required[4] = popat!(cards, "NAXIS1", Card("NAXIS1", M))
-    required[5] = popat!(cards, "NAXIS2", Card("NAXIS2", N))
-    required[6] = popat!(cards, "PCOUNT", Card("PCOUNT", 0))
-    required[7] = popat!(cards, "GCOUNT", Card("GCOUNT", 1))
-    required[8] = popat!(cards, "TFIELDS", Card("TFIELDS", T))
-    for j=1:T
-        required[8+2*j-1] = popat!(cards, "TFORM$j", Card("TFORM$j",
-            fields[j].form))
-        required[8+2*j] = popat!(cards, "TBCOL$j", Card("TBCOL$j",
-            first(fields[j].slice)))
-    end
 
-    #  Append remaining cards in deck, but first remove the END card
-    popat!(cards, "END")
-    K = length(cards)
-    kards = Vector{Card{<:Any}}(undef,8+2*T+K)
-    kards[1:8+2*T] .= required
-    kards[9+2*T:8+2*T+K] .= cards
-    #  END card is implied. Will be append on write.
-    return kards
+    required = tablekeys("TABLE", format, length(fields))
+    for (j, field) in enumerate(fields)
+        push!(required, "TFORM$j" => field.form, "TBCOL$j" => first(field.slice))
+    end
+    arrangecards!(cards, required)
 end
 
-function create_data(::Type{Table}, format::DataFormat,
+function createdata(::Type{Table}, format::DataFormat,
     fields::Vector{TableField}; kwds...)
     #  Create simple N-dimensional array of zeros of type BITPIX
     if length(format.shape) == 2

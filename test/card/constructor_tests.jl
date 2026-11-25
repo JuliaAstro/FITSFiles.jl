@@ -451,8 +451,8 @@
     @test isequal(showfields(card[1])[1:3], ("LONGCOM", "Kelley O'Hara Kelley O'Har", "long comment long comment long comme"))
     @test isequal(showfields(card[3])[1:3], ("CONTINUE", "ara Kelley O'Hara Kelley O", "mment"))
     #  the pieces of a comment that is split at any character are joined with a space, as are the pieces of an image.
-    @test FITSFiles.join_cards(card).value == value
-    @test replace(FITSFiles.join_cards(card).comment, " " => "") == replace(comment, " " => "")
+    @test FITSFiles.joincards(card).value == value
+    @test replace(FITSFiles.joincards(card).comment, " " => "") == replace(comment, " " => "")
 
     #  type of String Card having string with multiple single quotes with CONTINUE cards in free-format
     value, comment = repeat("Kelley O'Hara ", 6), repeat("long comment ", 10)
@@ -462,8 +462,8 @@
         "CONTINUE  'ra Kelley O''Hara Kelley O&'  / t long comment long comment long comm",
         "CONTINUE  '''Hara Kelley O''Hara Kelle&' / ent long comment long comment long co",
         "CONTINUE  'y O''Hara '                   / mment long comment"]
-    @test FITSFiles.join_cards(card).value == value
-    @test replace(FITSFiles.join_cards(card).comment, " " => "") == replace(comment, " " => "")
+    @test FITSFiles.joincards(card).value == value
+    @test replace(FITSFiles.joincards(card).comment, " " => "") == replace(comment, " " => "")
 
     #  a string that fits on a card is not split, and moves the comment to the right of the string,
     #  and the comment is truncated, if truncate is true.
@@ -491,7 +491,7 @@
     cards = Card("KEY", repeat("x", 69))
     @test cards isa Vector && length(cards) == 2
     @test rstrip.(repr.(cards)) == ["KEY     = '" * repeat("x", 67) * "&'", "CONTINUE  'xx'"]
-    @test FITSFiles.join_cards(cards).value == repeat("x", 69)
+    @test FITSFiles.joincards(cards).value == repeat("x", 69)
 
     #  the comment that does not fit is continued on the CONTINUE cards, if truncate is false, at the comment separator.
     value, comment = repeat("x", 60), "a comment that is long enough to be continued on the next cards"
@@ -500,7 +500,7 @@
     @test rstrip.(repr.(cards)) == ["KEY     = '" * value * "&' / a",
         "CONTINUE  '&'                  / comment that is long enough to be continued on",
         "CONTINUE  ''                   / the next cards"]
-    @test FITSFiles.join_cards(cards).value == value && FITSFiles.join_cards(cards).comment == comment
+    @test FITSFiles.joincards(cards).value == value && FITSFiles.joincards(cards).comment == comment
     @test Card("KEY", value, "short"; truncate = false) isa Card
     @test Card("KEY", value, "short"; truncate = false).comment == "short"
     #  a comment that fits on the card is not continued, and a number has no CONTINUE cards.
@@ -896,9 +896,9 @@
             (() -> Card("ABC", 1, repeat("x", 60); truncate = false), "Comment does not fit on the card."),
             (() -> FITSFiles.setvalue!(Card("COMMENT", "a"), 1), "value is not a string."),
             (() -> FITSFiles.setvalue!(Card("END"), 1), "END keyword has no value."),
-            (() -> FITSFiles.format_card(FITSFiles.Comment, "COMMENT", 1, "", "", FITSFiles.CardFormat()), "Value is not a string."),
-            (() -> FITSFiles.format_card(FITSFiles.History, "HISTORY", 1, "", "", FITSFiles.CardFormat()), "Value is not a string."),
-            (() -> FITSFiles.format_card(FITSFiles.Continue, "CONTINUE", 1, "", "", FITSFiles.CardFormat()), "Continue contains non-string value."))
+            (() -> FITSFiles.formatcard(FITSFiles.Comment, "COMMENT", 1, "", "", FITSFiles.CardFormat()), "Value is not a string."),
+            (() -> FITSFiles.formatcard(FITSFiles.History, "HISTORY", 1, "", "", FITSFiles.CardFormat()), "Value is not a string."),
+            (() -> FITSFiles.formatcard(FITSFiles.Continue, "CONTINUE", 1, "", "", FITSFiles.CardFormat()), "Continue contains non-string value."))
             @test_throws ArgumentError f()
             @test_throws message f()
         end
@@ -962,10 +962,10 @@
     @testset "comment with a separator at the end of the card" begin
         comment = repeat("word ", 8)
         cards = Card("K", "aaaaa", comment; slash = 79, truncate = false)
-        @test cards isa Vector && FITSFiles.join_cards(cards).comment == strip(comment)
+        @test cards isa Vector && FITSFiles.joincards(cards).comment == strip(comment)
         @test rstrip.(repr.(cards)) == ["K       = 'aaaaa&'", "CONTINUE  ''                   / " * strip(comment)]
         cards = Card("K", repeat("x", 100), comment; slash = 79, truncate = false)
-        @test FITSFiles.join_cards(cards).comment == strip(comment) && FITSFiles.join_cards(cards).value == repeat("x", 100)
+        @test FITSFiles.joincards(cards).comment == strip(comment) && FITSFiles.joincards(cards).value == repeat("x", 100)
         card = Card("K", "aaaaa", comment; slash = 79)
         @test card isa Card && isempty(card.comment) && repr(card) == rpad("K       = 'aaaaa'", 80)
         @test_throws "Comment does not fit on the card." Card("K", "a", "c"; slash = 79, truncate = false, rpad = 60)

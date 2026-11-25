@@ -30,8 +30,8 @@ function Base.parse(::Type{Card}, image::AbstractString; strict::Bool = true,
 			card = Card(End, "END", missing, "", CardFormat())
 		elseif key != "END" && (m = match(VALUE_CARD_RE, image[1:TOKENLEN])) !== nothing
 			#  The mandatory keywords have no units.
-			parsed = parse_value_comment(Value, image[(TOKENLEN+1):end]; strict,
-				units = is_fixed_key(key) ? false : units)
+			parsed = parsevaluecomment(Value, image[(TOKENLEN+1):end]; strict,
+				units = isfixedkey(key) ? false : units)
 			card = isnothing(parsed) ?
 				Card(Invalid, key, image[(KEYLENGTH+1):end], "", CardFormat()) :
 				Card(Value{typeof(parsed[1])}, m[:key], parsed...)
@@ -39,7 +39,7 @@ function Base.parse(::Type{Card}, image::AbstractString; strict::Bool = true,
 			comment = image[(KEYLENGTH+1):end]
 			#  A HIERARCH card without a value is commentary text.
 			hier = m[:key] == "HIERARCH" && image[KEYLENGTH+1] == ' ' ?
-				parse_value_comment(Hierarch, image[TOKENLEN:end]; strict, units) : nothing
+				parsevaluecomment(Hierarch, image[TOKENLEN:end]; strict, units) : nothing
 			if !isnothing(hier)
 				card = Card(Hierarch{typeof(hier[2])}, hier...)
 			elseif m[:key] == "HIERARCH" && occursin(HIERARCH_ASSIGN_RE, image)
@@ -50,7 +50,7 @@ function Base.parse(::Type{Card}, image::AbstractString; strict::Bool = true,
 					rstrip(comment), "", CardFormat(true, 1, length(comment)))
 			end
 		elseif (m = match(CONTINUE_CARD_RE, image[1:TOKENLEN])) !== nothing
-			parsed = parse_value_comment(Value, image[(TOKENLEN+1):end]; strict, units = false)
+			parsed = parsevaluecomment(Value, image[(TOKENLEN+1):end]; strict, units = false)
 			if !isnothing(parsed) && parsed[1] isa AbstractString
 				card = Card(Continue, m[:key], parsed...)
 			else
@@ -94,19 +94,19 @@ function Base.parse(::Type{Card}, image::AbstractString, previous; strict::Bool 
 end
 
 #  The indexes of the named groups of a regex, which are found once and not for each match.
-function group_indexes(regex::Regex)
+function groupindexes(regex::Regex)
 	Base.compile(regex)
 	(; (Symbol(name) => index for (index, name) in sort!(collect(Base.PCRE.capture_names(regex.regex))))...)
 end
 
-const VALUE_GROUPS = group_indexes(VALUE_FSC_2)
-const HIERARCH_GROUPS = group_indexes(HIERARCH_FSC)
+const VALUE_GROUPS = groupindexes(VALUE_FSC_2)
+const HIERARCH_GROUPS = groupindexes(HIERARCH_FSC)
 
 #  The offsets of the named groups of a match, where the groups are the indexes of the regex.
-named_offsets(match::RegexMatch, groups::NamedTuple) = map(index -> match.offsets[index], groups)
+namedoffsets(match::RegexMatch, groups::NamedTuple) = map(index -> match.offsets[index], groups)
 
 #  The type of the value is the type of the first group that matches.
-function value_type(valus::RegexMatch)
+function valuetype(valus::RegexMatch)
 	!isnothing(valus[:strg]) ? String : !isnothing(valus[:bool]) ? Bool :
 	!isnothing(valus[:numr]) ? Real : !isnothing(valus[:cplx]) ? Complex : Missing
 end
@@ -116,17 +116,17 @@ end
 ismalformed(valus::Union{RegexMatch, Nothing}) =
 	isnothing(valus) || (!isnothing(valus[:comment]) && isnothing(valus[:slash]))
 
-function parse_value_comment(::Type{Value}, image::AbstractString; strict::Bool = true,
+function parsevaluecomment(::Type{Value}, image::AbstractString; strict::Bool = true,
 	units::Union{Bool, Module} = true)
 	valus = match(strict ? VALUE_FSC_2 : VALUE_LOWER, image)
 	ismalformed(valus) && return nothing
-	offsets = named_offsets(valus, VALUE_GROUPS)
-	value, format = parse_value(value_type(valus), valus, offsets)
-	unit, comment, format = parse_comment!(format, valus, offsets; units)
+	offsets = namedoffsets(valus, VALUE_GROUPS)
+	value, format = parsevalue(valuetype(valus), valus, offsets)
+	unit, comment, format = parsecomment!(format, valus, offsets; units)
 	(value, unit, String(comment), format)
 end
 
-function parse_value(::Type{String}, valus::RegexMatch,
+function parsevalue(::Type{String}, valus::RegexMatch,
 	offsets::NamedTuple)::Tuple{String, CardFormat}
 
 	format = CardFormat()
@@ -141,7 +141,7 @@ function parse_value(::Type{String}, valus::RegexMatch,
 	(ampr == 0 ? trimvalue(value) : value, format)
 end
 
-function parse_value(::Type{Bool}, valus::RegexMatch,
+function parsevalue(::Type{Bool}, valus::RegexMatch,
 	offsets::NamedTuple)::Tuple{Bool, CardFormat}
 
 	format = CardFormat()
@@ -151,11 +151,11 @@ function parse_value(::Type{Bool}, valus::RegexMatch,
 	(value, format)
 end
 
-function parse_value(::Type{Real}, valus::RegexMatch,
+function parsevalue(::Type{Real}, valus::RegexMatch,
 	offsets::NamedTuple)::Tuple{Real, CardFormat}
 
 	format = CardFormat()
-	value = parse_number(valus[:numr])
+	value = parsenumber(valus[:numr])
 	numr, nlen = offsets[:numr], length(valus[:numr])
 	format.fixd = (numr+nlen-1) == FIXEDINDEX ? true : false
 	format.vbeg, format.vend = Int8(numr), Int8(numr+nlen-1)
@@ -163,11 +163,11 @@ function parse_value(::Type{Real}, valus::RegexMatch,
 	(value, format)
 end
 
-function parse_value(::Type{Complex}, valus::RegexMatch,
+function parsevalue(::Type{Complex}, valus::RegexMatch,
 	offsets::NamedTuple)::Tuple{Complex, CardFormat}
 
 	format = CardFormat()
-	value = parse_complex(valus[:real], valus[:imag])
+	value = parsecomplex(valus[:real], valus[:imag])
 	cplx, clen = offsets[:cplx], length(valus[:cplx])
 	format.fixd = false
 	format.vbeg, format.vend = Int8(cplx), Int8(cplx+clen-1)
@@ -175,18 +175,18 @@ function parse_value(::Type{Complex}, valus::RegexMatch,
 	(value, format)
 end
 
-function parse_value(::Type{Missing}, valus::RegexMatch,
+function parsevalue(::Type{Missing}, valus::RegexMatch,
 	offsets::NamedTuple)::Tuple{Missing, CardFormat}
 
 	format = CardFormat()
 	(missing, format)
 end
 
-function parse_value_comment(::Type{Hierarch}, image::AbstractString; strict::Bool = true,
+function parsevaluecomment(::Type{Hierarch}, image::AbstractString; strict::Bool = true,
 	units::Union{Bool, Module} = true)
 	values = match(strict ? HIERARCH_FSC : HIERARCH_LOWER, image)
 	ismalformed(values) && return nothing
-	offsets = named_offsets(values, HIERARCH_GROUPS)
+	offsets = namedoffsets(values, HIERARCH_GROUPS)
 
 	format = CardFormat(false, offsets[:key], 0, offsets[:equal])
 	key = uppercase(values[:key])
@@ -200,11 +200,11 @@ function parse_value_comment(::Type{Hierarch}, image::AbstractString; strict::Bo
 		value = values[:bool] == "T" ? true : false
 		format.vbeg, format.vend = Int8(offsets[:bool]), Int8(offsets[:bool])
 	elseif !isnothing(values[:numr])
-		value = parse_number(values[:numr])
+		value = parsenumber(values[:numr])
 		format.vbeg, format.vend = Int8(offsets[:numr]), Int8(offsets[:numr]+length(values[:numr])-1)
 		format.vfmt = realfmt(values[:numr])
 	elseif !isnothing(values[:cplx])
-		value = parse_complex(values[:real], values[:imag])
+		value = parsecomplex(values[:real], values[:imag])
 		format.vbeg, format.vend = Int8(offsets[:cplx]), Int8(offsets[:cplx]+length(values[:cplx])-1)
 		format.vfmt = complexfmt(values[:cplx])
 	else
@@ -212,11 +212,11 @@ function parse_value_comment(::Type{Hierarch}, image::AbstractString; strict::Bo
 		format.vend = Int8(offsets[:equal])
 	end
 
-	unit, comment, format = parse_comment!(format, values, offsets; units)
+	unit, comment, format = parsecomment!(format, values, offsets; units)
 	(key, value, unit, comment, format)
 end
 
-function parse_comment!(format::F, values::R, offsets::N; units::Union{Bool, Module} = true) where
+function parsecomment!(format::F, values::R, offsets::N; units::Union{Bool, Module} = true) where
 {F <: CardFormat, R <: RegexMatch, N <: NamedTuple}
 
 	unit = nothing

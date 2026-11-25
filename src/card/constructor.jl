@@ -8,7 +8,7 @@ function Card(key::K = "", value::V = missing, comment::C = ""; fixed::B = true,
 	upkey = uppercase(strip(key))
 	comment = strip(comment)
 	#  Mandatory keywords are always in fixed format.
-	fixed = fixed || is_fixed_key(upkey)
+	fixed = fixed || isfixedkey(upkey)
 
 	#  A keyword that is longer than 8 characters is the tokens of a HIERARCH keyword.
 	if length(upkey) > KEYLENGTH
@@ -19,7 +19,7 @@ function Card(key::K = "", value::V = missing, comment::C = ""; fixed::B = true,
 
 	#  The units of a quantity are not part of the value.
 	value, units = splitunits(value)
-	is_supported(value) || throw(ArgumentError("Value type $(typeof(value)) is not supported."))
+	issupported(value) || throw(ArgumentError("Value type $(typeof(value)) is not supported."))
 	#  The units of a number are the units at the beginning of the comment, as they are for an image.
 	#  The card is made by a function of the units, so a number without units is made by a method that
 	#  knows that there are no units, and the units of a comment are another method.
@@ -38,7 +38,7 @@ function makecard(upkey::AbstractString, value, units, comment::AbstractString, 
 	truncate::Bool, splitat::Union{Char, Nothing})
 
 	#  Check for invalid characters in key, value string, and comment.
-	if !is_hierarch(upkey) && occursin(NON_KEY_TEXT, upkey)
+	if !ishierarch(upkey) && occursin(NON_KEY_TEXT, upkey)
 		throw(ArgumentError("Keyword contains invalid characters."))
 	elseif !ismissing(value) && typeof(value) <: AbstractString && occursin(NON_ASCII_TEXT, value)
 		throw(ArgumentError("Value string contains invalid characters."))
@@ -55,19 +55,19 @@ function makecard(upkey::AbstractString, value, units, comment::AbstractString, 
 	#
 	cards  = nothing
 	format = CardFormat(fixed, 0, 0)
-	if is_end_key(upkey)
+	if isendkey(upkey)
 		#  Verify END card
 		type = End
 		if !ismissing(value) || !isempty(comment)
 			throw(ArgumentError("END keyword has no value or comment."))
 		end
-	elseif is_continue_key(upkey)
+	elseif iscontinuekey(upkey)
 		#  Create CONTINUE card, whose value is a string
 		value isa AbstractString || throw(ArgumentError("Value is not a string."))
 		type = Continue
-		format = layout_card(type, value, comment; append, fixed,
+		format = layoutcard(type, value, comment; append, fixed,
 			slash, lpad, rpad, upad)
-	elseif is_comment_key(upkey)
+	elseif iscommentkey(upkey)
 		#  Create COMMENT card
 		if typeof(value) <: Union{AbstractString, Missing}
 			type = COMMENTKEY[upkey]
@@ -76,16 +76,16 @@ function makecard(upkey::AbstractString, value, units, comment::AbstractString, 
 		else
 			throw(ArgumentError("value is not a string."))
 		end
-	elseif is_valid_key(upkey) && !(typeof(value) <: AbstractString)
+	elseif isvalidkey(upkey) && !(typeof(value) <: AbstractString)
 		#  Create Value card
 		type = Value{typeof(value)}
-		format = layout_card(type, value, comment; fixed, append,
+		format = layoutcard(type, value, comment; fixed, append,
 			slash, lpad, rpad, upad, truncate, units = unitstring(units, ufmt), ufmt)
-	elseif is_valid_key(upkey) &&
-		(splitslash = long_string_slash(String(value), comment, slash, lpad, rpad, truncate)) !== nothing
+	elseif isvalidkey(upkey) &&
+		(splitslash = longstringslash(String(value), comment, slash, lpad, rpad, truncate)) !== nothing
 		#  Create a list of cards from from a long string.
 		type = Value{typeof(value)}
-		cards = split_card(upkey, value, comment,
+		cards = splitcard(upkey, value, comment,
 			(; fixed, slash = splitslash[1], slash2 = splitslash[2], lpad, rpad, upad, append, splitat))
 		cards = [Card(t, k, v, c, f) for (t, k, v, c, f) in cards]
 		#  A string that is not split is a card, and not a list of one card.
@@ -94,8 +94,8 @@ function makecard(upkey::AbstractString, value, units, comment::AbstractString, 
 		#  Create Value card that is not a long string. The key is valid, because the
 		#  characters of the key are checked above and a long key is a HIERARCH key.
 		type = Value{typeof(value)}
-		value = format_xtension_value(upkey, value)
-		format = layout_card(type, value, comment; fixed, append,
+		value = formatxtensionvalue(upkey, value)
+		format = layoutcard(type, value, comment; fixed, append,
 			slash, lpad, rpad, upad, truncate, units = unitstring(units, ufmt), ufmt)
 	end
 
@@ -115,7 +115,7 @@ function Card(key::K, tokens::T, value::V, comment::C;
 	comment = strip(comment)
 	#  The units of a quantity are not part of the value.
 	value, units = splitunits(value)
-	is_supported(value) || throw(ArgumentError("Value type $(typeof(value)) is not supported."))
+	issupported(value) || throw(ArgumentError("Value type $(typeof(value)) is not supported."))
 	#  The units of a number are the units at the beginning of the comment, as they are for an image.
 	if startswith(comment, '[')
 		cunits, ccomment, cpad, cstyle = commentunits(upkey, value, units, comment, upad)
@@ -130,7 +130,7 @@ function makehierarch(upkey::AbstractString, uptoken::AbstractString, value, uni
 	ufmt::AbstractString; fixed::Bool, slash::Integer, lpad::Integer, rpad::Integer, upad::Integer)
 
 	#  Check for invalid characters in key, value string, and comment.
-	if !is_hierarch(upkey) && occursin(NON_KEY_TEXT, upkey)
+	if !ishierarch(upkey) && occursin(NON_KEY_TEXT, upkey)
 		throw(ArgumentError("Keyword contains invalid characters."))
 	elseif !ismissing(value) && typeof(value) <: AbstractString && occursin(NON_ASCII_TEXT, value)
 		throw(ArgumentError("Value string contains invalid characters."))
@@ -145,12 +145,12 @@ function makehierarch(upkey::AbstractString, uptoken::AbstractString, value, uni
 	#
 	format = CardFormat(fixed, 0, 0)
 
-	if is_hierarch(upkey) && is_valid_key(upkey)
+	if ishierarch(upkey) && isvalidkey(upkey)
 		if !occursin(HIERARCH_TOKENS, uptoken)
 			throw(ArgumentError("HIERARCH keyword contains invalid characters."))
 		end
 		type = Hierarch{typeof(value)}
-		format = layout_card(type, uptoken, value, comment; fixed, slash, lpad, rpad, upad,
+		format = layoutcard(type, uptoken, value, comment; fixed, slash, lpad, rpad, upad,
 			units = unitstring(units, ufmt), ufmt)
 	else
 		throw(ArgumentError("Invalid card"))
@@ -159,19 +159,19 @@ function makehierarch(upkey::AbstractString, uptoken::AbstractString, value, uni
 end
 
 #  check key type
-is_end_key(key::AbstractString)      = key == "END"
-is_continue_key(key::AbstractString) = key == "CONTINUE"
-is_comment_key(key::AbstractString)  = haskey(COMMENTKEY, key)
-is_valid_key(key::AbstractString) = length(key) <= KEYLENGTH && occursin(KEY_FSC, key)
+isendkey(key::AbstractString)      = key == "END"
+iscontinuekey(key::AbstractString) = key == "CONTINUE"
+iscommentkey(key::AbstractString)  = haskey(COMMENTKEY, key)
+isvalidkey(key::AbstractString) = length(key) <= KEYLENGTH && occursin(KEY_FSC, key)
 
 #  The types of a value that are written as a FITS value: a string, a logical, an integer, a real
 #  float, or a complex number of integers or floats.
-is_supported(value::Missing) = true
-is_supported(value::Union{AbstractString, Bool, Integer, AbstractFloat}) = true
-is_supported(value::Complex{T}) where T = T !== Bool && (T <: Integer || T <: AbstractFloat)
-is_supported(value) = false
+issupported(value::Missing) = true
+issupported(value::Union{AbstractString, Bool, Integer, AbstractFloat}) = true
+issupported(value::Complex{T}) where T = T !== Bool && (T <: Integer || T <: AbstractFloat)
+issupported(value) = false
 
-function is_fixed_key(key::AbstractString)
+function isfixedkey(key::AbstractString)
 	key in ("SIMPLE", "XTENSION", "BITPIX", "NAXIS", "PCOUNT", "GCOUNT", "END") ||
 		occursin(r"^NAXIS\d{1,3}$", key)
 end
@@ -183,29 +183,29 @@ end
 #  continued on the CONTINUE cards of the string, where the comment begins at the comment separator.
 #  A string that does not fit on a card is split at the comment separator, or at the end of the
 #  card if there is no comment.
-function long_string_slash(value::AbstractString, comment::AbstractString,
+function longstringslash(value::AbstractString, comment::AbstractString,
 	slash::I, lpad::I, rpad::I, truncate::Bool) where I <: Integer
 
 	vlen = length(replace(value, "'" => "''"))
 	#  The comment separator of the CONTINUE cards is the separator of the card, unless there is no space
 	#  for the comment after it, where it is the default separator, if the comment is continued.
 	slash2 = slash
-	if !truncate && !isempty(comment) && comment_length(slash, rpad) <= 0
+	if !truncate && !isempty(comment) && commentlength(slash, rpad) <= 0
 		slash2 = 32
-		comment_length(slash2, rpad) <= 0 && throw(ArgumentError("Comment does not fit on the card."))
+		commentlength(slash2, rpad) <= 0 && throw(ArgumentError("Comment does not fit on the card."))
 	end
-	if vlen <= value_length(slash, lpad)
-		(truncate || length(comment) <= comment_length(slash, rpad)) ? nothing : (slash, slash2)
+	if vlen <= valuelength(slash, lpad)
+		(truncate || length(comment) <= commentlength(slash, rpad)) ? nothing : (slash, slash2)
 	elseif vlen <= CARDLENGTH - TOKENLEN - 2
 		#  The comment separator follows the string, and the continued string has an ampersand.
 		next = vlen + lpad + TOKENLEN + 3
-		(truncate || length(comment) <= comment_length(next, rpad)) ? nothing : (next + 1, slash2)
+		(truncate || length(comment) <= commentlength(next, rpad)) ? nothing : (next + 1, slash2)
 	else
 		isempty(comment) ? (CARDLENGTH + 2, CARDLENGTH + 2) : (slash, slash2)
 	end
 end
 
-function is_hierarch(key::AbstractString)
+function ishierarch(key::AbstractString)
 	key[1:min(length(key), 8)] == "HIERARCH" ||
 		(length(key) > KEYLENGTH && occursin(ASCII_TEXT, key))
 end

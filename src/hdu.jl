@@ -130,6 +130,8 @@ const OUTTYPE  = Dict(
 
     #  Combine XTENSION values in card.jl and hdu.jl. The trailing spaces of a value are not
     #  significant, so the keys are not padded.
+#  The XTENSION value is padded to 8 characters.
+const XTENSIONLENGTH = 8
 const XTENSIONTYPE = Dict("IMAGE" => Image, "TABLE" => Table, "BINTABLE" => Bintable)
 
 const MANDATORYKEYS = (
@@ -183,7 +185,7 @@ function HDU(data::D = missing, cards::C = missing; record::B = false,
 	end
 
 	#  Detect HDU type from either data or cards
-	type = typeofhdu(data, get_reserved_keys(kards)[1])
+	type = typeofhdu(data, getreservedkeys(kards)[1])
 	HDU(type, data, kards; kwds...)
 end
 
@@ -201,14 +203,14 @@ function HDU(type::Type, ::Missing = missing, cards::C = missing; kwds...) where
 	end
 
 	#  Create dictionaries of mandatory and reserved keywords
-	mankeys, reskeys = get_reserved_keys(kards)
+	mankeys, reskeys = getreservedkeys(kards)
 
 	kards  = verify!(type, kards, mankeys)
 	format = DataFormat(type, missing, mankeys)
 	kards  = verify!(type, kards, format, mankeys)
 	fields = FieldFormat(type, format, reskeys, missing)
-	kards  = create_cards!(type, format, fields, kards; kwds...)
-	data   = create_data(type, format, fields; kwds...)
+	kards  = createcards!(type, format, fields, kards; kwds...)
+	data   = createdata(type, format, fields; kwds...)
 
 	HDU{type}(kards, data)
 end
@@ -225,12 +227,12 @@ function HDU(type::Type, data::AbstractArray, cards::C = missing; kwds...) where
 	end
 
 	#  Create dictionaries of mandatory and reserved keywords
-	mankeys, reskeys = get_reserved_keys(kards)
+	mankeys, reskeys = getreservedkeys(kards)
 
 	format = DataFormat(type, data, mankeys)
 	kards  = verify!(type, kards, format, mankeys)
 	fields = FieldFormat(type, format, reskeys, data)
-	kards  = create_cards!(type, format, fields, kards; kwds...)
+	kards  = createcards!(type, format, fields, kards; kwds...)
 	if eltype(data) <: Tuple
 		data = [(; [Symbol(fields[j].name) => data[k][j]
 					for j ∈ 1:format.param]..., data = data[k][end]) for k ∈ 1:format.group]
@@ -252,12 +254,12 @@ function HDU(type::Type, data::U, cards::C = missing; kwds...) where
 	end
 
 	#  Create dictionaries of mandatory and reserved keywords
-	mankeys, reskeys = get_reserved_keys(kards)
+	mankeys, reskeys = getreservedkeys(kards)
 
 	format = DataFormat(type, data, mankeys)
 	kards  = verify!(type, kards, format, mankeys)
 	fields = FieldFormat(type, format, reskeys, data; kwds...)
-	kards  = create_cards!(type, format, fields, kards; kwds...)
+	kards  = createcards!(type, format, fields, kards; kwds...)
 	if typeof(data) <: Tuple
 		data = (; [Symbol(fields[j].name) => data[j] for j ∈ 1:format.param]...,
 			data = data[end])
@@ -366,7 +368,7 @@ the header to a multiple of 2880 bytes, followed by the data.
 function Base.write(io::IO, hdu::HDU{<:AbstractHDU}; kwds...)
 
 	cards = getfield(hdu, :cards)
-	mankeys, reskeys = get_reserved_keys(cards)
+	mankeys, reskeys = getreservedkeys(cards)
 
 	type   = typeofhdu(hdu)
 	cards  = verify!(type, cards, mankeys)
@@ -402,7 +404,7 @@ function Base.read(io::IO, ::Type{Card}; strict::Bool = true, units::Union{Bool,
         block = read(io, BLOCKLEN)
     end
     #  Create dictionaries of mandatory and reserved keywords, which include the END keyword.
-    mankeys, reskeys = get_reserved_keys(cards)
+    mankeys, reskeys = getreservedkeys(cards)
     mankeys["END"] = missing
     (cards, mankeys, reskeys)
 end
@@ -449,12 +451,104 @@ end
 Verify the values of the mandatory keywords of a header before the data format is created
 from them. Return the cards. A verify! method of an HDU type corrects the cards and the
 mandatory keywords, `mankeys`, when it is possible, and otherwise raises an error that names
-the keyword and its value. The generic method accepts all values.
+the keyword and its value. The generic method warns if the XTENSION value is not padded.
 
 The verify! methods that also have a data format argument are for the HDU types that create
 the format from data and then correct the header to match the data.
 """
-verify!(::Type{<:AbstractHDU}, cards::Cards, mankeys::AbstractDict) = cards
+function verify!(::Type{<:AbstractHDU}, cards::Cards, mankeys::AbstractDict)
+	verifyxtension!(cards)
+end
+
+"""
+	verifyxtension!(cards)
+
+Warn if the value of the XTENSION card is not padded to 8 characters, as the standard requires,
+and return the cards unchanged. A file may have the value written without the padding, e.g.,
+`'TABLE'`, which is read without error, since the trailing spaces of a string are not significant,
+and the file is written as it was read, so the card is not changed. The width of the value is the
+width of the string on the card, and not the value.
+"""
+function verifyxtension!(cards::Cards)
+	j = Base.findfirst("XTENSION", cards)
+	ismissing(j) && return cards
+	card = cards[j]
+	value, format = card.value, card.format
+	if value isa AbstractString && rstrip(uppercase(value)) in XTENSION_VALUES && format.vbeg > 0 &&
+		format.vend - format.vbeg - 1 < XTENSIONLENGTH
+		@warn "The XTENSION value '$value' is not padded to $XTENSIONLENGTH characters."
+	end
+	cards
+end
+
+"""
+	verifyshape!(cards, mankeys, format; first = 1)
+
+Correct BITPIX and the NAXIS keywords of `cards` to match the data format `format`, and return
+the cards. `first` is the index of the first NAXISn keyword that describes the data, which is 2
+for random groups, where NAXIS1 is 0.
+"""
+function verifyshape!(cards::Cards, mankeys::AbstractDict, format::DataFormat; first::Integer = 1)
+	if haskey(mankeys, "BITPIX") && format.type != BITS2TYPE[mankeys["BITPIX"]]
+		setindex!(cards, TYPE2BITS[format.type], "BITPIX")
+		@warn "BITPIX set to $(TYPE2BITS[format.type])."
+	end
+	if haskey(mankeys, "NAXIS1") && format.shape != datasize(cards, first)
+		N = length(format.shape) + first - 1
+		setindex!(cards, N, "NAXIS")
+		first == 2 && setindex!(cards, 0, "NAXIS1")
+		for j = first:N setindex!(cards, format.shape[j-first+1], "NAXIS$j") end
+		@warn "NAXIS$(first:N) set to $(format.shape)"
+	end
+	cards
+end
+
+"""
+	verifycounts!(cards, mankeys, format)
+
+Correct PCOUNT and GCOUNT of `cards` to match the data format `format`, and return the cards.
+"""
+function verifycounts!(cards::Cards, mankeys::AbstractDict, format::DataFormat)
+	for (key, value) in (("PCOUNT", format.param), ("GCOUNT", format.group))
+		if haskey(mankeys, key) && value != mankeys[key]
+			setindex!(cards, value, key)
+			@warn "$key set to $value"
+		end
+	end
+	cards
+end
+
+"""
+	arrangecards!(cards, required)
+
+Return the cards with the required cards first, in the order of `required`, and the remaining
+cards of `cards` after them. `required` is a list of `key => value` pairs. A required card that
+is in `cards` is moved to its place, with its comment and layout, and the others are made from
+the values. The END card is removed, since it is implied and is written by `write`.
+"""
+function arrangecards!(cards::Cards, required)
+	kards = Card{<:Any}[popat!(cards, key, Card(key, value)) for (key, value) in required]
+	popat!(cards, "END")
+	append!(kards, cards)
+end
+
+#  The keywords BITPIX and NAXIS, and NAXISn of the shape of the data. The axes begin at NAXIS`first`,
+#  which is 2 for random groups, where NAXIS1 is 0.
+function shapekeys(format::DataFormat; first::Integer = 1)
+	required = Pair{String, Any}["BITPIX" => TYPE2BITS[format.type],
+		"NAXIS" => length(format.shape) + first - 1]
+	first == 2 && push!(required, "NAXIS1" => 0)
+	for (j, n) in enumerate(format.shape) push!(required, "NAXIS$(j+first-1)" => n) end
+	required
+end
+
+#  The keywords of a table extension from XTENSION to TFIELDS, where the shape is the length of a row
+#  and the number of rows.
+function tablekeys(xtension::AbstractString, format::DataFormat, nfields::Integer)
+	M, N = length(format.shape) == 2 ? format.shape : (0, 0)
+	Pair{String, Any}["XTENSION" => xtension, "BITPIX" => 8, "NAXIS" => 2, "NAXIS1" => M,
+		"NAXIS2" => N, "PCOUNT" => 0, "GCOUNT" => 1, "TFIELDS" => nfields]
+end
 
 """
     scaled(data, scale, zero)
@@ -472,7 +566,7 @@ function scaled(data, scale, zero)
 	T.(muladd.(W(scale), W.(data), W(zero)))
 end
 
-function get_reserved_keys(cards::Cards)
+function getreservedkeys(cards::Cards)
 	mankeys = Dict{AbstractString, ValueType}()
 	reskeys = Dict{AbstractString, ValueType}()
 	for (j, card) in enumerate(cards)
@@ -572,7 +666,7 @@ end
 =#
 basetype(T) = Base.typename(T).wrapper
 
-parse_string(value) = value isa String ? parse_number(value) : value
+parsestring(value) = value isa String ? parsenumber(value) : value
 
 ####    Array-like Functions
 
@@ -629,14 +723,14 @@ end
 
 ####    Reserved Keywords
 #=
-function parse_general(cards::Cards)
+function parsegeneral(cards::Cards)
 	date = get(cards, "DATE", missing)
 	orign = get(cards, "ORIGIN", missing)
 	xtend = get(cards, "EXTEND", missing)
 	blokd = get(cards, "BLOCKED", missing)
 end
 
-function parse_observatory(cards::Cards)
+function parseobservatory(cards::Cards)
 	datobs = get(cards, "DATE-OBS", missing)
 	# datxxx = get(cards, "DATExxxx", missing)
 	telscp = get(cards, "TELESCOP", missing)
@@ -645,24 +739,24 @@ function parse_observatory(cards::Cards)
 	object = get(cards, "OBJECT", missing)
 end
 
-function parse_biblio(cards::Cards)
+function parsebiblio(cards::Cards)
 	author = get(cards, "AUTHOR", missing)
 	refern = get(cards, "REFERENC", missing)
 end
 
-function parse_extension(cards::Cards)
+function parseextension(cards::Cards)
 	xname  = get(cards, "EXTNAME", missing)
 	xver   = get(cards, "EXTVER", missing)
 	xlevel = get(cards, "EXTLEVEL", missing)
 	nherit = get(cards, "INHERIT", missing)
 end
 
-function parse_checksums(card::Cards)
+function parsechecksums(card::Cards)
 	datsum = get(cards, "DATASUM", missing)
 	chksum = get(cards, "CHECKSUM", missing)
 end
 
-function parse_wcs(cards::Cards)
+function parsewcs(cards::Cards)
 end
 =#
 
@@ -685,7 +779,7 @@ card joined with the CONTINUE cards that follow it.
 """
 joinvalue(cards::Cards, j::Integer) =
 	basetype(typename(cards[j])) == Value && continued(cards[j]) ?
-	join_cards(@view cards[j:end]).value : cards[j].value
+	joincards(@view cards[j:end]).value : cards[j].value
 
 """
     units(card)

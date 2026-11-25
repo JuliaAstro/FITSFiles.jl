@@ -121,28 +121,10 @@ function Base.write(io::IO, ::Type{Bintable}, data::NamedTuple, format::DataForm
 end
 
 function verify!(::Type{Bintable}, cards::Cards, format::DataFormat,
-    mankeys::D) where D <: Dict{AbstractString, ValueType}
+    mankeys::AbstractDict)
 
-    if haskey(mankeys, "BITPIX") && format.type != BITS2TYPE[mankeys["BITPIX"]]
-        setindex!(cards, TYPE2BITS[format.type], "BITPIX")
-        println("Warning: BITPIX set to $(TYPE2BITS[format.type])).")
-    end
-    if haskey(mankeys, "NAXIS1") && format.shape != datasize(cards, 1)
-        println("$(format.shape), $(datasize(cards, 1))")
-        N = length(format.shape)
-        setindex!(cards, N, "NAXIS")
-        for j=1:N setindex!(cards, format.shape[j], "NAXIS$j") end
-        println("Warning: NAXIS$(1:N) set to $(format.shape)")
-    end
-    if haskey(mankeys, "PCOUNT") && (format.param != mankeys["PCOUNT"])
-        setindex!(cards, format.param, "PCOUNT")
-        println("Warning: PCOUNT set to $(format.param)")
-    end
-    if haskey(mankeys, "GCOUNT") && (format.group != mankeys["GCOUNT"])
-        setindex!(cards, format.group, "GCOUNT")
-        println("Warning: GCOUNT set to $(format.group)")
-    end
-    cards
+    verifyshape!(cards, mankeys, format)
+    verifycounts!(cards, mankeys, format)
 end
 
 function DataFormat(::Type{Bintable}, data::Missing, mankeys::Dict{S, V}) where
@@ -174,7 +156,7 @@ function FieldFormat(::Type{Bintable}, mankeys::DataFormat, reskeys::Dict{S, V},
         if !isnothing(pntr)
             if !(leng in [0, 1])
                 leng = 1
-                println("Warning: TFORM$j repeat value set to 1.")
+                @warn "TFORM$j repeat value set to 1."
             end
             byts = 2*sizeof(pntr)
         elseif type <: BitVector
@@ -193,10 +175,10 @@ function FieldFormat(::Type{Bintable}, mankeys::DataFormat, reskeys::Dict{S, V},
         scale = leastfloat(get(reskeys, "TSCAL$j",
             type <: Union{Bool, BitVector, String} ? nothing : 1.0f0))
         null  = get(reskeys, "TNULL$j", nothing)
-        dmin  = parse_string(get(reskeys, "TDMIN$j", nothing))
-        dmax  = parse_string(get(reskeys, "TDMAX$j", nothing))
-        lmin  = parse_string(get(reskeys, "TLMIN$j", nothing))
-        lmax  = parse_string(get(reskeys, "TLMAX$j", nothing))
+        dmin  = parsestring(get(reskeys, "TDMIN$j", nothing))
+        dmax  = parsestring(get(reskeys, "TDMAX$j", nothing))
+        lmin  = parsestring(get(reskeys, "TLMIN$j", nothing))
+        lmax  = parsestring(get(reskeys, "TLMAX$j", nothing))
 
         fields[j] = BinaryField(name, pntr, type, k+1:k+byts, leng, supp,
             unit_, disp, dims, zero_, scale, null, dmin, dmax, lmin, lmax)
@@ -228,7 +210,7 @@ function FieldFormat(::Type{Bintable}, mankey::DataFormat, reskeys::Dict{S, V},
         name = typeof(data[1]) <: NamedTuple ? rstrip(String(keys(data[1])[j])) :
             rstrip(get(reskeys, "TTYPE$j", "field$j"))
         pntr  = nothing
-        type, leng, byts = field_descriptor(data[1][j])
+        type, leng, byts = fielddescriptor(data[1][j])
         supp  = ""
         # unit_ = unit(data[1][j]) != NoUnits ? unit(data[1][j]) :
         #     get(reskeys, "TUNIT$j", "")
@@ -277,7 +259,7 @@ function FieldFormat(::Type{Bintable}, mankey::DataFormat, reskeys::Dict{S, V},
         name  = typeof(data) <: NamedTuple ? rstrip(String(keys(data)[j])) :
             rstrip(get(reskeys, "TTYPE$j", "column$j"))
         pntr  = nothing
-        type, leng, byts = field_descriptor(data[j][1])
+        type, leng, byts = fielddescriptor(data[j][1])
         supp  = ""
         # unit_ = unit(data[j]) != NoUnits ? unit(data[j]) :
         #     get(reskeys, "TUNIT$j", "")
@@ -314,7 +296,7 @@ end
 sizeofbitvector(v::BitVector)::Integer = (length(v)-1)÷8 + 1
 sizeofbitvector(len::Integer)::Integer = (len-1)÷8 + 1
 
-function field_descriptor(field)
+function fielddescriptor(field)
     if typeof(field) <: AbstractString
         type, leng = String, length(field)
         byts = leng
@@ -331,49 +313,28 @@ function field_descriptor(field)
     (type, leng, byts)
 end
 
-function create_cards!(::Type{Bintable}, format::DataFormat,
+function createcards!(::Type{Bintable}, format::DataFormat,
     fields::Vector{BinaryField}, cards::Cards; kwds...)
 
-    M, N = length(format.shape) == 2 ? format.shape : (0, 0)
-    T = length(fields)
-    L = any(.!isempty.([f.name for f in fields])) ? T : 0
-    #  create mandatory header cards and remove them from the deck if necessary
-    required = Vector{Card{<:Any}}(undef, 8+T+L)
-    required[1] = popat!(cards, "XTENSION", Card("XTENSION", "BINTABLE"))
-    required[2] = popat!(cards, "BITPIX", Card("BITPIX", 8))
-    required[3] = popat!(cards, "NAXIS",  Card("NAXIS", 2))
-    required[4] = popat!(cards, "NAXIS1", Card("NAXIS1", M))
-    required[5] = popat!(cards, "NAXIS2", Card("NAXIS2", N))
-    required[6] = popat!(cards, "PCOUNT", Card("PCOUNT", 0))
-    required[7] = popat!(cards, "GCOUNT", Card("GCOUNT", 1))
-    required[8] = popat!(cards, "TFIELDS", Card("TFIELDS", T))
-    for j=1:T
-        frmt = "$(fields[j].leng)$(BINARYTYPE[fields[j].type])"
-        required[8+2*j-1] = popat!(cards, "TFORM$j", Card("TFORM$j", frmt))
-        if L > 0
-            required[8+2*j] = popat!(cards, "TTYPE$j", Card("TTYPE$j",
-                fields[j].name))
-        end
+    required = tablekeys("BINTABLE", format, length(fields))
+    #  Include TTYPE cards if any name is not an empty string
+    named = any(!isempty(field.name) for field in fields)
+    for (j, field) in enumerate(fields)
+        push!(required, "TFORM$j" => "$(field.leng)$(BINARYTYPE[field.type])")
+        named && push!(required, "TTYPE$j" => field.name)
     end
-    #  Append remaining cards in deck, but first remove the END card
-    popat!(cards, "END")
-    R = length(cards)
-    kards = Vector{Card{<:Any}}(undef, 8+T+L+R)
-    kards[1:8+T+L] .= required
-    kards[9+T+L:8+T+L+R] .= cards
-    #  END card is implied. Will be append on write.
-    return kards
+    arrangecards!(cards, required)
 end
 
-function create_data(::Type{Bintable}, format::DataFormat,
+function createdata(::Type{Bintable}, format::DataFormat,
     fields::Vector{BinaryField}; record::Bool = false, kwds...)
     #  Create vector of tuples.
     if format.leng > 0
         if record
-            data = [(; [Symbol(f.name) => bintab_zeros(f) for f in fields]...)
+            data = [(; [Symbol(f.name) => bintabzeros(f) for f in fields]...)
                     for k=1:format.shape[2]]
         else
-            data = (; [Symbol(f.name) => bintab_zeros(f, format.shape[2])
+            data = (; [Symbol(f.name) => bintabzeros(f, format.shape[2])
                     for f in fields]...)
         end
     else
@@ -381,7 +342,7 @@ function create_data(::Type{Bintable}, format::DataFormat,
     end
 end
 
-function bintab_zeros(f)
+function bintabzeros(f)
     if f.type <: AbstractString
         repeat(" ", f.leng)
     elseif f.type <: BitVector
@@ -393,7 +354,7 @@ function bintab_zeros(f)
     end
 end
 
-function bintab_zeros(f, n)
+function bintabzeros(f, n)
     if f.type <: AbstractString
         fill(repeat(" ", f.leng), n)
     elseif f.type <: BitVector

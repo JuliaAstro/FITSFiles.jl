@@ -49,8 +49,8 @@
     @test reskeys["TELESCOP"] == "a long name"
     @test mankeys["SIMPLE"] == true
     @test ismissing(mankeys["END"])
-    @test FITSFiles.get_reserved_keys(cards)[2]["TELESCOP"] == "a long name"
-    @test !haskey(FITSFiles.get_reserved_keys(cards)[1], "END")
+    @test FITSFiles.getreservedkeys(cards)[2]["TELESCOP"] == "a long name"
+    @test !haskey(FITSFiles.getreservedkeys(cards)[1], "END")
 
     #  a mandatory keyword that is a continued string.
     cards2, mankeys2, _ = read(header("XTENSION= 'BIN&'", "CONTINUE  'TABLE'"), Card)

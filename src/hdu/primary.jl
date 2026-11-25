@@ -48,7 +48,7 @@ function Base.write(io::IO, ::Type{Primary}, data::AbstractArray,
     format::DataFormat, fields::ImageField; kwds...)
 
     if format.leng > 0
-        # data = remove_units(data)
+        # data = removeunits(data)
 
         write(io, data, fields; kwds...)
         padblock(io, format)
@@ -56,22 +56,10 @@ function Base.write(io::IO, ::Type{Primary}, data::AbstractArray,
 end
 
 function verify!(::Type{Primary}, cards::Cards, format::DataFormat,
-    mankeys::D) where D<:Dict{AbstractString, ValueType}
+    mankeys::AbstractDict)
 
-    if !get(mankeys, "SIMPLE", true)
-        println("Warning: Primary HDU is nonconformant.")
-    end
-    if haskey(mankeys, "BITPIX") && format.type != BITS2TYPE[mankeys["BITPIX"]]
-        setindex!(cards, TYPE2BITS[format.type], "BITPIX")
-        println("Warning: BITPIX set to $(TYPE2BITS[format.type])).")
-    end
-    if haskey(mankeys, "NAXIS1") && format.shape != datasize(cards, 1)
-        N = length(format.shape)
-        setindex!(cards, N, "NAXIS")
-        for j=1:N setindex!(cards, format.shape[j], "NAXIS$j") end
-        println("Warning: NAXIS$(1:N) set to $(format.shape)")
-    end
-    cards
+    !get(mankeys, "SIMPLE", true) && @warn "Primary HDU is nonconformant."
+    verifyshape!(cards, mankeys, format)
 end
 
 function DataFormat(::Type{Primary}, data::Missing, mankeys::Dict{S, V}) where
@@ -124,30 +112,13 @@ function FieldFormat(::Type{Primary}, format::DataFormat, reskeys::Dict{S, V},
     ImageField(format.type, zero_, scale, miss, dmin, dmax)
 end
 
-function create_cards!(::Type{Primary}, format::DataFormat, fields::ImageField,
-    cards::Cards; kwds...)
+function createcards!(::Type{Primary}, format::DataFormat,
+    fields::ImageField, cards::Cards; kwds...)
 
-    N, B = length(format.shape), TYPE2BITS[format.type]
-    #  Create mandatory (required) header cards and remove them from the deck
-    #  if necessary
-    required = Vector{Card{<:Any}}(undef, 3+N)
-    required[1] = popat!(cards, "SIMPLE", Card("SIMPLE", true))
-    required[2] = popat!(cards, "BITPIX", Card("BITPIX", B))
-    required[3] = popat!(cards, "NAXIS", Card("NAXIS", N))
-    required[4:3+N] .= [popat!(cards, "NAXIS$j",
-        Card("NAXIS$j", format.shape[j])) for j = 1:N]
-
-    #  Append remaining cards in deck, but first remove the END card
-    popat!(cards, "END")
-    M = length(cards)
-    kards = Vector{Card{<:Any}}(undef, 3+N+M)
-    kards[1:3+N] .= required
-    kards[4+N:3+N+M] .= cards
-    #  END card is implied. It will be appended on write.
-    kards
+    arrangecards!(cards, ["SIMPLE" => true; shapekeys(format)])
 end
 
-function create_data(::Type{Primary}, format::DataFormat, ::ImageField;
+function createdata(::Type{Primary}, format::DataFormat, ::ImageField;
     kwds...)
     #  Create simple N-dimensional array of zeros of type BITPIX
     length(format.shape) > 0 ? zeros(format.type, format.shape) : missing
@@ -174,10 +145,10 @@ function Base.write(io::IO, data::AbstractArray, fields::ImageField)
     n = Base.write(io, hton.(reshape(data, :)))
 end
 
-function apply_units(data::AbstractArray, fields::ImageField)
+function applyunits(data::AbstractArray, fields::ImageField)
     !isnothing(fields.unit) ? data*fields.unit : data
 end
 
-function remove_units(data::AbstractArray)
+function removeunits(data::AbstractArray)
     typeof(data) <: Quantity ? data.val : data
 end

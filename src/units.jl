@@ -205,7 +205,7 @@ function parseunit(backend::Val, str::AbstractString)
 	key = cachekey(backend, str)
 	cached = @lock PARSEUNIT_LOCK get(PARSEUNIT_CACHE, key, missing)
 	ismissing(cached) || return cached
-	unit, i = parse_units(backend, str, firstindex(str))
+	unit, i = parseunits(backend, str, firstindex(str))
 	unit = isnothing(unit) || i <= lastindex(str) ? nothing : unit
 	@lock PARSEUNIT_LOCK begin
 		length(PARSEUNIT_CACHE) >= PARSEUNIT_CACHE_SIZE && empty!(PARSEUNIT_CACHE)
@@ -216,24 +216,24 @@ end
 
 #  Parse a unit string from the index `i`, and return the unit and the index after the unit.
 #  Products and quotients are evaluated from the left to the right.
-function parse_units(be::Val, str::AbstractString, i::Integer)
+function parseunits(be::Val, str::AbstractString, i::Integer)
 	#  A unit string may begin with a division, e.g., /m3.
 	j = skipspaces(str, i)
 	if j <= lastindex(str) && str[j] == '/'
-		unit, i = parse_factor(be, str, skipspaces(str, j + 1))
+		unit, i = parsefactor(be, str, skipspaces(str, j + 1))
 		isnothing(unit) || (unit = inv(unit))
 	else
-		unit, i = parse_factor(be, str, i)
+		unit, i = parsefactor(be, str, i)
 	end
 	while !isnothing(unit)
 		j = skipspaces(str, i)
 		op = j <= lastindex(str) ? str[j] : ' '
 		if op in ('*', '.', '/')
-			factor, k = parse_factor(be, str, skipspaces(str, j + 1))
+			factor, k = parsefactor(be, str, skipspaces(str, j + 1))
 			isnothing(factor) && return nothing, i
 			unit, i = op == '/' ? unit / factor : unit * factor, k
 		elseif j > i && j <= lastindex(str) && str[j] != ')'
-			factor, k = parse_factor(be, str, j)
+			factor, k = parsefactor(be, str, j)
 			isnothing(factor) && return nothing, i
 			unit, i = unit * factor, k
 		else
@@ -244,51 +244,51 @@ function parse_units(be::Val, str::AbstractString, i::Integer)
 end
 
 #  Parse a unit with a power, a unit string in parentheses, or a scale factor.
-function parse_factor(be::Val, str::AbstractString, i::Integer)
+function parsefactor(be::Val, str::AbstractString, i::Integer)
 	i = skipspaces(str, i)
 	i > lastindex(str) && return nothing, i
 	if str[i] == '('
-		unit, j = parse_units(be, str, i + 1)
+		unit, j = parseunits(be, str, i + 1)
 		(isnothing(unit) || skipspaces(str, j) > lastindex(str) || str[skipspaces(str, j)] != ')') && return nothing, i
-		return parse_power(str, skipspaces(str, j) + 1, unit)
+		return parsepower(str, skipspaces(str, j) + 1, unit)
 	elseif (m = match(r"^10(?:[+-]\d+|(?=\*\*|\^))", str[i:end])) !== nothing
 		#  A scale factor is a power of ten, 10+k, 10-k, 10**k, or 10^k, followed by a unit.
 		op = match(r"^(?:\*\*|\^)", str[(i+2):end])
-		power, j = m.match == "10" ? parse_exponent(str, i + 2 + ncodeunits(op.match)) :
+		power, j = m.match == "10" ? parseexponent(str, i + 2 + ncodeunits(op.match)) :
 			(parse(Int, m.match[3:end]) // 1, i + ncodeunits(m.match))
 		isnothing(power) && return nothing, i
-		unit, k = parse_factor(be, str, skipspaces(str, j))
+		unit, k = parsefactor(be, str, skipspaces(str, j))
 		isnothing(unit) && return nothing, i
 		return 10.0^power * unit, k
 	elseif (m = match(r"^([A-Za-z]+)([+-]?\d+)?", str[i:end])) !== nothing
 		name, j = m[1], i + ncodeunits(m.match)
 		if name == "sqrt" && j <= lastindex(str) && str[j] == '('
-			unit, k = parse_units(be, str, j + 1)
+			unit, k = parseunits(be, str, j + 1)
 			(isnothing(unit) || k > lastindex(str) || str[k] != ')') && return nothing, i
 			return unit^(1//2), k + 1
 		end
 		unit = unitname(be, name)
 		isnothing(unit) && return nothing, i
-		isnothing(m[2]) ? parse_power(str, j, unit) : (unit^parse(Int, m[2]), j)
+		isnothing(m[2]) ? parsepower(str, j, unit) : (unit^parse(Int, m[2]), j)
 	else
 		nothing, i
 	end
 end
 
 #  Parse an optional power of a unit, which follows ** or ^, or is a number in parentheses.
-function parse_power(str::AbstractString, i::Integer, unit)
+function parsepower(str::AbstractString, i::Integer, unit)
 	m = match(r"^(?:\*\*|\^)", str[i:end])
 	if isnothing(m)
 		isnothing(match(r"^\([+-]?\d+(?:\.\d+)?(?:/\d+)?\)", str[i:end])) && return unit, i
-		power, j = parse_exponent(str, i)
+		power, j = parseexponent(str, i)
 		return unit^power, j
 	end
-	power, j = parse_exponent(str, i + ncodeunits(m.match))
+	power, j = parseexponent(str, i + ncodeunits(m.match))
 	isnothing(power) ? (nothing, i) : (unit^power, j)
 end
 
 #  Parse an exponent, which is an integer, a decimal number, or a ratio in parentheses.
-function parse_exponent(str::AbstractString, i::Integer)
+function parseexponent(str::AbstractString, i::Integer)
 	m = match(r"^(?:\(([+-]?\d+(?:\.\d+)?)(?:/(\d+))?\)|([+-]?\d+))", str[i:end])
 	isnothing(m) && return nothing, i
 	value = rationalize(parse(Float64, something(m[1], m[3])))

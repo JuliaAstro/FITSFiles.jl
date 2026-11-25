@@ -26,13 +26,13 @@ function verify!(::Type{ZTable}, type::Type, shape::Tuple, cards::Cards,
 
     if haskey(mankeys, "BITPIX") && type != BITS2TYPE[mankeys["BITPIX"]]
         setindex!(cards, "BITPIX", TYPE2BITS[type])
-        println("Warning: BITPIX set to $(TYPE2BITS[type])).")
+        @warn "BITPIX set to $(TYPE2BITS[type]))."
     end
     if haskey(mankeys, "NAXIS1") && shape != datasize(cards, 1)
         N = length(shape)
         setindex!(cards, "NAXIS", N)
         for j=1:N setindex!(cards, "NAXIS$j", shape[j]) end
-        println("Warning: NAXIS$(1:N) set to $shape")
+        @warn "NAXIS$(1:N) set to $shape"
     end
     cards
 end
@@ -47,12 +47,12 @@ function FieldFormat(::Type{ZTable}, mankeys::DataFormat, reskeys::Dict{S, V},
 
 end
 
-function create_cards!(::Type{ZTable}, format::DataFormat,
+function createcards!(::Type{ZTable}, format::DataFormat,
     fields::Vector{ZTableField}, cards::Cards; kwds...)
 
 end
 
-function create_data(::Type{ZTable}, format::DataFormat,
+function createdata(::Type{ZTable}, format::DataFormat,
     fields::Vector{ZTableField}; kwds...)
 
 end

@@ -8,7 +8,7 @@ splitunits(value) = (value, nothing)
 #  The number of spaces after the units is the number of spaces after the units string of the comment, and
 #  the style of the units string is kept.
 function commentunits(key::AbstractString, value, units, comment::AbstractString, upad::Integer)
-	isnothing(units) && value isa Union{Real, Complex} && !(value isa Bool) && !is_fixed_key(key) ||
+	isnothing(units) && value isa Union{Real, Complex} && !(value isa Bool) && !isfixedkey(key) ||
 		return units, comment, upad, ""
 	m = match(r"^\[([^\]]*)\]( *)", comment)
 	parsed = isnothing(m) ? nothing : parseunit(m[1])
@@ -64,11 +64,11 @@ function setvalue!(card::Card, value::ValueInput; fixed::Union{Bool, Nothing} = 
 		T in (Comment, History) && !(value isa Union{AbstractString, Missing})
 		throw(ArgumentError("value is not a string."))
 	end
-	value = value isa AbstractString ? format_xtension_value(card.key, value) : value
+	value = value isa AbstractString ? formatxtensionvalue(card.key, value) : value
 	#  The units of a quantity are not part of the value. A number without units has the units of
 	#  the card, whereas a value of another type has none.
 	value, units = splitunits(value)
-	is_supported(value) || throw(ArgumentError("Value type $(typeof(value)) is not supported."))
+	issupported(value) || throw(ArgumentError("Value type $(typeof(value)) is not supported."))
 	if isnothing(units) && value isa Union{Real, Complex} && !(value isa Bool)
 		units = card.units
 	end
@@ -108,15 +108,15 @@ function setvalue!(card::Card, value::ValueInput; fixed::Union{Bool, Nothing} = 
 			#  comment is truncated, or continued if truncate is false, when it does not fit on the card.
 			splitcol = something(slash, max(f.slsh + TOKENLEN, 32))
 			splitslash = T == Value && value isa AbstractString ?
-				long_string_slash(value, comment, splitcol, lpad, rpad, truncate) : nothing
+				longstringslash(value, comment, splitcol, lpad, rpad, truncate) : nothing
 			if !isnothing(splitslash)
-				cards = split_card(card.key, value, comment,
+				cards = splitcard(card.key, value, comment,
 					(; fixed, slash = splitslash[1], slash2 = splitslash[2], lpad, rpad, upad, append, splitat))
 				cards = [Card(t, k, v, c, f) for (t, k, v, c, f) in cards]
 				return length(cards) == 1 ? cards[1] : cards
 			end
 			args = T == Hierarch ? (card.key,) : ()
-			fmt = layout_card(type, args..., value, comment; fixed, append,
+			fmt = layoutcard(type, args..., value, comment; fixed, append,
 				slash = something(slash, f.slsh + TOKENLEN), lpad, rpad, upad, units = unitstring(units, ufmt),
 				vfmt = keepfmt(f.vfmt, value), ufmt, vbeg = f.vbeg, truncate)
 			card = Card(type, card.key, value, units, fitcomment(comment, fmt), fmt)
@@ -128,7 +128,7 @@ function setvalue!(card::Card, value::ValueInput; fixed::Union{Bool, Nothing} = 
 end
 
 """
-	split_card(key, value, comment, format)
+	splitcard(key, value, comment, format)
 
 Split card having long value and comment fields into multiple cards
 
@@ -136,16 +136,16 @@ If length of comment field is 0 because comment separator index is too large,
 then comment is deleted.  Decreasing comment separator index will allow
 inclusion of comment.
 """
-function split_card(key::K, value::S, comment::C, kwds) where
+function splitcard(key::K, value::S, comment::C, kwds) where
 {K <: AbstractString, S <: AbstractString, C <: AbstractString}
 
 	slash, lpad, rpad = kwds[:slash], kwds[:lpad], kwds[:rpad]
 	#  The comment separator of the CONTINUE cards may be before the separator of the first card.
 	slash2 = get(kwds, :slash2, slash)
-	vallen, comlen = value_length(slash, lpad) - 1, comment_length(slash, rpad)
+	vallen, comlen = valuelength(slash, lpad) - 1, commentlength(slash, rpad)
 	#  Calculate number of cards, adjusting for ampersand and single quotes.
 	splitat = get(kwds, :splitat, nothing)
-	slicing = commentslices(comment, comlen, comment_length(slash2, rpad), splitat)
+	slicing = commentslices(comment, comlen, commentlength(slash2, rpad), splitat)
 	ncard = max(nslices(value, vallen, true, splitat), length(slicing))
 	#  Create arrays of card types, keywords, values, comments, and formatting keywords
 	#  for each card. Ensure ampersand is appended to each value string, except last.
@@ -155,22 +155,22 @@ function split_card(key::K, value::S, comment::C, kwds) where
 	comments = Tuple(j <= length(slicing) ? comment[slicing[j][1]:slicing[j][2]] : "" for j in 1:ncard)
 	#  The comment separator is the separator of the first card, or of the CONTINUE cards.
 	sep(j) = j == 1 ? slash : slash2
-	formats  = (Tuple(layout_card(types[j], values[j], comments[j];
+	formats  = (Tuple(layoutcard(types[j], values[j], comments[j];
 		merge(kwds, (; append = true, slash = sep(j)))...) for j in 1:(ncard-1))...,
-		layout_card(types[ncard], values[ncard], comments[ncard]; merge(kwds, (; slash = sep(ncard)))...))
+		layoutcard(types[ncard], values[ncard], comments[ncard]; merge(kwds, (; slash = sep(ncard)))...))
 
 	zip(types, keys, values, comments, formats)
 end
 
 """
-	join_cards(cards)
+	joincards(cards)
 
 Join CONTINUE cards to initial long string card to create a long value and comment card.
 Cards after the end of the continued string are ignored. The comments of the cards are joined with
 a space, unless a comment ends with a space, since the spaces at the end of the comment of an image
 are not read, e.g., a comment that is split at any character has a space at the split.
 """
-function join_cards(cards::AbstractVector)
+function joincards(cards::AbstractVector)
 	#  Cards are joined while the preceding card ends with an ampersand and the next card is a
 	#  CONTINUE card. An ampersand that is not followed by a CONTINUE card is the literal last
 	#  character of the string (Sect. 4.2.1.2).
@@ -273,7 +273,7 @@ trimvalue(value::AbstractString) =
 	isempty(rstrip(value)) && !isempty(value) ? " " : String(rstrip(value))
 
 #  Format special XTENSION values, pad to 8 characters
-function format_xtension_value(key::AbstractString, value::AbstractString)
+function formatxtensionvalue(key::AbstractString, value::AbstractString)
 	(key == "XTENSION" && rstrip(uppercase(value)) in XTENSION_VALUES) ?
 	rpad(rstrip(uppercase(value)), 8) : value
 end

@@ -8,8 +8,8 @@
         #  every card fits, and no doubled single quote is split between cards.
         images = [repr(c) for c in cards]
         @test all(length(image) == 80 for image in images)
-        @test FITSFiles.join_cards(cards).value == value
-        @test FITSFiles.join_cards([parse(Card, image) for image in images]).value == value
+        @test FITSFiles.joincards(cards).value == value
+        @test FITSFiles.joincards([parse(Card, image) for image in images]).value == value
     end
 
     ###  Regression tests: literal ampersand  ###
@@ -17,30 +17,30 @@
     #  an ampersand that is not followed by a CONTINUE card is part of the string.
     card = parse(Card, rpad("KEY     = 'AT&T&' / c", 80))
     @test card.value == "AT&T"
-    @test FITSFiles.join_cards([card]).value == "AT&T&"
-    @test repr(FITSFiles.join_cards([card]).format.ampr) == "0"
+    @test FITSFiles.joincards([card]).value == "AT&T&"
+    @test repr(FITSFiles.joincards([card]).format.ampr) == "0"
     @test card.format.ampr > 0
 
     #  an ampersand followed by a CONTINUE card joins the strings.
     cards = [parse(Card, rpad("KEY     = 'first &'", 80)),
              parse(Card, rpad("CONTINUE  'second&'", 80)),
              parse(Card, rpad("CONTINUE  'third'", 80))]
-    @test FITSFiles.join_cards(cards).value == "first secondthird"
+    @test FITSFiles.joincards(cards).value == "first secondthird"
     @test cards[1].format.ampr > 0
 
     #  only CONTINUE cards continue a string.
     for next in ("KEY2    = 'second'", "KEY2    =                    5", "COMMENT second", "HISTORY second")
         cards = [parse(Card, rpad("KEY     = 'first &'", 80)), parse(Card, rpad(next, 80))]
-        @test FITSFiles.join_cards(cards).value == "first &"
+        @test FITSFiles.joincards(cards).value == "first &"
     end
 
     #  the last ampersand is literal if the string ends with it, and later cards are ignored.
     cards = [parse(Card, rpad("KEY     = 'first &'", 80)),
              parse(Card, rpad("CONTINUE  'second&'", 80))]
-    @test FITSFiles.join_cards(cards).value == "first second&"
+    @test FITSFiles.joincards(cards).value == "first second&"
     cards = [parse(Card, rpad("KEY     = 'first'", 80)),
              parse(Card, rpad("CONTINUE  'second'", 80))]
-    @test FITSFiles.join_cards(cards).value == "first"
+    @test FITSFiles.joincards(cards).value == "first"
 
     ###  Regression tests: setvalue!  ###
 
@@ -211,7 +211,7 @@
     pieces = filter(!isempty, [c.comment for c in cards])
     @test all(endswith(c, " ") for c in pieces[1:end-1])
     @test all(length(repr(c)) == 80 for c in cards)
-    @test FITSFiles.join_cards(cards).value == text
+    @test FITSFiles.joincards(cards).value == text
     @test join(c.comment for c in cards) == comment
 
     #  the value is split at any character if splitat is nothing, as before.
@@ -220,7 +220,7 @@
         "OBJECT  = 'The quick brown f&' / a comment about the observation of the object i",
         "CONTINUE  'ox jumps over the&' / n the sky tonight",
         "CONTINUE  ' lazy dog while t&'"]
-    @test FITSFiles.join_cards(cards).value == text
+    @test FITSFiles.joincards(cards).value == text
     @test join(c.comment for c in cards) == comment
 
     #  the value is split after another character.
@@ -228,7 +228,7 @@
     cards = collect(Card("OBJECT", commas, ""; splitat = ','))
     @test all(endswith(c.value, ",") for c in cards[1:end-1])
     @test all(length(c.value) <= 67 for c in cards) && length(cards) > 1
-    @test FITSFiles.join_cards(cards).value == commas
+    @test FITSFiles.joincards(cards).value == commas
     @test collect(Card("OBJECT", text, ""; splitat = ','))[1].value != "The quick brown "
 
     #  a word that is longer than the card is split where it fits.
@@ -236,14 +236,14 @@
     cards = collect(Card("OBJECT", long, ""))
     @test cards[1].value == "short "
     @test all(c.value == repeat("x", length(cards[2].value)) for c in cards[2:(end-1)]) && length(cards[2].value) > 17
-    @test FITSFiles.join_cards(cards).value == long
+    @test FITSFiles.joincards(cards).value == long
 
     #  the split keeps the single quotes together, the spaces at the ends, and the long values.
     for value in (repeat("It's O'Hara's ", 6), " " * text, text * " ", replace(text, " " => "   "), repeat("'", 70),
                   repeat("' ", 40), repeat("ab ", 60), "a " * repeat("b", 50) * " c " * repeat("d", 50))
         for splitat in (' ', nothing, ',')
             cards = collect(Card("OBJECT", value, comment; splitat))
-            @test FITSFiles.join_cards(cards).value == value
+            @test FITSFiles.joincards(cards).value == value
             @test join(c.comment for c in cards) == comment
             @test all(length(repr(c)) == 80 for c in cards)
             @test all(count("'", repr(c)) % 2 == 0 for c in cards)
@@ -262,7 +262,7 @@
         push!(parsed, parse(Card, img, parsed[end]))
     end
     @test [repr(c) for c in parsed] == images
-    @test FITSFiles.join_cards(parsed).value == text
+    @test FITSFiles.joincards(parsed).value == text
 
     #  the lengths of the slices and the number of slices follow the same rule.
     for slen in (5, 10, 17, 30), splitat in (' ', nothing)
@@ -286,16 +286,16 @@
     @test rstrip(repr(cards[2])) == "CONTINUE  'fox jumps over &'"
     @test all(endswith(c.value, " ") for c in cards[1:end-1])
     @test all(length(repr(c)) == 80 for c in cards)
-    @test FITSFiles.join_cards(cards).value == text
+    @test FITSFiles.joincards(cards).value == text
     @test cards[1].comment == "the object"
 
     #  the string and the comment are split at any character if splitat is nothing, or after another character.
     cards = FITSFiles.setvalue!(card, text; splitat = nothing)
     @test cards[1].value == "The quick brown f"
-    @test FITSFiles.join_cards(cards).value == text
+    @test FITSFiles.joincards(cards).value == text
     cards = FITSFiles.setvalue!(card, replace(text, " " => ","); splitat = ',')
     @test cards[1].value == "The,quick,brown,"
-    @test FITSFiles.join_cards(cards).value == replace(text, " " => ",")
+    @test FITSFiles.joincards(cards).value == replace(text, " " => ",")
     cards = FITSFiles.setvalue!(parse(Card, img("OBJECT  = 'old' / " * join(fill("long comment", 4), " "))), text)
     @test join(c.comment for c in cards) == join(fill("long comment", 4), " ")
     @test all(endswith(c.comment, " ") for c in filter(c -> !isempty(c.comment), cards)[1:end-1])
@@ -309,7 +309,7 @@
     cards = FITSFiles.setvalue!(card0, repeat("word ", 30))
     @test length(cards) == 3
     @test rstrip(repr(cards[1])) == "OBJECT  = '" * repeat("word ", 13) * "&'"
-    @test FITSFiles.join_cards(cards).value == repeat("word ", 30)
+    @test FITSFiles.joincards(cards).value == repeat("word ", 30)
 
     #  the separator of the card is not before the default index, and a card with a later separator keeps it.
     narrow = parse(Card, img("OBJECT  = 'old' / c"))
@@ -331,8 +331,8 @@
     @test card.comment == parse(Card, repr(card)).comment && length(repr(card)) == 80
     @test FITSFiles.setvalue!(Card("OBJECT", "old", comment), repeat("a", 60); truncate = true) == card
     cards = FITSFiles.setvalue!(Card("OBJECT", "old", comment), repeat("a", 60); truncate = false)
-    @test length(cards) > 1 && FITSFiles.join_cards(cards).value == repeat("a", 60)
-    @test FITSFiles.join_cards(cards).comment == comment
+    @test length(cards) > 1 && FITSFiles.joincards(cards).value == repeat("a", 60)
+    @test FITSFiles.joincards(cards).comment == comment
     #  a comment that fits is the same for both settings, and a number that moves the comment is truncated.
     short = Card("OBJECT", "old", "c")
     for truncate in (true, false)
@@ -348,11 +348,11 @@
     #  the string is split in the same way for both settings, if it does not fit on a card.
     for truncate in (true, false)
         cards = FITSFiles.setvalue!(Card("OBJECT", "old", "c"), repeat("word ", 30); truncate)
-        @test length(cards) > 1 && FITSFiles.join_cards(cards).value == repeat("word ", 30)
+        @test length(cards) > 1 && FITSFiles.joincards(cards).value == repeat("word ", 30)
     end
     for value in (repeat("It's O'Hara's ", 6), " " * text, text * " ", repeat("'", 70), repeat("x", 90))
         cards = FITSFiles.setvalue!(card, value)
-        @test FITSFiles.join_cards(cards).value == value
+        @test FITSFiles.joincards(cards).value == value
         @test all(length(repr(c)) == 80 for c in cards)
     end
 
@@ -428,7 +428,7 @@
         text = repeat("word ", 20)
         cards = FITSFiles.setvalue!(Card("KEY", "a", "c"), text; slash = 50)
         @test length(cards) > 1 && all(length(repr(c)) == 80 for c in cards)
-        @test FITSFiles.join_cards(cards).value == text
+        @test FITSFiles.joincards(cards).value == text
         @test length(FITSFiles.setvalue!(Card("KEY", "a", "c"), text; slash = 50)) <
               length(FITSFiles.setvalue!(Card("KEY", "a", "c"), text; slash = 20))
         #  the keywords of the list are the keywords of the card.
@@ -451,13 +451,13 @@
             push!(cards, card)
             previous = card
         end
-        joined = FITSFiles.join_cards(cards)
+        joined = FITSFiles.joincards(cards)
         @test joined.value == "This keyword value is continued  over multiple keyword records."
         @test joined.comment == "The comment field for this keyword is also continued over multiple records."
         #  a comment that is split by the constructor is joined again, and the image of the cards is joined in the same way.
         comment = repeat("comment words ", 12)
         cards = Card("K", repeat("word ", 30), comment)
-        @test FITSFiles.join_cards(cards).comment == strip(comment)
+        @test FITSFiles.joincards(cards).comment == strip(comment)
         parsed = Card{<:Any}[]
         previous = nothing
         for card in cards
@@ -465,11 +465,11 @@
             push!(parsed, card)
             previous = card
         end
-        @test FITSFiles.join_cards(parsed).comment == strip(comment)
-        @test FITSFiles.join_cards(parsed).value == strip(repeat("word ", 30))
+        @test FITSFiles.joincards(parsed).comment == strip(comment)
+        @test FITSFiles.joincards(parsed).value == strip(repeat("word ", 30))
         #  empty comments are not joined, and a comment that ends with a space is not given another space.
         one = Card{<:Any}[Card("K", "a&"; append = false), parse(Card, rpad("CONTINUE  'b'", 80), Card("K", "a&"))]
-        @test isempty(FITSFiles.join_cards(one).comment)
+        @test isempty(FITSFiles.joincards(one).comment)
     end
 
 end
