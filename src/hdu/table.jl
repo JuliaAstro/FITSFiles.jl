@@ -261,6 +261,11 @@ function createdata(::Type{Table}, format::DataFormat,
     end
 end
 
+#  An entry is undefined if it is blank or it is the TNULLn string, which is implicitly space filled to the
+#  width of the field (Sect. 7.2.2 of the standard).
+isundefined(field::TableField, item::AbstractString) = isempty(item) || all(==(' '), item) ||
+    (!isnothing(field.null) && rpad(field.null, length(item)) == item)
+
 function Base.read(io::IO, field::TableField, format::DataFormat,
     begpos::Integer; scale::Bool = true)
 
@@ -274,18 +279,19 @@ function Base.read(io::IO, field::TableField, format::DataFormat,
             column[j] = rstrip(type(Base.read(io, leng)))
         end
     else
-        column = Array{type}(undef, N)
+        column = Array{Union{type, Missing}}(undef, N)
         for j = 1:N
             seek(io, begpos + L*(j-1) + M)
             item = String(Base.read(io, leng))
-            if (!isnothing(field.null) && field.null == item) ||
-                item == repeat(' ', leng) || leng <= 0
+            if isundefined(field, item)
                 column[j] = missing
             else
                 column[j] = Base.parse(type, replace(item, "D" => "e", "E" =>"e"))
             end
         end
-        column = scale ? field.zero .+ field.scale.*skipmissing(column) : column
+        #  The column has missing values only if there are undefined entries, and the scaling keeps them
+        column = any(ismissing, column) ? column : Array{type}(column)
+        column = scale ? scaled(column, field.scale, field.zero) : column
     end
     column
 end
@@ -297,17 +303,23 @@ function Base.read(row::AbstractString, field::TableField; scale::Bool = true,
     item = row[field.slice]
     if type <: AbstractString
         value = rstrip(item)
-    elseif (!isnothing(field.null) && field.null == item) ||
-        item == repeat(' ', leng) || leng <= 0
+    elseif isundefined(field, item)
         value = missing
     else
         value = Base.parse(type, replace(item, "D" => "e", "E" => "e"))
-        value = scale ? field.zero + field.scale * value : value
+        value = scale ? scaled(value, field.scale, field.zero) : value
     end
     #  Append units
     # if !ismissing(format.unit) value *= uparse(format.unit) end
     #  Create a Pair for name fields
     isempty(field.name) ? value : Symbol(field.name) => value
+end
+
+#  An undefined value is the TNULLn string, space filled to the width of the field, or blanks if there
+#  is no TNULLn keyword.
+function Base.write(io::IO, ::Missing, field::TableField, begpos::Integer; kwds...)
+    write(io, repeat(" ", field.slice.start - (position(io) - begpos + 1)))
+    write(io, rpad(something(field.null, ""), length(field.slice)))
 end
 
 function Base.write(io::IO, data::ValueType, field::TableField, begpos::Integer; kwds...)
