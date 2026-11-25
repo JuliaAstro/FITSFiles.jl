@@ -454,14 +454,14 @@ Verify the values of the mandatory keywords of a header before the data format i
 from them. Return the cards. A verify! method of an HDU type corrects the cards and the
 mandatory keywords, `mankeys`, when it is possible, and otherwise raises an error that names
 the keyword and its value. The generic method raises an error if the value of a keyword that
-must be an integer is not (see [`verifyintegers`](@ref)), and warns if the XTENSION value is
+must be an integer is not (see [`verifyinteger`](@ref)), and warns if the XTENSION value is
 not padded.
 
 The verify! methods that also have a data format argument are for the HDU types that create
 the format from data and then correct the header to match the data.
 """
 function verify!(::Type{<:AbstractHDU}, cards::Cards, mankeys::AbstractDict)
-	verifyintegers(mankeys)
+	verifyinteger(mankeys)
 	verifyxtension!(cards)
 end
 
@@ -471,14 +471,14 @@ end
 const INTEGERKEYS = r"^(BITPIX|NAXIS\d*|PCOUNT|GCOUNT|TFIELDS|TBCOL\d+|THEAP)$"
 
 """
-	verifyintegers(mankeys)
+	verifyinteger(mankeys)
 
 Raise an `ArgumentError` that names the keyword and its value if the value of a keyword that the
 standard requires to be an integer is not an integer, e.g., NAXIS1 = 2.0 or PCOUNT = 'two'. A
 floating-point value, even of a whole number, is not an integer, and the size of the data cannot be
 determined from it, so the HDU cannot be read.
 """
-function verifyintegers(mankeys::AbstractDict)
+function verifyinteger(mankeys::AbstractDict)
 	for (key, value) in mankeys
 		occursin(INTEGERKEYS, key) || continue
 		value isa Integer && !(value isa Bool) && continue
