@@ -69,7 +69,12 @@ function Base.read(io::IO, type::Type{Table}, format::DataFormat,
     data
 end
 
-function Base.write(io::IO, type::Type{Table}, data::AbstractArray,
+#  The value of a field in row `j` of the data, which is a vector of records or a named tuple of columns,
+#  where each column has one value for each row.
+getcell(::Type{Table}, data::AbstractArray, field, j::Integer) = data[j][Symbol(field.name)]
+getcell(::Type{Table}, data::NamedTuple, field, j::Integer) = data[Symbol(field.name)][j]
+
+function Base.write(io::IO, ::Type{Table}, data::Union{AbstractArray, NamedTuple},
     format::DataFormat, fields::Vector{TableField}; kwds...)
 
     #  Write data array
@@ -78,25 +83,7 @@ function Base.write(io::IO, type::Type{Table}, data::AbstractArray,
         for j=1:N
             begpos = position(io)
             for field in fields
-                write(io, data[j][Symbol(field.name)], field, begpos; kwds...)
-            end
-            write(io, repeat(" ", format.shape[1]-(position(io)-begpos)))
-        end
-        #  Pad last block with spaces
-        padblock(io, format, 0x20)
-    end
-end
-
-function Base.write(io::IO, ::Type{Table}, data::NamedTuple, format::DataFormat,
-    fields::Vector{TableField}; kwds...)
-
-    #  Write data array
-    N = format.shape[2]
-    if N > 0
-        for j=1:N
-            begpos = position(io)
-            for field in fields
-                write(io, data[Symbol(field.name)][j], field, begpos; kwds...)
+                write(io, getcell(Table, data, field, j), field, begpos; kwds...)
             end
             write(io, repeat(" ", format.shape[1]-(position(io)-begpos)))
         end

@@ -58,7 +58,7 @@ function Base.read(io::IO, ::Type{Random}, format::DataFormat,
     data
 end
 
-function Base.write(io::IO, ::Type{Random}, data::AbstractArray,
+function Base.write(io::IO, ::Type{Random}, data::Union{AbstractArray, NamedTuple},
     format::DataFormat, fields::Vector{RandomField}; kwds...)
 
     #  Write data array
@@ -66,39 +66,31 @@ function Base.write(io::IO, ::Type{Random}, data::AbstractArray,
     if N > 0
         for j=1:N
             for field in fields[1:format.param]
-                value = data[j][Symbol(field.name)]
-                write(io, hton(ndims(value) > 1 ? value[field.index] :
-                    value))
+                write(io, hton(getparam(data, field, j)))
             end
-            field = fields[end]
-            value = reshape(data[j][Symbol(field.name)], :)
-            write(io, hton.(value))
+            write(io, hton.(getgroup(data, fields[end], j, format)))
         end
         #  Pad last block with zeros
         padblock(io, format)
     end
 end
 
-function Base.write(io::IO, ::Type{Random}, data::NamedTuple, format::DataFormat,
-    fields::Vector{RandomField}; kwds...)
-
-    #  Write data array
-    N = format.group
-    if N > 0
-        for j=1:N
-            for field in fields[1:format.param]
-                value = data[Symbol(field.name)]
-                write(io, hton(ndims(value) > 1 ? value[j, field.index] :
-                    value[j]))
-            end
-            field = fields[end]
-            value = reshape(data[Symbol(field.name)], (format.group, :))[j,:]
-            write(io, hton.(value))
-        end
-        #  Pad last block with zeros
-        padblock(io, format)
-    end
+#  The value of a parameter of group `j`, where a value of two or more dimensions has the parameters of the
+#  name at the index of the field.
+function getparam(data::AbstractArray, field, j::Integer)
+    value = data[j][Symbol(field.name)]
+    ndims(value) > 1 ? value[field.index] : value
 end
+function getparam(data::NamedTuple, field, j::Integer)
+    value = data[Symbol(field.name)]
+    ndims(value) > 1 ? value[j, field.index] : value[j]
+end
+
+#  The values of the array of group `j`, as a vector.
+getgroup(data::AbstractArray, field, j::Integer, format::DataFormat) =
+    reshape(data[j][Symbol(field.name)], :)
+getgroup(data::NamedTuple, field, j::Integer, format::DataFormat) =
+    reshape(data[Symbol(field.name)], (format.group, :))[j, :]
 
 function verify!(::Type{Random}, cards::Cards, format::DataFormat,
     mankeys::AbstractDict)

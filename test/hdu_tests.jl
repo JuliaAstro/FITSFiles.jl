@@ -175,5 +175,41 @@
         @test FITSFiles.createdata(Image, formats[1], field) == zeros(Int16, 3, 4)
         @test ismissing(FITSFiles.zerosarray(FITSFiles.DataFormat(Int16, 1, (), 0, 1, 0)))
     end
+
+    ####    Test the values of a row    ####
+
+    @testset "getcell, getparam, getgroup, and flatten" begin
+        field = (; name = "m")
+        records = [(m = [1, 2],), (m = [3, 4],)]
+        columns = (m = [1 2; 3 4],)
+        @test FITSFiles.getcell(Bintable, records, field, 2) == [3, 4]
+        @test FITSFiles.getcell(Bintable, columns, field, 2) == [3, 4]
+        @test FITSFiles.getcell(Bintable, (m = ["a", "bb"],), field, 2) == "bb"
+        @test FITSFiles.getcell(Bintable, [(m = 1.5,), (m = 2.5,)], field, 2) == 2.5
+
+        @test FITSFiles.flatten([1 2; 3 4]) == [1, 3, 2, 4]
+        @test FITSFiles.flatten(3) === 3 && FITSFiles.flatten("text") == "text"
+        @test ndims(FITSFiles.flatten(ones(2, 2, 2))) == 1
+
+        #  a table has one value for each row of a column, and random groups have the parameters of a name
+        #  at the index of the field
+        @test FITSFiles.getcell(Table, [(m = "a",), (m = "bb",)], field, 2) == "bb"
+        @test FITSFiles.getcell(Table, (m = ["a", "bb"],), field, 2) == "bb"
+        @test FITSFiles.getcell(Table, (m = [1 2; 3 4],), field, 2) == 3
+        param = (; name = "m", index = 2)
+        @test FITSFiles.getparam([(m = 1.5,), (m = 2.5,)], param, 2) == 2.5
+        @test FITSFiles.getparam([(m = [1 2; 3 4],)], param, 1) == 3
+        @test FITSFiles.getparam((m = [1.5, 2.5],), param, 2) == 2.5
+        @test FITSFiles.getparam((m = [1 2; 3 4],), param, 2) == 4
+        format = FITSFiles.DataFormat(Float32, 6, (2, 3), 0, 2, 0)
+        @test FITSFiles.getgroup([(m = [1 2 3; 4 5 6],)], param, 1, format) == [1, 4, 2, 5, 3, 6]
+        @test FITSFiles.getgroup((m = [1 2 3; 4 5 6],), param, 2, format) == [4, 5, 6]
+
+        #  a table that is written from columns is the same as one that is written from records
+        bytes(hdu) = (io = IOBuffer(); write(io, hdu); take!(io))
+        columns = (a = Int32[1, 2, 3], b = [1.5, 2.5, 3.5], c = ["x", "yy", "zzz"])
+        records = [(a = Int32(1), b = 1.5, c = "x"), (a = Int32(2), b = 2.5, c = "yy"), (a = Int32(3), b = 3.5, c = "zzz")]
+        @test bytes(HDU(Bintable, columns)) == bytes(HDU(Bintable, records))
+    end
 end
 

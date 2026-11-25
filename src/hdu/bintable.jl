@@ -82,7 +82,18 @@ function Base.read(io::IO, ::Type{Bintable}, format::DataFormat,
     data
 end
 
-function Base.write(io::IO, ::Type{Bintable}, data::AbstractArray,
+#  The value of a field in row `j` of the data, which is a vector of records or a named tuple of columns,
+#  where a column of two or more dimensions has the values of a row in its second and later dimensions.
+getcell(::Type{Bintable}, data::AbstractArray, field, j::Integer) = data[j][Symbol(field.name)]
+function getcell(::Type{Bintable}, data::NamedTuple, field, j::Integer)
+    column = data[Symbol(field.name)]
+    ndims(column) >= 2 ? column[j, :] : column[j]
+end
+
+#  An array is written as a vector, and any other value as it is.
+flatten(value) = value isa AbstractArray ? reshape(value, :) : value
+
+function Base.write(io::IO, ::Type{Bintable}, data::Union{AbstractArray, NamedTuple},
     format::DataFormat, fields::Vector{BinaryField}; kwds...)
 
     #  Write data array
@@ -90,29 +101,7 @@ function Base.write(io::IO, ::Type{Bintable}, data::AbstractArray,
     if N > 0
         for j=1:N
             for field in fields
-                value = data[j][Symbol(field.name)]
-                write(io, field, typeof(value) <: AbstractArray ?
-                    reshape(value, :) : value; kwds...)
-            end
-        end
-        #  Pad last block with zeros
-        padblock(io, format)
-    end
-end
-
-function Base.write(io::IO, ::Type{Bintable}, data::NamedTuple, format::DataFormat,
-    fields::Vector{BinaryField}; kwds...)
-
-    #  Write data array
-    N = format.shape[2]
-    if N > 0
-        for j=1:N
-            start = position(io)
-            for field in fields
-                start = position(io)
-                value = data[Symbol(field.name)]
-                write(io, field, ndims(value) >= 2 ? reshape(value[j,:], :) :
-                    value[j]; kwds...)
+                write(io, field, flatten(getcell(Bintable, data, field, j)); kwds...)
             end
         end
         #  Pad last block with zeros
