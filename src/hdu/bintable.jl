@@ -82,7 +82,18 @@ function Base.read(io::IO, ::Type{Bintable}, format::DataFormat,
     data
 end
 
-function Base.write(io::IO, ::Type{Bintable}, data::AbstractArray,
+#  The value of a field in row `j` of the data, which is a vector of records or a named tuple of columns,
+#  where a column of two or more dimensions has the values of a row in its second and later dimensions.
+getcell(::Type{Bintable}, data::AbstractArray, field, j::Integer) = data[j][Symbol(field.name)]
+function getcell(::Type{Bintable}, data::NamedTuple, field, j::Integer)
+    column = data[Symbol(field.name)]
+    ndims(column) >= 2 ? column[j, :] : column[j]
+end
+
+#  An array is written as a vector, and any other value as it is.
+flatten(value) = value isa AbstractArray ? reshape(value, :) : value
+
+function Base.write(io::IO, ::Type{Bintable}, data::Union{AbstractArray, NamedTuple},
     format::DataFormat, fields::Vector{BinaryField}; kwds...)
 
     #  Write data array
@@ -90,29 +101,7 @@ function Base.write(io::IO, ::Type{Bintable}, data::AbstractArray,
     if N > 0
         for j=1:N
             for field in fields
-                value = data[j][Symbol(field.name)]
-                write(io, field, typeof(value) <: AbstractArray ?
-                    reshape(value, :) : value; kwds...)
-            end
-        end
-        #  Pad last block with zeros
-        padblock(io, format)
-    end
-end
-
-function Base.write(io::IO, ::Type{Bintable}, data::NamedTuple, format::DataFormat,
-    fields::Vector{BinaryField}; kwds...)
-
-    #  Write data array
-    N = format.shape[2]
-    if N > 0
-        for j=1:N
-            start = position(io)
-            for field in fields
-                start = position(io)
-                value = data[Symbol(field.name)]
-                write(io, field, ndims(value) >= 2 ? reshape(value[j,:], :) :
-                    value[j]; kwds...)
+                write(io, field, flatten(getcell(Bintable, data, field, j)); kwds...)
             end
         end
         #  Pad last block with zeros
@@ -210,7 +199,7 @@ function FieldFormat(::Type{Bintable}, mankey::DataFormat, reskeys::Dict{S, V},
         name = typeof(data[1]) <: NamedTuple ? rstrip(String(keys(data[1])[j])) :
             rstrip(get(reskeys, "TTYPE$j", "field$j"))
         pntr  = nothing
-        type, leng, byts = fielddescriptor(data[1][j])
+        type, leng, byts = fielddescriptor(definedvalue(record[j] for record in data))
         supp  = ""
         # unit_ = unit(data[1][j]) != NoUnits ? unit(data[1][j]) :
         #     get(reskeys, "TUNIT$j", "")
@@ -259,7 +248,7 @@ function FieldFormat(::Type{Bintable}, mankey::DataFormat, reskeys::Dict{S, V},
         name  = typeof(data) <: NamedTuple ? rstrip(String(keys(data)[j])) :
             rstrip(get(reskeys, "TTYPE$j", "column$j"))
         pntr  = nothing
-        type, leng, byts = fielddescriptor(data[j][1])
+        type, leng, byts = fielddescriptor(definedvalue(data[j]))
         supp  = ""
         # unit_ = unit(data[j]) != NoUnits ? unit(data[j]) :
         #     get(reskeys, "TUNIT$j", "")
@@ -284,13 +273,25 @@ function FieldFormat(::Type{Bintable}, mankey::DataFormat, reskeys::Dict{S, V},
 end
 
 function recordlength(data::AbstractArray)
-	sum([typeof(f) <: BitVector ? sizeofbitvector(f) : sizeof(f)
-		for f in data[1]])
+	sum([sizeoffield(definedvalue(record[j] for record in data))
+		for j in 1:length(data[1])])
 end
 
 function recordlength(data::U) where U <: Union{Tuple, NamedTuple}
-	sum([typeof(f[1]) <: BitVector ? sizeofbitvector(f[1]) : sizeof(f[1])
-		for f in data])
+	sum([sizeoffield(definedvalue(column)) for column in data])
+end
+
+sizeoffield(f) = typeof(f) <: BitVector ? sizeofbitvector(f) : sizeof(f)
+
+#  The first value that is not missing, which gives the type of a field whose first values may be
+#  undefined; a column with no defined value has the zero of its element type.
+function definedvalue(values)
+	for value in values
+		ismissing(value) || return value
+	end
+	type = nonmissingtype(eltype(values))
+	type <: Number && return zero(type)
+	throw(ArgumentError("the type of a field of missing values cannot be determined"))
 end
 
 sizeofbitvector(v::BitVector)::Integer = (length(v)-1)÷8 + 1
@@ -304,7 +305,7 @@ function fielddescriptor(field)
         type, leng = BitVector, length(field)
         byts = sizeofbitvector(leng)
     elseif typeof(field) <: AbstractArray
-        type, leng = eltype(field), length(field)
+        type, leng = nonmissingtype(eltype(field)), length(field)
         byts = leng*sizeof(type)
     else
         type, leng = typeof(field), 1
@@ -371,28 +372,34 @@ function Base.read(io::IO, field::BinaryField, format::DataFormat,
 
     #  Without TSCAL/TZERO the data pass through unchanged; scaling by the
     #  Float32 defaults would round integers above 2^24 (e.g. Int32 pointers)
-    scale = scale && !(field.scale == 1 && field.zero == 0)
+    scale = scale && !isnothing(field.scale) && !(field.scale == 1 && field.zero == 0)
 
     type, leng = field.type, field.leng
 
     L, M, N = format.shape[1], first(field.slice)-1, format.shape[2]
     #  Read data array
     if !isnothing(field.pntr)
-        column = Array{Vector{type}}(undef, N)
+        #  The arrays of the rows may have missing values, or be scaled, so they are not all of one type
+        column = Array{Any}(undef, N)
         for j = 1:N
             seek(io, begpos + L*(j-1) + M)
             K   = ntoh(read(io, field.pntr))
             beg = ntoh(read(io, field.pntr))
             seek(io, begpos + format.heap + beg)
-            col = ntoh.([read(io, type) for k = 1:K])
+            col = type <: Bool ? decodelogical(read(io, K)) :
+                setmissing(ntoh.([read(io, type) for k = 1:K]), field.null)
             column[j] = scale ? scaled(col, field.scale, field.zero) : col
         end
+        column = map(identity, column)
     elseif type <: Bool
-        column = Array{type}(undef, N)
+        #  The bytes of the N rows, which are T, F, or 0 for undefined (Sect. 7.3.3.1)
+        bytes = Array{UInt8}(undef, (N, leng))
         for j = 1:N
             seek(io, begpos + L*(j-1) + M)
-            column[j] = read(io, type)
+            bytes[j,:] .= read(io, leng)
         end
+        column = decodelogical(bytes)
+        column = leng == 1 ? reshape(column, :) : column
     elseif type <: BitVector
         column = Array{type}(undef, N)
         for j = 1:N
@@ -411,6 +418,7 @@ function Base.read(io::IO, field::BinaryField, format::DataFormat,
             seek(io, begpos + L*(j-1) + M)
             column[j] = ntoh(read(io, type))
         end
+        column = setmissing(column, field.null)
         column = scale ? scaled(column, field.scale, field.zero) : column
     else
         column = Array{type}(undef, (N, leng))
@@ -418,6 +426,7 @@ function Base.read(io::IO, field::BinaryField, format::DataFormat,
             seek(io, begpos + L*(j-1) + M)
             column[j,:] .= ntoh.([read(io, type) for k=1:leng])
         end
+        column = setmissing(column, field.null)
         column = scale ? scaled(column, field.scale, field.zero) : column
     end
     column
@@ -427,7 +436,7 @@ function Base.read(io::IO, field::BinaryField; scale::Bool = true)
 
     #  Without TSCAL/TZERO the data pass through unchanged; scaling by the
     #  Float32 defaults would round integers above 2^24 (e.g. Int32 pointers)
-    scale = scale && !(field.scale == 1 && field.zero == 0)
+    scale = scale && !isnothing(field.scale) && !(field.scale == 1 && field.zero == 0)
 
     name, type, leng = field.name, field.type, field.leng
 
@@ -438,11 +447,14 @@ function Base.read(io::IO, field::BinaryField; scale::Bool = true)
         value = read(io, type, leng)
     elseif leng == 0
         value = nothing
+    elseif type <: Bool
+        value = decodelogical(read(io, leng))
+        value = leng == 1 ? only(value) : value
     elseif leng == 1
-        value = ntoh(read(io, type))
+        value = setmissing(ntoh(read(io, type)), field.null)
         value = scale ? scaled(value, field.scale, field.zero) : value
     else
-        value = ntoh.([read(io, type) for j=1:leng])
+        value = setmissing(ntoh.([read(io, type) for j=1:leng]), field.null)
         value = scale ? scaled(value, field.scale, field.zero) : value
     end
 
@@ -453,9 +465,13 @@ function Base.read(io::IO, field::BinaryField; scale::Bool = true)
 end
 
 function Base.write(io::IO, field::BinaryField, value::U; kwds...) where
-    U <: Union{AbstractArray, AbstractString, BitVector, Real, Complex}
+    U <: Union{AbstractArray, AbstractString, BitVector, Real, Complex, Missing}
 
     type, leng = field.type, field.leng
+    #  A logical value is written as T or F, and an undefined value as a 0 byte (Sect. 7.3.3.1)
+    type <: Bool && return leng == 0 ? 0 : write(io, encodelogical.(value))
+    #  The undefined values are written as TNULLn (Sect. 7.3.2), or NaN for floating-point data
+    value = unsetmissing(value, field.null, type)
 
     if type <: AbstractString
         write(io, rpad(value, field.leng))
@@ -469,6 +485,19 @@ function Base.write(io::IO, field::BinaryField, value::U; kwds...) where
         write(io, hton.(value))
     end
 end
+
+#  The values of the bytes of a logical field, which are an ASCII T for true, an ASCII F for false, and a 0
+#  byte for undefined (Sect. 7.3.3.1). Any other byte is not a logical value, and is read as false. The
+#  values have no missing if none of the bytes is 0.
+function decodelogical(bytes::AbstractArray{UInt8})
+    invalid = count(b -> !(b in (UInt8('T'), UInt8('F'), 0x00)), bytes)
+    invalid > 0 && @warn "$invalid bytes of a logical field are not T, F, or 0; read as false."
+    values = map(b -> b == 0x00 ? missing : b == UInt8('T'), bytes)
+    any(ismissing, values) ? values : Array{Bool}(values)
+end
+
+encodelogical(value::Bool) = value ? UInt8('T') : UInt8('F')
+encodelogical(::Missing) = 0x00
 
 function Base.read(io::IO, ::Type{BitVector}, len)
     #  Read the bytes from IO and convert the UInt8s to a Bitvector

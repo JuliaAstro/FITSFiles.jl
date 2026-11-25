@@ -69,7 +69,12 @@ function Base.read(io::IO, type::Type{Table}, format::DataFormat,
     data
 end
 
-function Base.write(io::IO, type::Type{Table}, data::AbstractArray,
+#  The value of a field in row `j` of the data, which is a vector of records or a named tuple of columns,
+#  where each column has one value for each row.
+getcell(::Type{Table}, data::AbstractArray, field, j::Integer) = data[j][Symbol(field.name)]
+getcell(::Type{Table}, data::NamedTuple, field, j::Integer) = data[Symbol(field.name)][j]
+
+function Base.write(io::IO, ::Type{Table}, data::Union{AbstractArray, NamedTuple},
     format::DataFormat, fields::Vector{TableField}; kwds...)
 
     #  Write data array
@@ -78,25 +83,7 @@ function Base.write(io::IO, type::Type{Table}, data::AbstractArray,
         for j=1:N
             begpos = position(io)
             for field in fields
-                write(io, data[j][Symbol(field.name)], field, begpos; kwds...)
-            end
-            write(io, repeat(" ", format.shape[1]-(position(io)-begpos)))
-        end
-        #  Pad last block with spaces
-        padblock(io, format, 0x20)
-    end
-end
-
-function Base.write(io::IO, ::Type{Table}, data::NamedTuple, format::DataFormat,
-    fields::Vector{TableField}; kwds...)
-
-    #  Write data array
-    N = format.shape[2]
-    if N > 0
-        for j=1:N
-            begpos = position(io)
-            for field in fields
-                write(io, data[Symbol(field.name)][j], field, begpos; kwds...)
+                write(io, getcell(Table, data, field, j), field, begpos; kwds...)
             end
             write(io, repeat(" ", format.shape[1]-(position(io)-begpos)))
         end
@@ -274,8 +261,17 @@ function createdata(::Type{Table}, format::DataFormat,
     end
 end
 
+#  An entry is undefined if it is blank or it is the TNULLn string, which is implicitly space filled to the
+#  width of the field (Sect. 7.2.2 of the standard).
+isundefined(field::TableField, item::AbstractString) = isempty(item) || all(==(' '), item) ||
+    (!isnothing(field.null) && rpad(field.null, length(item)) == item)
+
 function Base.read(io::IO, field::TableField, format::DataFormat,
     begpos::Integer; scale::Bool = true)
+
+    #  Without TSCAL/TZERO (the defaults are 1.0 and 0.0, Sect. 7.2.2) the data pass through unchanged;
+    #  scaling by the Float32 defaults would round integers above 2^24
+    scale = scale && !(field.scale == 1 && field.zero == 0)
 
     type, leng = field.type, length(field.slice)
     L, M, N = format.shape[1], first(field.slice)-1, format.shape[2]
@@ -287,18 +283,19 @@ function Base.read(io::IO, field::TableField, format::DataFormat,
             column[j] = rstrip(type(Base.read(io, leng)))
         end
     else
-        column = Array{type}(undef, N)
+        column = Array{Union{type, Missing}}(undef, N)
         for j = 1:N
             seek(io, begpos + L*(j-1) + M)
             item = String(Base.read(io, leng))
-            if (!isnothing(field.null) && field.null == item) ||
-                item == repeat(' ', leng) || leng <= 0
+            if isundefined(field, item)
                 column[j] = missing
             else
                 column[j] = Base.parse(type, replace(item, "D" => "e", "E" =>"e"))
             end
         end
-        column = scale ? field.zero .+ field.scale.*skipmissing(column) : column
+        #  The column has missing values only if there are undefined entries, and the scaling keeps them
+        column = any(ismissing, column) ? column : Array{type}(column)
+        column = scale ? scaled(column, field.scale, field.zero) : column
     end
     column
 end
@@ -306,21 +303,31 @@ end
 function Base.read(row::AbstractString, field::TableField; scale::Bool = true,
     invalid::Bool = true)
 
+    #  Without TSCAL/TZERO (the defaults are 1.0 and 0.0, Sect. 7.2.2) the data pass through unchanged;
+    #  scaling by the Float32 defaults would round integers above 2^24
+    scale = scale && !(field.scale == 1 && field.zero == 0)
+
     type, leng = field.type, length(field.slice)
     item = row[field.slice]
     if type <: AbstractString
         value = rstrip(item)
-    elseif (!isnothing(field.null) && field.null == item) ||
-        item == repeat(' ', leng) || leng <= 0
+    elseif isundefined(field, item)
         value = missing
     else
         value = Base.parse(type, replace(item, "D" => "e", "E" => "e"))
-        value = scale ? field.zero + field.scale * value : value
+        value = scale ? scaled(value, field.scale, field.zero) : value
     end
     #  Append units
     # if !ismissing(format.unit) value *= uparse(format.unit) end
     #  Create a Pair for name fields
     isempty(field.name) ? value : Symbol(field.name) => value
+end
+
+#  An undefined value is the TNULLn string, space filled to the width of the field, or blanks if there
+#  is no TNULLn keyword.
+function Base.write(io::IO, ::Missing, field::TableField, begpos::Integer; kwds...)
+    write(io, repeat(" ", field.slice.start - (position(io) - begpos + 1)))
+    write(io, rpad(something(field.null, ""), length(field.slice)))
 end
 
 function Base.write(io::IO, data::ValueType, field::TableField, begpos::Integer; kwds...)
