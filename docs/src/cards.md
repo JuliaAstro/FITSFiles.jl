@@ -13,7 +13,7 @@ without the trailing spaces.
 DocTestSetup = quote
     using FITSFiles, Unitful
     ENV["UNITFUL_FANCY_EXPONENTS"] = "true"  # platform dependent default
-    import FITSFiles: setvalue!, join_cards
+    import FITSFiles: setvalue!, joincards
     show_(card) = println(rstrip(repr(card)))
 end
 ```
@@ -348,7 +348,7 @@ CONTINUE  ''                   / comment that is continued
 ```
 
 The spaces at the ends of a comment are not significant, so they are not part of the comment of a
-card. The comments of the cards of a long string are joined by `join_cards` with a space, unless a
+card. The comments of the cards of a long string are joined by `joincards` with a space, unless a
 comment ends with a space.
 
 A string that does not fit on one card is split into the cards of a long string, a card and
@@ -375,10 +375,10 @@ CONTINUE  'string value. '
 ```
 
 The comment is split in the same way. A list of cards is joined into the value of the card by
-`join_cards`.
+`joincards`.
 
 ```jldoctest cards
-julia> join_cards(cards).value
+julia> joincards(cards).value
 "This is a long string value. This is a long string value. This is a long string value. This is a long string value. This is a long string value. "
 ```
 
@@ -466,7 +466,7 @@ julia> typeof.(cards)
  Card{Value{String}}
  Card{Continue}
 
-julia> join_cards(cards).value
+julia> joincards(cards).value
 "This is a long string value."
 
 julia> typeof(parse(Card, rpad("CONTINUE  'orphan'", 80), nothing))

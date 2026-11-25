@@ -249,7 +249,7 @@ function createcards!(::Type{Random}, format::DataFormat,
         "GROUPS" => true; "PCOUNT" => P; "GCOUNT" => format.group; ptype])
 end
 
-function create_data(::Type{Random}, format::DataFormat,
+function createdata(::Type{Random}, format::DataFormat,
     fields::Vector{RandomField}; record::Bool = false, kwds...)
     #  Create N-dimensional array of zeros of type BITPIX.
     if format.group > 0

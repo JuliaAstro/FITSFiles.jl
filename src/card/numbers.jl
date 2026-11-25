@@ -87,12 +87,12 @@ alignnumber(text::AbstractString, format::CardFormat) =
 	format.fixd ? lpad(text, FIXEDINDEX) : " "^(format.vbeg-1) * text
 
 """
-	parse_number(real::AbstractString)
+	parsenumber(real::AbstractString)
 
 Determine the type of a number as a Float32, Float64, Int64, Int128, or BigInt. A floating-point
 number is a Float32 only if it is represented exactly by its shortest Float32 string.
 """
-function parse_number(real::AbstractString)
+function parsenumber(real::AbstractString)
 	real = uppercase(real)
 	if occursin('D', real)
 		value = parse(Float64, replace(real, "D" => "e"))
@@ -114,14 +114,14 @@ function parse_number(real::AbstractString)
 end
 
 """
-	parse_complex(real::AbstractString, imag::AbstractString)
+	parsecomplex(real::AbstractString, imag::AbstractString)
 
 Determine the type of a complex number as the smallest type that holds both parts. The parts are
 integers if both are integers, and otherwise floats, where an integer is a float of a type that
 holds the integer exactly, i.e., a Float32, a Float64, or a BigFloat.
 """
-function parse_complex(real::AbstractString, imag::AbstractString)
-	re, im = parse_number(real), parse_number(imag)
+function parsecomplex(real::AbstractString, imag::AbstractString)
+	re, im = parsenumber(real), parsenumber(imag)
 	re isa Integer && im isa Integer && return complex(re, im)
 	T = promote_type(re isa AbstractFloat ? typeof(re) : Float32, im isa AbstractFloat ? typeof(im) : Float32)
 	for part in (re, im)

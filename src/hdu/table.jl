@@ -145,10 +145,10 @@ function FieldFormat(::Type{Table}, format::DataFormat, reskeys::Dict{S, V},
         tscal = leastfloat(get(reskeys, "TSCAL$j",
             type <: String ? nothing : 1.0f0))
         null  = get(reskeys, "TNULL$j", nothing)
-        dmin  = parse_string(get(reskeys, "TDMIN$j", nothing))
-        dmax  = parse_string(get(reskeys, "TDMAX$j", nothing))
-        lmin  = parse_string(get(reskeys, "TLMIN$j", nothing))
-        lmax  = parse_string(get(reskeys, "TLMAX$j", nothing))
+        dmin  = parsestring(get(reskeys, "TDMIN$j", nothing))
+        dmax  = parsestring(get(reskeys, "TDMAX$j", nothing))
+        lmin  = parsestring(get(reskeys, "TLMIN$j", nothing))
+        lmax  = parsestring(get(reskeys, "TLMAX$j", nothing))
 
         fields[j] = TableField(name, type, k:k+leng-1, unit, form, disp,
             tzero, tscal, null, dmin, dmax, lmin, lmax)
@@ -194,10 +194,10 @@ function FieldFormat(::Type{Table}, format::DataFormat, reskeys::Dict{S, V},
         tscal = leastfloat(get(reskeys, "TSCAL$j",
             type <: String ? nothing : 1.0f0))
         null  = get(reskeys, "TNULL$j", nothing)
-        dmin  = parse_string(get(reskeys, "TDMIN$j", nothing))
-        dmax  = parse_string(get(reskeys, "TDMAX$j", nothing))
-        lmin  = parse_string(get(reskeys, "TLMIN$j", nothing))
-        lmax  = parse_string(get(reskeys, "TLMAX$j", nothing))
+        dmin  = parsestring(get(reskeys, "TDMIN$j", nothing))
+        dmax  = parsestring(get(reskeys, "TDMAX$j", nothing))
+        lmin  = parsestring(get(reskeys, "TLMIN$j", nothing))
+        lmax  = parsestring(get(reskeys, "TLMAX$j", nothing))
 
         fields[j] = TableField(name, type, k:k+leng, unit, form, disp,
             tzero, tscal, null, dmin, dmax, lmin, lmax)
@@ -243,10 +243,10 @@ function FieldFormat(::Type{Table}, format::DataFormat, reskeys::Dict{S, V},
         tscal = leastfloat(get(reskeys, "TSCAL$j",
             type <: String ? nothing : 1.0f0))
         null  = get(reskeys, "TNULL$j", nothing)
-        dmin  = parse_string(get(reskeys, "TDMIN$j", nothing))
-        dmax  = parse_string(get(reskeys, "TDMAX$j", nothing))
-        lmin  = parse_string(get(reskeys, "TLMIN$j", nothing))
-        lmax  = parse_string(get(reskeys, "TLMAX$j", nothing))
+        dmin  = parsestring(get(reskeys, "TDMIN$j", nothing))
+        dmax  = parsestring(get(reskeys, "TDMAX$j", nothing))
+        lmin  = parsestring(get(reskeys, "TLMIN$j", nothing))
+        lmax  = parsestring(get(reskeys, "TLMAX$j", nothing))
 
         fields[j] = TableField(name, type, k:k+leng, unit, form, disp,
             tzero, tscal, null, dmin, dmax, lmin, lmax)
@@ -264,7 +264,7 @@ function createcards!(::Type{Table}, format::DataFormat,
     arrangecards!(cards, required)
 end
 
-function create_data(::Type{Table}, format::DataFormat,
+function createdata(::Type{Table}, format::DataFormat,
     fields::Vector{TableField}; kwds...)
     #  Create simple N-dimensional array of zeros of type BITPIX
     if length(format.shape) == 2

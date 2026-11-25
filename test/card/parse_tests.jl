@@ -715,7 +715,7 @@
         card = parse(Card, image * " "^(80 - length(image)))
         @test FITSFiles.typename(card) == FITSFiles.Invalid
         @test length(repr(card)) == 80
-        @test FITSFiles.rpad_key("a\tb") == "a\tb" * " "^5
+        @test FITSFiles.rpadkey("a\tb") == "a\tb" * " "^5
     end
 
     #  The END keyword has no value.
@@ -756,8 +756,8 @@
     #  The offsets of a match are found by the indexes of the named groups, which are the same for
     #  the regexes of the standard and of the lenient (strict = false) parser.
     @testset "regex groups" begin
-        @test FITSFiles.group_indexes(FITSFiles.VALUE_LOWER) == FITSFiles.VALUE_GROUPS
-        @test FITSFiles.group_indexes(FITSFiles.HIERARCH_LOWER) == FITSFiles.HIERARCH_GROUPS
+        @test FITSFiles.groupindexes(FITSFiles.VALUE_LOWER) == FITSFiles.VALUE_GROUPS
+        @test FITSFiles.groupindexes(FITSFiles.HIERARCH_LOWER) == FITSFiles.HIERARCH_GROUPS
         @test Set(keys(FITSFiles.VALUE_GROUPS)) ==
             Set((:strg, :ampr, :bool, :numr, :cplx, :real, :imag, :miss, :slash, :comment))
         @test Set(keys(FITSFiles.HIERARCH_GROUPS)) ==

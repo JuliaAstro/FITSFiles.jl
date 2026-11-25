@@ -52,7 +52,7 @@ function createcards!(::Type{ZTable}, format::DataFormat,
 
 end
 
-function create_data(::Type{ZTable}, format::DataFormat,
+function createdata(::Type{ZTable}, format::DataFormat,
     fields::Vector{ZTableField}; kwds...)
 
 end

@@ -31,7 +31,7 @@ end
 function Base.write(io::IO, ::Type{Conform}, data::AbstractArray,
         format::DataFormat, fields=ConformField; kwds...)
 
-    data = remove_units(data)
+    data = removeunits(data)
 
     println(format)
     println(data)
@@ -72,7 +72,7 @@ function createcards!(::Type{Conform}, format::DataFormat,
     arrangecards!(cards, ["SIMPLE" => true; shapekeys(format)])
 end
 
-function create_data(::Type{Conform}, format::DataFormat, fields::ConformField;
+function createdata(::Type{Conform}, format::DataFormat, fields::ConformField;
     kwds...)
     #  Create simple N-dimensional array of zeros of type BITPIX
     length(format.shape) > 0 ? zeros(format.type, format.shape) : missing

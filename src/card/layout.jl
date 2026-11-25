@@ -1,6 +1,6 @@
 ####  Format Card  ####
 
-function layout_card(::Type{Value{S}}, value::S, comment::C; kwds...) where
+function layoutcard(::Type{Value{S}}, value::S, comment::C; kwds...) where
 {S <: AbstractString, C <: AbstractString}
 	#   Create CardFormat for string type
 	format = CardFormat(kwds[:fixed])
@@ -17,7 +17,7 @@ function layout_card(::Type{Value{S}}, value::S, comment::C; kwds...) where
 	formatcomment!(comment, vend, format; kwds...)
 end
 
-function layout_card(::Type{Value{V}}, value::V, comment::C; kwds...) where
+function layoutcard(::Type{Value{V}}, value::V, comment::C; kwds...) where
 {V <: ValueType, C <: AbstractString}
 
 	#  Create appropriate CardFormat type
@@ -41,7 +41,7 @@ function layout_card(::Type{Value{V}}, value::V, comment::C; kwds...) where
 	formatcomment!(comment, vend, format; kwds...)
 end
 
-function layout_card(::Type{Value{V}}, value::V, comment::C; kwds...) where
+function layoutcard(::Type{Value{V}}, value::V, comment::C; kwds...) where
 {V <: Complex, C <: AbstractString}
 
 	#  Create appropriate CardFormat type
@@ -60,21 +60,21 @@ function layout_card(::Type{Value{V}}, value::V, comment::C; kwds...) where
 	formatcomment!(comment, vend, format; kwds...)
 end
 
-function layout_card(::Type{Continue}, value::S, comment::C; kwds...) where
+function layoutcard(::Type{Continue}, value::S, comment::C; kwds...) where
 {S <: AbstractString, C <: AbstractString}
 
 	#  Format CONTINUE record
 	#  data: fixed, amper, slash, lpad, rpad, truncate
-	layout_card(Value{AbstractString}, value, comment; kwds...)
+	layoutcard(Value{AbstractString}, value, comment; kwds...)
 end
 
-function layout_card(::Type{Hierarch{V}}, token::S, value::V, comment::C; kwds...) where
+function layoutcard(::Type{Hierarch{V}}, token::S, value::V, comment::C; kwds...) where
 {S <: AbstractString, V <: ValueType, C <: AbstractString}
 	format = CardFormat(kwds[:fixed])
 	format.vfmt, format.ufmt = get(kwds, :vfmt, ""), get(kwds, :ufmt, "")
 	#  Use ampersand for '=' index
 	ampr = length(token) + 2
-	vlen = ampr + 1 + length(isempty(format.vfmt) ? value_image(value) : printfmt(format.vfmt, value))
+	vlen = ampr + 1 + length(isempty(format.vfmt) ? valueimage(value) : printfmt(format.vfmt, value))
 	vend = HIERINDEX+vlen
 	#  The keyword, value, and equal sign must fit on the card after "HIERARCH ".
 	vend > CARDLENGTH - KEYLENGTH - 1 &&
@@ -86,7 +86,7 @@ end
 
 #  Free-format value field of a HIERARCH card: strings are quoted, logicals are T or F,
 #  and floats use an E (single precision) or D (double precision) exponent.
-function value_image(value::ValueType)
+function valueimage(value::ValueType)
 	if ismissing(value)
 		""
 	elseif value isa AbstractString
@@ -94,7 +94,7 @@ function value_image(value::ValueType)
 	elseif value isa Bool
 		value ? "T" : "F"
 	elseif value isa Complex
-		"(" * value_image(real(value)) * ", " * value_image(imag(value)) * ")"
+		"(" * valueimage(real(value)) * ", " * valueimage(imag(value)) * ")"
 	elseif value isa Float32
 		replace(string(value), "f" => "E", "e" => "E")
 	elseif value isa AbstractFloat
@@ -145,19 +145,19 @@ function fitcomment(comment::AbstractString, format::CardFormat)
 	n >= length(comment) ? comment : rstrip(first(comment, n))
 end
 
-function value_length(slash::I, lpad::I)::Integer where I <: Integer
+function valuelength(slash::I, lpad::I)::Integer where I <: Integer
 	#  Calculate length of value based comment separator index and padding.
 	#  First 2 is for value indicator. Second 2 is single quotes.
 	((slash-lpad) > CARDLENGTH ? CARDLENGTH : slash-lpad-1) - (TOKENLEN+2)
 end
 
-function comment_length(slash::I, rpad::I)::Integer where I <: Integer
+function commentlength(slash::I, rpad::I)::Integer where I <: Integer
 	#  Calculate length of comment using the comment separator index and padding.
 	(slash+rpad) >= CARDLENGTH ? 0 : CARDLENGTH - (slash+rpad)
 end
 
 #  The key is padded by the number of characters, since a control character has no width.
-rpad_key(key::AbstractString, n::Integer = 0) = key * " "^max(0, KEYLENGTH + n - length(key))
+rpadkey(key::AbstractString, n::Integer = 0) = key * " "^max(0, KEYLENGTH + n - length(key))
 
 #  Format String value for card
 function stringvalue(value::S, format::F) where {S <: AbstractString, F <: CardFormat}

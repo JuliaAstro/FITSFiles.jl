@@ -80,7 +80,7 @@ const NON_ASCII_TEXT = Regex("[^ -~]")
 const NUMBER_LOWER_STR = "[+-]?(?:\\.\\d+|\\d+(?:\\.\\d*)?)(?:[DEde][+-]?\\d+)?"
 
 #  regexes for a value field with the real numbers of a number regex.
-value_fsc(number) = Regex(
+valuefsc(number) = Regex(
 	"^ *" *
 	"(?:" *
 	"(?<strg>'(?:[ -&(-~]|''|)*?(?<ampr>&)? *')(?=\$|/| )|" *
@@ -92,7 +92,7 @@ value_fsc(number) = Regex(
 	"(?<slash>/)? *" *
 	"(?<comment>[!-~][ -~]*?)?(?= *\$) *\$")
 
-hierarch_fsc(number) = Regex(
+hierarchfsc(number) = Regex(
 	"^ *" *
 	"(?<key>[A-Z0-9 _-]*?)" *
 	" *(?<equal>=) *" *
@@ -105,10 +105,10 @@ hierarch_fsc(number) = Regex(
 	") *" *
 	"(?<slash>/)? *" * "(?<comment>[!-~][ -~]*?)?(?= *\$) *\$")
 
-const VALUE_FSC_2    = value_fsc(NUMBER_FSC_STR_2)
-const VALUE_LOWER    = value_fsc(NUMBER_LOWER_STR)
-const HIERARCH_FSC   = hierarch_fsc(NUMBER_FSC_STR_2)
-const HIERARCH_LOWER = hierarch_fsc(NUMBER_LOWER_STR)
+const VALUE_FSC_2    = valuefsc(NUMBER_FSC_STR_2)
+const VALUE_LOWER    = valuefsc(NUMBER_LOWER_STR)
+const HIERARCH_FSC   = hierarchfsc(NUMBER_FSC_STR_2)
+const HIERARCH_LOWER = hierarchfsc(NUMBER_LOWER_STR)
 
 const VALUE_NFSC = Regex(
 	"(?P<valu_field> *" *

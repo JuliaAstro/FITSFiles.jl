@@ -1,6 +1,6 @@
 @testset "Card write" begin
     format = FITSFiles.CardFormat()
-    image(T, key, value) = FITSFiles.format_card(T, key, value, "", "", format)
+    image(T, key, value) = FITSFiles.formatcard(T, key, value, "", "", format)
 
     @testset "show" begin
         cards = Card{<:Any}[Card("ABC", 1, "a"), Card("COMMENT", "text")]

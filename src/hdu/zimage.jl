@@ -52,7 +52,7 @@ function createcards!(::Type{ZImage}, format::DataFormat,
 
 end
 
-function create_data(::Type{ZImage}, format::DataFormat,
+function createdata(::Type{ZImage}, format::DataFormat,
     fields::Vector{ZImageField}; kwds...)
 
 end

@@ -185,7 +185,7 @@ function HDU(data::D = missing, cards::C = missing; record::B = false,
 	end
 
 	#  Detect HDU type from either data or cards
-	type = typeofhdu(data, get_reserved_keys(kards)[1])
+	type = typeofhdu(data, getreservedkeys(kards)[1])
 	HDU(type, data, kards; kwds...)
 end
 
@@ -203,14 +203,14 @@ function HDU(type::Type, ::Missing = missing, cards::C = missing; kwds...) where
 	end
 
 	#  Create dictionaries of mandatory and reserved keywords
-	mankeys, reskeys = get_reserved_keys(kards)
+	mankeys, reskeys = getreservedkeys(kards)
 
 	kards  = verify!(type, kards, mankeys)
 	format = DataFormat(type, missing, mankeys)
 	kards  = verify!(type, kards, format, mankeys)
 	fields = FieldFormat(type, format, reskeys, missing)
 	kards  = createcards!(type, format, fields, kards; kwds...)
-	data   = create_data(type, format, fields; kwds...)
+	data   = createdata(type, format, fields; kwds...)
 
 	HDU{type}(kards, data)
 end
@@ -227,7 +227,7 @@ function HDU(type::Type, data::AbstractArray, cards::C = missing; kwds...) where
 	end
 
 	#  Create dictionaries of mandatory and reserved keywords
-	mankeys, reskeys = get_reserved_keys(kards)
+	mankeys, reskeys = getreservedkeys(kards)
 
 	format = DataFormat(type, data, mankeys)
 	kards  = verify!(type, kards, format, mankeys)
@@ -254,7 +254,7 @@ function HDU(type::Type, data::U, cards::C = missing; kwds...) where
 	end
 
 	#  Create dictionaries of mandatory and reserved keywords
-	mankeys, reskeys = get_reserved_keys(kards)
+	mankeys, reskeys = getreservedkeys(kards)
 
 	format = DataFormat(type, data, mankeys)
 	kards  = verify!(type, kards, format, mankeys)
@@ -368,7 +368,7 @@ the header to a multiple of 2880 bytes, followed by the data.
 function Base.write(io::IO, hdu::HDU{<:AbstractHDU}; kwds...)
 
 	cards = getfield(hdu, :cards)
-	mankeys, reskeys = get_reserved_keys(cards)
+	mankeys, reskeys = getreservedkeys(cards)
 
 	type   = typeofhdu(hdu)
 	cards  = verify!(type, cards, mankeys)
@@ -404,7 +404,7 @@ function Base.read(io::IO, ::Type{Card}; strict::Bool = true, units::Union{Bool,
         block = read(io, BLOCKLEN)
     end
     #  Create dictionaries of mandatory and reserved keywords, which include the END keyword.
-    mankeys, reskeys = get_reserved_keys(cards)
+    mankeys, reskeys = getreservedkeys(cards)
     mankeys["END"] = missing
     (cards, mankeys, reskeys)
 end
@@ -566,7 +566,7 @@ function scaled(data, scale, zero)
 	T.(muladd.(W(scale), W.(data), W(zero)))
 end
 
-function get_reserved_keys(cards::Cards)
+function getreservedkeys(cards::Cards)
 	mankeys = Dict{AbstractString, ValueType}()
 	reskeys = Dict{AbstractString, ValueType}()
 	for (j, card) in enumerate(cards)
@@ -666,7 +666,7 @@ end
 =#
 basetype(T) = Base.typename(T).wrapper
 
-parse_string(value) = value isa String ? parse_number(value) : value
+parsestring(value) = value isa String ? parsenumber(value) : value
 
 ####    Array-like Functions
 
@@ -723,14 +723,14 @@ end
 
 ####    Reserved Keywords
 #=
-function parse_general(cards::Cards)
+function parsegeneral(cards::Cards)
 	date = get(cards, "DATE", missing)
 	orign = get(cards, "ORIGIN", missing)
 	xtend = get(cards, "EXTEND", missing)
 	blokd = get(cards, "BLOCKED", missing)
 end
 
-function parse_observatory(cards::Cards)
+function parseobservatory(cards::Cards)
 	datobs = get(cards, "DATE-OBS", missing)
 	# datxxx = get(cards, "DATExxxx", missing)
 	telscp = get(cards, "TELESCOP", missing)
@@ -739,24 +739,24 @@ function parse_observatory(cards::Cards)
 	object = get(cards, "OBJECT", missing)
 end
 
-function parse_biblio(cards::Cards)
+function parsebiblio(cards::Cards)
 	author = get(cards, "AUTHOR", missing)
 	refern = get(cards, "REFERENC", missing)
 end
 
-function parse_extension(cards::Cards)
+function parseextension(cards::Cards)
 	xname  = get(cards, "EXTNAME", missing)
 	xver   = get(cards, "EXTVER", missing)
 	xlevel = get(cards, "EXTLEVEL", missing)
 	nherit = get(cards, "INHERIT", missing)
 end
 
-function parse_checksums(card::Cards)
+function parsechecksums(card::Cards)
 	datsum = get(cards, "DATASUM", missing)
 	chksum = get(cards, "CHECKSUM", missing)
 end
 
-function parse_wcs(cards::Cards)
+function parsewcs(cards::Cards)
 end
 =#
 
@@ -779,7 +779,7 @@ card joined with the CONTINUE cards that follow it.
 """
 joinvalue(cards::Cards, j::Integer) =
 	basetype(typename(cards[j])) == Value && continued(cards[j]) ?
-	join_cards(@view cards[j:end]).value : cards[j].value
+	joincards(@view cards[j:end]).value : cards[j].value
 
 """
     units(card)

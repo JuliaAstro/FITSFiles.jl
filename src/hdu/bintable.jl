@@ -175,10 +175,10 @@ function FieldFormat(::Type{Bintable}, mankeys::DataFormat, reskeys::Dict{S, V},
         scale = leastfloat(get(reskeys, "TSCAL$j",
             type <: Union{Bool, BitVector, String} ? nothing : 1.0f0))
         null  = get(reskeys, "TNULL$j", nothing)
-        dmin  = parse_string(get(reskeys, "TDMIN$j", nothing))
-        dmax  = parse_string(get(reskeys, "TDMAX$j", nothing))
-        lmin  = parse_string(get(reskeys, "TLMIN$j", nothing))
-        lmax  = parse_string(get(reskeys, "TLMAX$j", nothing))
+        dmin  = parsestring(get(reskeys, "TDMIN$j", nothing))
+        dmax  = parsestring(get(reskeys, "TDMAX$j", nothing))
+        lmin  = parsestring(get(reskeys, "TLMIN$j", nothing))
+        lmax  = parsestring(get(reskeys, "TLMAX$j", nothing))
 
         fields[j] = BinaryField(name, pntr, type, k+1:k+byts, leng, supp,
             unit_, disp, dims, zero_, scale, null, dmin, dmax, lmin, lmax)
@@ -210,7 +210,7 @@ function FieldFormat(::Type{Bintable}, mankey::DataFormat, reskeys::Dict{S, V},
         name = typeof(data[1]) <: NamedTuple ? rstrip(String(keys(data[1])[j])) :
             rstrip(get(reskeys, "TTYPE$j", "field$j"))
         pntr  = nothing
-        type, leng, byts = field_descriptor(data[1][j])
+        type, leng, byts = fielddescriptor(data[1][j])
         supp  = ""
         # unit_ = unit(data[1][j]) != NoUnits ? unit(data[1][j]) :
         #     get(reskeys, "TUNIT$j", "")
@@ -259,7 +259,7 @@ function FieldFormat(::Type{Bintable}, mankey::DataFormat, reskeys::Dict{S, V},
         name  = typeof(data) <: NamedTuple ? rstrip(String(keys(data)[j])) :
             rstrip(get(reskeys, "TTYPE$j", "column$j"))
         pntr  = nothing
-        type, leng, byts = field_descriptor(data[j][1])
+        type, leng, byts = fielddescriptor(data[j][1])
         supp  = ""
         # unit_ = unit(data[j]) != NoUnits ? unit(data[j]) :
         #     get(reskeys, "TUNIT$j", "")
@@ -296,7 +296,7 @@ end
 sizeofbitvector(v::BitVector)::Integer = (length(v)-1)÷8 + 1
 sizeofbitvector(len::Integer)::Integer = (len-1)÷8 + 1
 
-function field_descriptor(field)
+function fielddescriptor(field)
     if typeof(field) <: AbstractString
         type, leng = String, length(field)
         byts = leng
@@ -326,15 +326,15 @@ function createcards!(::Type{Bintable}, format::DataFormat,
     arrangecards!(cards, required)
 end
 
-function create_data(::Type{Bintable}, format::DataFormat,
+function createdata(::Type{Bintable}, format::DataFormat,
     fields::Vector{BinaryField}; record::Bool = false, kwds...)
     #  Create vector of tuples.
     if format.leng > 0
         if record
-            data = [(; [Symbol(f.name) => bintab_zeros(f) for f in fields]...)
+            data = [(; [Symbol(f.name) => bintabzeros(f) for f in fields]...)
                     for k=1:format.shape[2]]
         else
-            data = (; [Symbol(f.name) => bintab_zeros(f, format.shape[2])
+            data = (; [Symbol(f.name) => bintabzeros(f, format.shape[2])
                     for f in fields]...)
         end
     else
@@ -342,7 +342,7 @@ function create_data(::Type{Bintable}, format::DataFormat,
     end
 end
 
-function bintab_zeros(f)
+function bintabzeros(f)
     if f.type <: AbstractString
         repeat(" ", f.leng)
     elseif f.type <: BitVector
@@ -354,7 +354,7 @@ function bintab_zeros(f)
     end
 end
 
-function bintab_zeros(f, n)
+function bintabzeros(f, n)
     if f.type <: AbstractString
         fill(repeat(" ", f.leng), n)
     elseif f.type <: BitVector

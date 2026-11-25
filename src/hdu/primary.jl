@@ -48,7 +48,7 @@ function Base.write(io::IO, ::Type{Primary}, data::AbstractArray,
     format::DataFormat, fields::ImageField; kwds...)
 
     if format.leng > 0
-        # data = remove_units(data)
+        # data = removeunits(data)
 
         write(io, data, fields; kwds...)
         padblock(io, format)
@@ -118,7 +118,7 @@ function createcards!(::Type{Primary}, format::DataFormat,
     arrangecards!(cards, ["SIMPLE" => true; shapekeys(format)])
 end
 
-function create_data(::Type{Primary}, format::DataFormat, ::ImageField;
+function createdata(::Type{Primary}, format::DataFormat, ::ImageField;
     kwds...)
     #  Create simple N-dimensional array of zeros of type BITPIX
     length(format.shape) > 0 ? zeros(format.type, format.shape) : missing
@@ -145,10 +145,10 @@ function Base.write(io::IO, data::AbstractArray, fields::ImageField)
     n = Base.write(io, hton.(reshape(data, :)))
 end
 
-function apply_units(data::AbstractArray, fields::ImageField)
+function applyunits(data::AbstractArray, fields::ImageField)
     !isnothing(fields.unit) ? data*fields.unit : data
 end
 
-function remove_units(data::AbstractArray)
+function removeunits(data::AbstractArray)
     typeof(data) <: Quantity ? data.val : data
 end
