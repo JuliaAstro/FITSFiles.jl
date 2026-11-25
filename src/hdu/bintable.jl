@@ -156,7 +156,7 @@ function FieldFormat(::Type{Bintable}, mankeys::DataFormat, reskeys::Dict{S, V},
         if !isnothing(pntr)
             if !(leng in [0, 1])
                 leng = 1
-                println("Warning: TFORM$j repeat value set to 1.")
+                @warn "TFORM$j repeat value set to 1."
             end
             byts = 2*sizeof(pntr)
         elseif type <: BitVector

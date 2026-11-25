@@ -26,13 +26,13 @@ function verify!(::Type{ZTable}, type::Type, shape::Tuple, cards::Cards,
 
     if haskey(mankeys, "BITPIX") && type != BITS2TYPE[mankeys["BITPIX"]]
         setindex!(cards, "BITPIX", TYPE2BITS[type])
-        println("Warning: BITPIX set to $(TYPE2BITS[type])).")
+        @warn "BITPIX set to $(TYPE2BITS[type]))."
     end
     if haskey(mankeys, "NAXIS1") && shape != datasize(cards, 1)
         N = length(shape)
         setindex!(cards, "NAXIS", N)
         for j=1:N setindex!(cards, "NAXIS$j", shape[j]) end
-        println("Warning: NAXIS$(1:N) set to $shape")
+        @warn "NAXIS$(1:N) set to $shape"
     end
     cards
 end

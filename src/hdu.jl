@@ -466,14 +466,14 @@ for random groups, where NAXIS1 is 0.
 function verify_shape!(cards::Cards, mankeys::AbstractDict, format::DataFormat; first::Integer = 1)
 	if haskey(mankeys, "BITPIX") && format.type != BITS2TYPE[mankeys["BITPIX"]]
 		setindex!(cards, TYPE2BITS[format.type], "BITPIX")
-		println("Warning: BITPIX set to $(TYPE2BITS[format.type]).")
+		@warn "BITPIX set to $(TYPE2BITS[format.type])."
 	end
 	if haskey(mankeys, "NAXIS1") && format.shape != datasize(cards, first)
 		N = length(format.shape) + first - 1
 		setindex!(cards, N, "NAXIS")
 		first == 2 && setindex!(cards, 0, "NAXIS1")
 		for j = first:N setindex!(cards, format.shape[j-first+1], "NAXIS$j") end
-		println("Warning: NAXIS$(first:N) set to $(format.shape)")
+		@warn "NAXIS$(first:N) set to $(format.shape)"
 	end
 	cards
 end
@@ -487,7 +487,7 @@ function verify_counts!(cards::Cards, mankeys::AbstractDict, format::DataFormat)
 	for (key, value) in (("PCOUNT", format.param), ("GCOUNT", format.group))
 		if haskey(mankeys, key) && value != mankeys[key]
 			setindex!(cards, value, key)
-			println("Warning: $key set to $value")
+			@warn "$key set to $value"
 		end
 	end
 	cards

@@ -58,7 +58,7 @@ end
 function verify!(::Type{Primary}, cards::Cards, format::DataFormat,
     mankeys::AbstractDict)
 
-    !get(mankeys, "SIMPLE", true) && println("Warning: Primary HDU is nonconformant.")
+    !get(mankeys, "SIMPLE", true) && @warn "Primary HDU is nonconformant."
     verify_shape!(cards, mankeys, format)
 end
 

@@ -103,11 +103,11 @@ end
 function verify!(::Type{Random}, cards::Cards, format::DataFormat,
     mankeys::AbstractDict)
 
-    !get(mankeys, "SIMPLE", true) && println("Warning: Primary HDU is nonconformant.")
+    !get(mankeys, "SIMPLE", true) && @warn "Primary HDU is nonconformant."
     verify_shape!(cards, mankeys, format; first = 2)
     if !get(mankeys, "GROUPS", true)
         setindex!(cards, true, "GROUPS")
-        println("Warning: GROUPS set to true")
+        @warn "GROUPS set to true"
     end
     verify_counts!(cards, mankeys, format)
 end
