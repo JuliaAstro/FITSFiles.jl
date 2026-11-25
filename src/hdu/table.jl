@@ -256,33 +256,12 @@ end
 
 function createcards!(::Type{Table}, format::DataFormat,
     fields::Vector{TableField}, cards::Cards; kwds...)
-    M, N = length(format.shape) == 2 ? format.shape : (0, 0)
-    T = length(fields)
-    #  create mandatory header cards and remove them from the deck if necessary
-    required = Vector{Card{<:Any}}(undef, 8+2*T)
-    required[1] = popat!(cards, "XTENSION", Card("XTENSION", "TABLE   "))
-    required[2] = popat!(cards, "BITPIX", Card("BITPIX", 8))
-    required[3] = popat!(cards, "NAXIS",  Card("NAXIS", 2))
-    required[4] = popat!(cards, "NAXIS1", Card("NAXIS1", M))
-    required[5] = popat!(cards, "NAXIS2", Card("NAXIS2", N))
-    required[6] = popat!(cards, "PCOUNT", Card("PCOUNT", 0))
-    required[7] = popat!(cards, "GCOUNT", Card("GCOUNT", 1))
-    required[8] = popat!(cards, "TFIELDS", Card("TFIELDS", T))
-    for j=1:T
-        required[8+2*j-1] = popat!(cards, "TFORM$j", Card("TFORM$j",
-            fields[j].form))
-        required[8+2*j] = popat!(cards, "TBCOL$j", Card("TBCOL$j",
-            first(fields[j].slice)))
-    end
 
-    #  Append remaining cards in deck, but first remove the END card
-    popat!(cards, "END")
-    K = length(cards)
-    kards = Vector{Card{<:Any}}(undef,8+2*T+K)
-    kards[1:8+2*T] .= required
-    kards[9+2*T:8+2*T+K] .= cards
-    #  END card is implied. Will be append on write.
-    return kards
+    required = tablekeys("TABLE", format, length(fields))
+    for (j, field) in enumerate(fields)
+        push!(required, "TFORM$j" => field.form, "TBCOL$j" => first(field.slice))
+    end
+    arrangecards!(cards, required)
 end
 
 function create_data(::Type{Table}, format::DataFormat,

@@ -67,26 +67,9 @@ function FieldFormat(::Type{Conform}, format::DataFormat, reskeys::D) where
 end
 
 function createcards!(::Type{Conform}, format::DataFormat,
-    fields::ConformField, cards::Cards, kwds...)
+    fields::ConformField, cards::Cards; kwds...)
 
-    N, B = length(format.shape), TYPE2BITS[format.type]
-    #  Create mandatory (required) header cards and remove them from the deck
-    #  if necessary
-    required = Cards(undef, 3+N)
-    required[1] = popat!(cards, "SIMPLE", Card("SIMPLE", true))
-    required[2] = popat!(cards, "BITPIX", Card("BITPIX", B))
-    required[3] = popat!(cards, "NAXIS", Card("NAXIS", N))
-    required[4:3+N] .= [popat!(cards, "NAXIS$j",
-        Card("NAXIS$j", format.shape[j])) for j = 1:N]
-
-    #  Append remaining cards in deck, but first remove the END card
-    popat!(cards, "END")
-    M = length(cards)
-    kards = Cards(undef, 3+N+M)
-    kards[1:3+N] .= required
-    kards[4+N:3+N+M] .= cards
-    #  END card is implied. It will be appended on write.
-    kards
+    arrangecards!(cards, ["SIMPLE" => true; shapekeys(format)])
 end
 
 function create_data(::Type{Conform}, format::DataFormat, fields::ConformField;

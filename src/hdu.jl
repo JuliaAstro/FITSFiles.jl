@@ -494,6 +494,38 @@ function verifycounts!(cards::Cards, mankeys::AbstractDict, format::DataFormat)
 end
 
 """
+	arrangecards!(cards, required)
+
+Return the cards with the required cards first, in the order of `required`, and the remaining
+cards of `cards` after them. `required` is a list of `key => value` pairs. A required card that
+is in `cards` is moved to its place, with its comment and layout, and the others are made from
+the values. The END card is removed, since it is implied and is written by `write`.
+"""
+function arrangecards!(cards::Cards, required)
+	kards = Card{<:Any}[popat!(cards, key, Card(key, value)) for (key, value) in required]
+	popat!(cards, "END")
+	append!(kards, cards)
+end
+
+#  The keywords BITPIX and NAXIS, and NAXISn of the shape of the data. The axes begin at NAXIS`first`,
+#  which is 2 for random groups, where NAXIS1 is 0.
+function shapekeys(format::DataFormat; first::Integer = 1)
+	required = Pair{String, Any}["BITPIX" => TYPE2BITS[format.type],
+		"NAXIS" => length(format.shape) + first - 1]
+	first == 2 && push!(required, "NAXIS1" => 0)
+	for (j, n) in enumerate(format.shape) push!(required, "NAXIS$(j+first-1)" => n) end
+	required
+end
+
+#  The keywords of a table extension from XTENSION to TFIELDS, where the shape is the length of a row
+#  and the number of rows.
+function tablekeys(xtension::AbstractString, format::DataFormat, nfields::Integer)
+	M, N = length(format.shape) == 2 ? format.shape : (0, 0)
+	Pair{String, Any}["XTENSION" => xtension, "BITPIX" => 8, "NAXIS" => 2, "NAXIS1" => M,
+		"NAXIS2" => N, "PCOUNT" => 0, "GCOUNT" => 1, "TFIELDS" => nfields]
+end
+
+"""
     scaled(data, scale, zero)
 
 Return `zero + scale*data`. The type of the result is the promotion of the types of `data`,

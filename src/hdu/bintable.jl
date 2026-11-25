@@ -316,35 +316,14 @@ end
 function createcards!(::Type{Bintable}, format::DataFormat,
     fields::Vector{BinaryField}, cards::Cards; kwds...)
 
-    M, N = length(format.shape) == 2 ? format.shape : (0, 0)
-    T = length(fields)
-    L = any(.!isempty.([f.name for f in fields])) ? T : 0
-    #  create mandatory header cards and remove them from the deck if necessary
-    required = Vector{Card{<:Any}}(undef, 8+T+L)
-    required[1] = popat!(cards, "XTENSION", Card("XTENSION", "BINTABLE"))
-    required[2] = popat!(cards, "BITPIX", Card("BITPIX", 8))
-    required[3] = popat!(cards, "NAXIS",  Card("NAXIS", 2))
-    required[4] = popat!(cards, "NAXIS1", Card("NAXIS1", M))
-    required[5] = popat!(cards, "NAXIS2", Card("NAXIS2", N))
-    required[6] = popat!(cards, "PCOUNT", Card("PCOUNT", 0))
-    required[7] = popat!(cards, "GCOUNT", Card("GCOUNT", 1))
-    required[8] = popat!(cards, "TFIELDS", Card("TFIELDS", T))
-    for j=1:T
-        frmt = "$(fields[j].leng)$(BINARYTYPE[fields[j].type])"
-        required[8+2*j-1] = popat!(cards, "TFORM$j", Card("TFORM$j", frmt))
-        if L > 0
-            required[8+2*j] = popat!(cards, "TTYPE$j", Card("TTYPE$j",
-                fields[j].name))
-        end
+    required = tablekeys("BINTABLE", format, length(fields))
+    #  Include TTYPE cards if any name is not an empty string
+    named = any(!isempty(field.name) for field in fields)
+    for (j, field) in enumerate(fields)
+        push!(required, "TFORM$j" => "$(field.leng)$(BINARYTYPE[field.type])")
+        named && push!(required, "TTYPE$j" => field.name)
     end
-    #  Append remaining cards in deck, but first remove the END card
-    popat!(cards, "END")
-    R = length(cards)
-    kards = Vector{Card{<:Any}}(undef, 8+T+L+R)
-    kards[1:8+T+L] .= required
-    kards[9+T+L:8+T+L+R] .= cards
-    #  END card is implied. Will be append on write.
-    return kards
+    arrangecards!(cards, required)
 end
 
 function create_data(::Type{Bintable}, format::DataFormat,

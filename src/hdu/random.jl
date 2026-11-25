@@ -241,32 +241,12 @@ end
 function createcards!(::Type{Random}, format::DataFormat,
     fields::Vector{RandomField}, cards::Cards; kwds...)
 
-    N, B = length(format.shape)+1, TYPE2BITS[format.type]
-    P, G = format.param, format.group
+    P = format.param
     #  Include PTYPE cards if any value is not an empty string
-    T = any(.!isempty.([field.name for field in fields[1:P]])) ? P : 0
-    #  Create mandatory (required) header cards and remove them from the deck
-    #  if necessary
-    required = Vector{Card{<:Any}}(undef, 6+N+T)
-    required[1] = popat!(cards, "SIMPLE", Card("SIMPLE", true))
-    required[2] = popat!(cards, "BITPIX", Card("BITPIX", B))
-    required[3] = popat!(cards, "NAXIS",  Card("NAXIS", N))
-    required[4] = popat!(cards, "NAXIS1", Card("NAXIS1", 0))
-    required[5:3+N] .= [popat!(cards, "NAXIS$j",
-        Card("NAXIS$j", format.shape[j-1])) for j=2:N]
-    required[4+N] = popat!(cards, "GROUPS", Card("GROUPS", true))
-    required[5+N] = popat!(cards, "PCOUNT", Card("PCOUNT", P))
-    required[6+N] = popat!(cards, "GCOUNT", Card("GCOUNT", G))
-    required[7+N:6+N+T] .= [popat!(cards, "PTYPE$j",
-        Card("PTYPE$j", String(fields[j].name))) for j=1:T]
-    #  Append remaining cards in deck, but first remove the END card
-    popat!(cards, "END")
-    M = length(cards)
-    kards = Vector{Card{<:Any}}(undef, 6+N+M+T)
-    kards[1:6+N+T] .= required
-    kards[7+N+T:6+N+M+T] .= cards
-    #  END card is implied. It will be append on write.
-    kards
+    named = any(!isempty(field.name) for field in fields[1:P])
+    ptype = named ? ["PTYPE$j" => String(fields[j].name) for j = 1:P] : Pair{String, Any}[]
+    arrangecards!(cards, ["SIMPLE" => true; shapekeys(format; first = 2);
+        "GROUPS" => true; "PCOUNT" => P; "GCOUNT" => format.group; ptype])
 end
 
 function create_data(::Type{Random}, format::DataFormat,
