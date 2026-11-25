@@ -977,4 +977,62 @@
     @test FITSFiles.scaled(Int32(-2147483602), 1.0f0, 2147483648.0) === 46.0
     @test FITSFiles.scaled(Float32[1, 2], 2.0f0, 1.0f0) == Float32[3, 5]
 
+    ####    Test the logical columns (Sect. 7.3.3.1)    ####
+
+    @testset "logical columns" begin
+        card(s) = rpad(s, 80)
+        #  the bytes of a Bintable HDU of the cards, preceded by an empty Primary HDU
+        function bintablebytes(cards, naxis1, naxis2, data; pcount = 0)
+            primary = ["SIMPLE  =                    T", "BITPIX  =                    8",
+                "NAXIS   =                    0", "END"]
+            header = vcat(["XTENSION= 'BINTABLE'", "BITPIX  =                    8", "NAXIS   =                    2",
+                "NAXIS1  =                    $naxis1", "NAXIS2  =                    $naxis2",
+                "PCOUNT  =                    $pcount", "GCOUNT  =                    1"], cards, ["END"])
+            rpad(join(card.(primary)), 2880) * rpad(join(card.(header)), 2880) *
+                String(vcat(data, zeros(UInt8, 2880 - length(data))))
+        end
+        reread(bytes; kwds...) = (buffer = IOBuffer(bytes); read(buffer, HDU); read(buffer, HDU; kwds...))
+        T, F, N = UInt8('T'), UInt8('F'), 0x00
+        cards = ["TFIELDS =                    1", "TFORM1  = '1L      '", "TTYPE1  = 'flag    '"]
+
+        #  T is true, F is false, and a 0 byte is undefined
+        bytes = bintablebytes(cards, 1, 4, UInt8[T, F, N, T])
+        @test isequal(reread(bytes).data.flag, [true, false, missing, true])
+        @test isequal([r.flag for r in reread(bytes; record = true).data], [true, false, missing, true])
+
+        #  a column without undefined entries has no missing values
+        data = reread(bintablebytes(cards, 1, 3, UInt8[T, F, F])).data.flag
+        @test data isa Vector{Bool} && data == [true, false, false]
+
+        #  an HDU that is read is written with the same bytes
+        hdu = reread(bytes)
+        io = IOBuffer(); write(io, hdu)
+        @test take!(io) == codeunits(bytes)[2881:end]
+
+        #  a value is written as T or F, and missing as a 0 byte
+        io = IOBuffer(); write(io, HDU(Bintable, (flag = Union{Bool, Missing}[true, false, missing],)))
+        @test take!(io)[end-2879:end-2877] == UInt8[T, F, N]
+        io = IOBuffer(); write(io, HDU(Bintable, [(flag = true,), (flag = false,)]))
+        @test take!(io)[end-2879:end-2878] == UInt8[T, F]
+
+        #  a bytes that is not T, F, or 0 is read as false, with a warning
+        @test_logs (:warn, r"1 bytes of a logical field") reread(bintablebytes(cards, 1, 2, UInt8[T, UInt8('x')]))
+        @test reread(bintablebytes(cards, 1, 2, UInt8[T, UInt8('x')])).data.flag == [true, false]
+
+        #  a column with a repeat count has a column of values for each repeat
+        cards3 = ["TFIELDS =                    1", "TFORM1  = '3L      '", "TTYPE1  = 'flags   '"]
+        bytes = bintablebytes(cards3, 3, 2, UInt8[T, F, N, F, F, T])
+        @test isequal(reread(bytes).data.flags, [true false missing; false false true])
+        @test isequal(reread(bytes; record = true).data[1].flags, [true, false, missing])
+        io = IOBuffer(); write(io, reread(bytes))
+        @test take!(io) == codeunits(bytes)[2881:end]
+
+        #  a variable-length array of logical values
+        cardsp = ["TFIELDS =                    1", "TFORM1  = '1PL(3)  '", "TTYPE1  = 'flags   '"]
+        descriptors = UInt8[0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 3]
+        bytes = bintablebytes(cardsp, 8, 2, [descriptors; UInt8[T, F, N, F, T]]; pcount = 5)
+        flags = reread(bytes).data.flags
+        @test isequal(flags[1], [true, false, missing]) && flags[2] == [false, true]
+    end
+
 end

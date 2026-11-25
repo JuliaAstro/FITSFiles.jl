@@ -372,28 +372,34 @@ function Base.read(io::IO, field::BinaryField, format::DataFormat,
 
     #  Without TSCAL/TZERO the data pass through unchanged; scaling by the
     #  Float32 defaults would round integers above 2^24 (e.g. Int32 pointers)
-    scale = scale && !(field.scale == 1 && field.zero == 0)
+    scale = scale && !isnothing(field.scale) && !(field.scale == 1 && field.zero == 0)
 
     type, leng = field.type, field.leng
 
     L, M, N = format.shape[1], first(field.slice)-1, format.shape[2]
     #  Read data array
     if !isnothing(field.pntr)
-        column = Array{Vector{type}}(undef, N)
+        #  The arrays of the rows may have missing values, or be scaled, so they are not all of one type
+        column = Array{Any}(undef, N)
         for j = 1:N
             seek(io, begpos + L*(j-1) + M)
             K   = ntoh(read(io, field.pntr))
             beg = ntoh(read(io, field.pntr))
             seek(io, begpos + format.heap + beg)
-            col = setmissing(ntoh.([read(io, type) for k = 1:K]), field.null)
+            col = type <: Bool ? decodelogical(read(io, K)) :
+                setmissing(ntoh.([read(io, type) for k = 1:K]), field.null)
             column[j] = scale ? scaled(col, field.scale, field.zero) : col
         end
+        column = map(identity, column)
     elseif type <: Bool
-        column = Array{type}(undef, N)
+        #  The bytes of the N rows, which are T, F, or 0 for undefined (Sect. 7.3.3.1)
+        bytes = Array{UInt8}(undef, (N, leng))
         for j = 1:N
             seek(io, begpos + L*(j-1) + M)
-            column[j] = read(io, type)
+            bytes[j,:] .= read(io, leng)
         end
+        column = decodelogical(bytes)
+        column = leng == 1 ? reshape(column, :) : column
     elseif type <: BitVector
         column = Array{type}(undef, N)
         for j = 1:N
@@ -430,7 +436,7 @@ function Base.read(io::IO, field::BinaryField; scale::Bool = true)
 
     #  Without TSCAL/TZERO the data pass through unchanged; scaling by the
     #  Float32 defaults would round integers above 2^24 (e.g. Int32 pointers)
-    scale = scale && !(field.scale == 1 && field.zero == 0)
+    scale = scale && !isnothing(field.scale) && !(field.scale == 1 && field.zero == 0)
 
     name, type, leng = field.name, field.type, field.leng
 
@@ -441,6 +447,9 @@ function Base.read(io::IO, field::BinaryField; scale::Bool = true)
         value = read(io, type, leng)
     elseif leng == 0
         value = nothing
+    elseif type <: Bool
+        value = decodelogical(read(io, leng))
+        value = leng == 1 ? only(value) : value
     elseif leng == 1
         value = setmissing(ntoh(read(io, type)), field.null)
         value = scale ? scaled(value, field.scale, field.zero) : value
@@ -459,6 +468,8 @@ function Base.write(io::IO, field::BinaryField, value::U; kwds...) where
     U <: Union{AbstractArray, AbstractString, BitVector, Real, Complex, Missing}
 
     type, leng = field.type, field.leng
+    #  A logical value is written as T or F, and an undefined value as a 0 byte (Sect. 7.3.3.1)
+    type <: Bool && return leng == 0 ? 0 : write(io, encodelogical.(value))
     #  The undefined values are written as TNULLn (Sect. 7.3.2), or NaN for floating-point data
     value = unsetmissing(value, field.null, type)
 
@@ -474,6 +485,19 @@ function Base.write(io::IO, field::BinaryField, value::U; kwds...) where
         write(io, hton.(value))
     end
 end
+
+#  The values of the bytes of a logical field, which are an ASCII T for true, an ASCII F for false, and a 0
+#  byte for undefined (Sect. 7.3.3.1). Any other byte is not a logical value, and is read as false. The
+#  values have no missing if none of the bytes is 0.
+function decodelogical(bytes::AbstractArray{UInt8})
+    invalid = count(b -> !(b in (UInt8('T'), UInt8('F'), 0x00)), bytes)
+    invalid > 0 && @warn "$invalid bytes of a logical field are not T, F, or 0; read as false."
+    values = map(b -> b == 0x00 ? missing : b == UInt8('T'), bytes)
+    any(ismissing, values) ? values : Array{Bool}(values)
+end
+
+encodelogical(value::Bool) = value ? UInt8('T') : UInt8('F')
+encodelogical(::Missing) = 0x00
 
 function Base.read(io::IO, ::Type{BitVector}, len)
     #  Read the bytes from IO and convert the UInt8s to a Bitvector
