@@ -31,8 +31,6 @@ end
 function Base.write(io::IO, ::Type{Conform}, data::AbstractArray,
         format::DataFormat, fields=ConformField; kwds...)
 
-    data = removeunits(data)
-
     println(format)
     println(data)
     dbytes = write(io, format, data; kwds...)
@@ -45,19 +43,6 @@ function verify!(::Type{Conform}, cards::Cards, format::DataFormat,
     mankeys::AbstractDict)
 
     verifyshape!(cards, mankeys, format)
-end
-
-function DataFormat(::Type{Conform}, data::Missing, mankeys::Dict{S, V}) where
-    {S<:AbstractString, V<:ValueType}
-
-    #  Determine format from data
-    type  = BITS2TYPE[get(mankeys, "BITPIX", 32)]
-    leng  = datalength(mankeys, 1)
-    shape = datasize(mankeys, 1)
-    param = get(mankeys, "PCOUNT", 0)
-    group = get(mankeys, "GCOUNT", 1)
-    heap  = param > 0 ? get(mankeys, "THEAP", 0) : 0
-    DataFormat(type, leng, shape, param, group, heap)
 end
 
 function FieldFormat(::Type{Conform}, format::DataFormat, reskeys::D) where
@@ -74,7 +59,6 @@ end
 
 function createdata(::Type{Conform}, format::DataFormat, fields::ConformField;
     kwds...)
-    #  Create simple N-dimensional array of zeros of type BITPIX
-    length(format.shape) > 0 ? zeros(format.type, format.shape) : missing
+    zerosarray(format)
 end
 
