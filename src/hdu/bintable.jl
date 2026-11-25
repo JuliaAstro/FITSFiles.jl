@@ -199,7 +199,7 @@ function FieldFormat(::Type{Bintable}, mankey::DataFormat, reskeys::Dict{S, V},
         name = typeof(data[1]) <: NamedTuple ? rstrip(String(keys(data[1])[j])) :
             rstrip(get(reskeys, "TTYPE$j", "field$j"))
         pntr  = nothing
-        type, leng, byts = fielddescriptor(data[1][j])
+        type, leng, byts = fielddescriptor(definedvalue(record[j] for record in data))
         supp  = ""
         # unit_ = unit(data[1][j]) != NoUnits ? unit(data[1][j]) :
         #     get(reskeys, "TUNIT$j", "")
@@ -248,7 +248,7 @@ function FieldFormat(::Type{Bintable}, mankey::DataFormat, reskeys::Dict{S, V},
         name  = typeof(data) <: NamedTuple ? rstrip(String(keys(data)[j])) :
             rstrip(get(reskeys, "TTYPE$j", "column$j"))
         pntr  = nothing
-        type, leng, byts = fielddescriptor(data[j][1])
+        type, leng, byts = fielddescriptor(definedvalue(data[j]))
         supp  = ""
         # unit_ = unit(data[j]) != NoUnits ? unit(data[j]) :
         #     get(reskeys, "TUNIT$j", "")
@@ -273,13 +273,25 @@ function FieldFormat(::Type{Bintable}, mankey::DataFormat, reskeys::Dict{S, V},
 end
 
 function recordlength(data::AbstractArray)
-	sum([typeof(f) <: BitVector ? sizeofbitvector(f) : sizeof(f)
-		for f in data[1]])
+	sum([sizeoffield(definedvalue(record[j] for record in data))
+		for j in 1:length(data[1])])
 end
 
 function recordlength(data::U) where U <: Union{Tuple, NamedTuple}
-	sum([typeof(f[1]) <: BitVector ? sizeofbitvector(f[1]) : sizeof(f[1])
-		for f in data])
+	sum([sizeoffield(definedvalue(column)) for column in data])
+end
+
+sizeoffield(f) = typeof(f) <: BitVector ? sizeofbitvector(f) : sizeof(f)
+
+#  The first value that is not missing, which gives the type of a field whose first values may be
+#  undefined; a column with no defined value has the zero of its element type.
+function definedvalue(values)
+	for value in values
+		ismissing(value) || return value
+	end
+	type = nonmissingtype(eltype(values))
+	type <: Number && return zero(type)
+	throw(ArgumentError("the type of a field of missing values cannot be determined"))
 end
 
 sizeofbitvector(v::BitVector)::Integer = (length(v)-1)÷8 + 1
@@ -293,7 +305,7 @@ function fielddescriptor(field)
         type, leng = BitVector, length(field)
         byts = sizeofbitvector(leng)
     elseif typeof(field) <: AbstractArray
-        type, leng = eltype(field), length(field)
+        type, leng = nonmissingtype(eltype(field)), length(field)
         byts = leng*sizeof(type)
     else
         type, leng = typeof(field), 1
@@ -373,7 +385,7 @@ function Base.read(io::IO, field::BinaryField, format::DataFormat,
             K   = ntoh(read(io, field.pntr))
             beg = ntoh(read(io, field.pntr))
             seek(io, begpos + format.heap + beg)
-            col = ntoh.([read(io, type) for k = 1:K])
+            col = setmissing(ntoh.([read(io, type) for k = 1:K]), field.null)
             column[j] = scale ? scaled(col, field.scale, field.zero) : col
         end
     elseif type <: Bool
@@ -400,6 +412,7 @@ function Base.read(io::IO, field::BinaryField, format::DataFormat,
             seek(io, begpos + L*(j-1) + M)
             column[j] = ntoh(read(io, type))
         end
+        column = setmissing(column, field.null)
         column = scale ? scaled(column, field.scale, field.zero) : column
     else
         column = Array{type}(undef, (N, leng))
@@ -407,6 +420,7 @@ function Base.read(io::IO, field::BinaryField, format::DataFormat,
             seek(io, begpos + L*(j-1) + M)
             column[j,:] .= ntoh.([read(io, type) for k=1:leng])
         end
+        column = setmissing(column, field.null)
         column = scale ? scaled(column, field.scale, field.zero) : column
     end
     column
@@ -428,10 +442,10 @@ function Base.read(io::IO, field::BinaryField; scale::Bool = true)
     elseif leng == 0
         value = nothing
     elseif leng == 1
-        value = ntoh(read(io, type))
+        value = setmissing(ntoh(read(io, type)), field.null)
         value = scale ? scaled(value, field.scale, field.zero) : value
     else
-        value = ntoh.([read(io, type) for j=1:leng])
+        value = setmissing(ntoh.([read(io, type) for j=1:leng]), field.null)
         value = scale ? scaled(value, field.scale, field.zero) : value
     end
 
@@ -442,9 +456,11 @@ function Base.read(io::IO, field::BinaryField; scale::Bool = true)
 end
 
 function Base.write(io::IO, field::BinaryField, value::U; kwds...) where
-    U <: Union{AbstractArray, AbstractString, BitVector, Real, Complex}
+    U <: Union{AbstractArray, AbstractString, BitVector, Real, Complex, Missing}
 
     type, leng = field.type, field.leng
+    #  The undefined values are written as TNULLn (Sect. 7.3.2), or NaN for floating-point data
+    value = unsetmissing(value, field.null, type)
 
     if type <: AbstractString
         write(io, rpad(value, field.leng))

@@ -176,6 +176,64 @@
         @test ismissing(FITSFiles.zerosarray(FITSFiles.DataFormat(Int16, 1, (), 0, 1, 0)))
     end
 
+    ####    Test the undefined (missing) values    ####
+
+    @testset "setmissing, unsetmissing, and scaled" begin
+        #  the raw values equal to BLANK or TNULLn are missing, whether or not any value is equal
+        @test isequal(FITSFiles.setmissing(Int16[1, -1, 3], -1), [1, missing, 3])
+        @test eltype(FITSFiles.setmissing(Int16[1, 2], -1)) == Union{Int16, Missing}
+        @test FITSFiles.setmissing(Int16[1, -1], nothing) == Int16[1, -1]
+        @test ismissing(FITSFiles.setmissing(Int16(-1), -1))
+        @test FITSFiles.setmissing(Int16(2), -1) == 2
+
+        #  the missing values are written as BLANK or TNULLn, and as NaN for floating-point data
+        data = Union{Int16, Missing}[1, missing, 3]
+        @test FITSFiles.unsetmissing(data, -1, Int16) == Int16[1, -1, 3]
+        @test FITSFiles.unsetmissing(data[[1, 3]], nothing, Int16) == Int16[1, 3]
+        @test FITSFiles.unsetmissing(Int16[1, 2], nothing, Int16) == Int16[1, 2]
+        @test FITSFiles.unsetmissing(missing, -1, Int16) === Int16(-1)
+        @test isequal(FITSFiles.unsetmissing(Union{Float32, Missing}[1, missing], nothing, Float32), Float32[1, NaN])
+        @test_throws ArgumentError FITSFiles.unsetmissing(data, nothing, Int16)
+
+        #  scaling is of the raw values, and a missing value stays missing
+        @test isequal(FITSFiles.scaled(data, 2.0f0, 10.0f0), Union{Float32, Missing}[12, missing, 16])
+        @test ismissing(FITSFiles.scaled(missing, 2.0f0, 10.0f0))
+        @test FITSFiles.scaled(Int16[1, 3], 2.0f0, 10.0f0) == Float32[12, 16]
+        @test eltype(FITSFiles.scaled(Int16[1, 3], 2.0f0, 10.0f0)) == Float32
+    end
+
+    @testset "BLANK of an image and TNULLn of a binary table" begin
+        cards(x...) = Card{<:Any}[x...]
+        bytes(hdu) = (io = IOBuffer(); write(io, hdu); take!(io))
+        reread(hdu; kwds...) = read(IOBuffer(bytes(hdu)), HDU; kwds...)
+
+        #  BLANK is compared with the raw values, before BZERO and BSCALE (Sect. 4.4.2.5)
+        raw = Int16[1 -32768; 3 4]
+        hdu = HDU(raw, cards(Card("BLANK", -32768), Card("BZERO", 32768), Card("BSCALE", 1)))
+        @test isequal(reread(hdu).data, Union{Float32, Missing}[32769 missing; 32771 32772])
+        @test isequal(reread(hdu; scale = false).data, [1 missing; 3 4])
+
+        #  the missing values are written as BLANK, and the file is the same as the file with the raw values
+        data = Union{Int16, Missing}[1 missing; 3 4]
+        @test bytes(HDU(data, cards(Card("BLANK", -32768)))) == bytes(HDU(raw, cards(Card("BLANK", -32768))))
+        @test_throws ArgumentError bytes(HDU(data))
+
+        #  the undefined value of floating-point data is NaN, which needs no BLANK
+        hdu = HDU(Union{Float32, Missing}[1 missing; 3 4])
+        @test isequal(reread(hdu).data, Float32[1 NaN; 3 4])
+
+        #  TNULLn is compared with the raw values of an integer column, before TZEROn and TSCALn (Sect. 7.3.2)
+        columns = (a = Union{Int16, Missing}[1, missing, 3], b = [1.5, 2.5, 3.5])
+        records = [(a = Int16(1), b = 1.5), (a = missing, b = 2.5), (a = Int16(3), b = 3.5)]
+        table = cards(Card("TNULL1", -1))
+        hdu = HDU(Bintable, columns, table)
+        @test isequal(reread(hdu).data, columns)
+        @test isequal(reread(hdu; record = true).data, records)
+        @test bytes(HDU(Bintable, records, table)) == bytes(hdu)
+        @test bytes(hdu) == bytes(HDU(Bintable, (a = Int16[1, -1, 3], b = [1.5, 2.5, 3.5]), table))
+        @test_throws ArgumentError bytes(HDU(Bintable, columns))
+    end
+
     ####    Test the values of a row    ####
 
     @testset "getcell, getparam, getgroup, and flatten" begin

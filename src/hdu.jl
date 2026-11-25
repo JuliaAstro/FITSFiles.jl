@@ -561,9 +561,53 @@ otherwise round the stored integers to 24 bits (e.g., a `UInt32` stored as `Int3
 2147483648 and a Float32 `TSCAL` of 1).
 """
 function scaled(data, scale, zero)
-	T = promote_type(typeof(scale), typeof(zero), eltype(data))
+	T = promote_type(typeof(scale), typeof(zero), nonmissingtype(eltype(data)))
 	W = promote_type(T, Float64)
-	T.(muladd.(W(scale), W.(data), W(zero)))
+	#  An undefined value stays undefined
+	f(x) = ismissing(x) ? missing : T(muladd(W(scale), W(x), W(zero)))
+	f.(data)
+end
+
+"""
+    setmissing(data, miss)
+
+Return `data` with `missing` in place of the raw values equal to `miss`, the value of the BLANK or
+TNULLn keyword (Sects. 4.4.2.5 and 7.3.2 of the standard). The comparison is made before any scaling.
+The result has the element type `Union{T, Missing}`, whether or not a value is equal to `miss`, and
+`data` itself is returned when `miss` is `nothing`.
+"""
+setmissing(data, ::Nothing) = data
+setmissing(value::Real, miss::Integer) = value == miss ? missing : value
+function setmissing(data::AbstractArray{T}, miss::Integer) where T
+	out = Array{Union{T, Missing}}(data)
+	out[data .== miss] .= missing
+	out
+end
+
+"""
+    unsetmissing(data, miss, type)
+
+Return `data` with `miss` in place of `missing`, as raw values of `type`: the inverse of
+[`setmissing`](@ref). Data of a floating-point `type` has no BLANK or TNULLn keyword, and the undefined
+value is `NaN` (Sect. 4.4.2.5). It is an `ArgumentError` if `data` has a `missing` value but no `miss`
+is given for an integer `type`.
+"""
+unsetmissing(data, miss, type::Type) = data
+function unsetmissing(data::AbstractArray{Union{T, Missing}}, miss, type::Type) where T
+	any(ismissing, data) || return type.(data)
+	type.(coalesce.(data, undefinedvalue(type, miss)))
+end
+function unsetmissing(value::Missing, miss, type::Type)
+	undefinedvalue(type, miss)
+end
+
+function undefinedvalue(type::Type{<:AbstractFloat}, miss)
+	type(NaN)
+end
+function undefinedvalue(type::Type, miss)
+	isnothing(miss) && throw(ArgumentError(
+		"missing values cannot be written without a BLANK or TNULLn keyword"))
+	type(miss)
 end
 
 function getreservedkeys(cards::Cards)
@@ -594,7 +638,8 @@ function typeofhdu(data::U) where
 	U <: Union{AbstractArray, Tuple, NamedTuple, Missing}
 
 	if !ismissing(data)
-		if eltype(data) <: Real
+		#  An array of numbers with undefined (missing) values is an image
+		if nonmissingtype(eltype(data)) <: Real
 			type = Primary
 		elseif eltype(data) <: AbstractString
 			type = Table

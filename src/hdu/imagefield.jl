@@ -41,7 +41,8 @@ end
 function DataFormat(::Type{<:ImageHDU}, data::AbstractArray, mankeys::Dict{S, V}) where
     {S<:AbstractString, V<:ValueType}
 
-    type  = eltype(data)
+    #  The type of the stored values, which excludes the undefined (missing) ones
+    type  = nonmissingtype(eltype(data))
     leng  = length(data)
     shape = size(data)
     param = get(mankeys, "PCOUNT", 0)
@@ -92,17 +93,12 @@ function Base.read(io::IO, format::DataFormat, fields::ImageField)
     #  Or preallocate array and use read!
     data = reshape(ntoh.(
         reinterpret(format.type, read(io, M*N))), shape)
-    #  Assign missing values
-    if !isnothing(fields.miss)
-        data[data .== fields.miss] .= missing
-    end
-    data
+    #  The undefined values are the raw ones equal to BLANK (Sect. 4.4.2.5)
+    setmissing(data, fields.miss)
 end
 
 function Base.write(io::IO, data::AbstractArray, fields::ImageField)
-    #  Assign missing values
-    if !isnothing(fields.miss)
-        data[data .== missing] .= fields.miss
-    end
+    #  The undefined values are written as BLANK, or NaN for floating-point data
+    data = unsetmissing(data, fields.miss, fields.type)
     n = Base.write(io, hton.(reshape(data, :)))
 end
