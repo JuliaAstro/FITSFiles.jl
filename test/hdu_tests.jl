@@ -3,14 +3,136 @@
 
     #  an HDU type that raises an error when its mandatory keywords are verified
     struct ProbeHDU <: FITSFiles.AbstractHDU end
-    FITSFiles.verify!(::Type{ProbeHDU}, cards::FITSFiles.Cards, mankeys::AbstractDict) =
+    FITSFiles.verify!(::Type{ProbeHDU}, cards::FITSFiles.Cards, mankeys::AbstractDict, reskeys::AbstractDict) =
         error("verified $(sort(collect(keys(mankeys))))")
 
-    #  the generic method accepts all values and returns the cards.
+    #  the verification of the cards of a header, with its mandatory and reserved keywords
+    function verified(type, cards)
+        mankeys, reskeys = FITSFiles.getreservedkeys(cards)
+        FITSFiles.verify!(type, cards, mankeys, reskeys)
+    end
+
+    #  the generic method returns the cards, and leaves the keywords unchanged.
     cards = Card{<:Any}[Card("SIMPLE", true), Card("BITPIX", 16), Card("NAXIS", 0)]
-    mankeys = Dict{AbstractString, FITSFiles.ValueType}("BITPIX" => "sixteen")
-    @test FITSFiles.verify!(FITSFiles.Primary, cards, mankeys) === cards
-    @test mankeys == Dict("BITPIX" => "sixteen")
+    mankeys = Dict{AbstractString, FITSFiles.ValueType}("BITPIX" => 16)
+    reskeys = Dict{AbstractString, FITSFiles.ValueType}("BSCALE" => 2.5)
+    @test FITSFiles.verify!(FITSFiles.Primary, cards, mankeys, reskeys) === cards
+    @test mankeys == Dict("BITPIX" => 16) && reskeys == Dict("BSCALE" => 2.5)
+
+    #  the values of the keywords that the standard requires to be integers must be integers (Sects. 4.4.1, 4.4.2,
+    #  6.1.1, 7.2.1, 7.3.1, 7.3.2, 8.2, 9.2.2, and 10), even if the value of a floating-point number is a whole number.
+    #  Each type of HDU verifies the keywords that it defines, and all of them verify the common keywords.
+    common = ["BITPIX", "NAXIS", "NAXIS1", "NAXIS12", "PCOUNT", "GCOUNT", "EXTVER", "EXTLEVEL", "WCSAXES",
+        "WCSAXESA", "MJDREFI", "JDREFI"]
+    integerkeys = [
+        FITSFiles.Primary => ["BLANK"], FITSFiles.Conform => ["BLANK"], Image => ["BLANK"], Random => String[],
+        Table => ["TFIELDS", "TBCOL3"], Bintable => ["TFIELDS", "THEAP", "TNULL1", "TNULL12"],
+        FITSFiles.ZImage => ["ZBITPIX", "ZNAXIS", "ZNAXIS2", "ZTILE1", "ZDITHER0", "ZPCOUNT", "ZGCOUNT", "ZBLANK"],
+        FITSFiles.ZTable => ["ZNAXIS1", "ZNAXIS2", "ZPCOUNT", "ZTILELEN", "ZTHEAP"]]
+    for (type, keys) in integerkeys, key in [common; keys]
+        for value in (2.5, 3.0, "two", true, missing)
+            cards = Card{<:Any}[Card("SIMPLE", true), Card(key, value)]
+            @test_throws ArgumentError("$key must be an integer, but its value is $(repr(value)).") verified(
+                type, cards)
+        end
+    end
+
+    #  the structure keywords of each type of HDU have the values that the standard defines for it (Sects. 4.4.1,
+    #  6.1.1, 7.1.1, 7.2.1, and 7.3.1). The header is given as pairs, and a value of nothing removes the keyword.
+    structures = Dict(
+        FITSFiles.Primary => ["SIMPLE" => true, "BITPIX" => 16, "NAXIS" => 2, "NAXIS1" => 3, "NAXIS2" => 4],
+        FITSFiles.Conform => ["SIMPLE" => true, "BITPIX" => 16, "NAXIS" => 2, "NAXIS1" => 3, "NAXIS2" => 4],
+        Image => ["XTENSION" => "IMAGE", "BITPIX" => -32, "NAXIS" => 2, "NAXIS1" => 3, "NAXIS2" => 4, "PCOUNT" => 0,
+            "GCOUNT" => 1],
+        Random => ["SIMPLE" => true, "BITPIX" => 16, "NAXIS" => 3, "NAXIS1" => 0, "NAXIS2" => 2, "NAXIS3" => 4,
+            "GROUPS" => true, "PCOUNT" => 3, "GCOUNT" => 10],
+        Table => ["XTENSION" => "TABLE", "BITPIX" => 8, "NAXIS" => 2, "NAXIS1" => 20, "NAXIS2" => 3, "PCOUNT" => 0,
+            "GCOUNT" => 1],
+        Bintable => ["XTENSION" => "BINTABLE", "BITPIX" => 8, "NAXIS" => 2, "NAXIS1" => 20, "NAXIS2" => 3,
+            "PCOUNT" => 100, "GCOUNT" => 1])
+    function structureheader(type, changes...)
+        pairs = [get(Dict(changes), key, value) for (key, value) in structures[type]]
+        names = first.(structures[type])
+        extra = [key => value for (key, value) in changes if !(key in names) && !isnothing(value)]
+        Card{<:Any}[Card(key, value) for (key, value) in [[(k, v) for (k, v) in zip(names, pairs) if !isnothing(v)];
+            extra]]
+    end
+    function invalidstructure(type, message, changes...)
+        @test_throws ArgumentError(message) verified(type, structureheader(type, changes...))
+    end
+    for type in Base.keys(structures)
+        cards = structureheader(type)
+        @test verified(type, cards) === cards
+    end
+    bitpixmessage = "BITPIX must be one of 8, 16, 32, 64, -32, or -64, but its value is"
+    for type in (FITSFiles.Primary, FITSFiles.Conform, Image, Random)
+        invalidstructure(type, "$bitpixmessage 17.", "BITPIX" => 17)
+        invalidstructure(type, "$bitpixmessage 0.", "BITPIX" => 0)
+        invalidstructure(type, "NAXIS2 must be non-negative, but its value is -4.", "NAXIS2" => -4)
+    end
+    for type in (FITSFiles.Primary, FITSFiles.Conform, Image)
+        invalidstructure(type, "NAXIS must be an integer from 0 to 999, but its value is -1.", "NAXIS" => -1)
+        invalidstructure(type, "NAXIS must be an integer from 0 to 999, but its value is 1000.", "NAXIS" => 1000)
+        invalidstructure(type, "NAXIS2 is missing, but NAXIS is 2.", "NAXIS2" => nothing)
+        invalidstructure(type, "NAXIS1 must be non-negative, but its value is -4.", "NAXIS1" => -4)
+        invalidstructure(type, "NAXIS1 is missing, but NAXIS is 2.", "NAXIS1" => nothing, "NAXIS2" => nothing)
+        #  the axes of an array of no axes, and a header with no NAXIS, are not used
+        cards = structureheader(type, "NAXIS" => 0)
+        @test_logs (:warn, r"NAXIS1 is beyond NAXIS 0") (:warn, r"NAXIS2 is beyond NAXIS 0") verified(type, cards)
+        cards = structureheader(type, "NAXIS" => nothing)
+        @test_logs verified(type, cards)
+    end
+    invalidstructure(Image, "PCOUNT must be the integer 0, but its value is 3.", "PCOUNT" => 3)
+    invalidstructure(Image, "GCOUNT must be the integer 1, but its value is 2.", "GCOUNT" => 2)
+    invalidstructure(Random, "NAXIS3 is missing, but NAXIS is 3.", "NAXIS3" => nothing)
+    invalidstructure(Random, "NAXIS must be an integer from 1 to 999, but its value is 0.", "NAXIS" => 0)
+    invalidstructure(Random, "NAXIS1 must be the integer 0, but its value is 4.", "NAXIS1" => 4)
+    invalidstructure(Random, "PCOUNT must be non-negative, but its value is -1.", "PCOUNT" => -1)
+    invalidstructure(Random, "GCOUNT must be non-negative, but its value is -1.", "GCOUNT" => -1)
+    @test verified(Random, structureheader(Random, "GCOUNT" => 0)) isa Any
+    for type in (Table, Bintable)
+        invalidstructure(type, "BITPIX must be the integer 8, but its value is 16.", "BITPIX" => 16)
+        invalidstructure(type, "NAXIS must be the integer 2, but its value is 3.", "NAXIS" => 3)
+        invalidstructure(type, "NAXIS2 is missing, but NAXIS is 2.", "NAXIS2" => nothing)
+        invalidstructure(type, "NAXIS1 must be non-negative, but its value is -1.", "NAXIS1" => -1)
+        invalidstructure(type, "GCOUNT must be the integer 1, but its value is 2.", "GCOUNT" => 2)
+    end
+    invalidstructure(Table, "PCOUNT must be the integer 0, but its value is 1.", "PCOUNT" => 1)
+    invalidstructure(Bintable, "PCOUNT must be non-negative, but its value is -1.", "PCOUNT" => -1)
+    @test verified(Bintable, structureheader(Bintable, "PCOUNT" => 0)) isa Any
+
+    #  the HDU types are independent: a keyword of one type is not verified by another type, and the other
+    #  keywords are not checked
+    others = Dict(FITSFiles.Primary => ["TFIELDS", "THEAP", "TNULL1", "ZBITPIX"], Image => ["TBCOL1", "ZNAXIS"],
+        Random => ["BLANK", "TFIELDS"], Table => ["BLANK", "THEAP", "TNULL1", "ZTHEAP"],
+        Bintable => ["BLANK", "TBCOL1", "ZTILELEN"], FITSFiles.ZImage => ["BLANK", "TFIELDS", "ZTHEAP"],
+        FITSFiles.ZTable => ["BLANK", "THEAP", "ZBLANK"])
+    for (type, keys) in others, key in [keys; "BSCALE"; "EQUINOX"; "NAXISX"; "OBJECT"]
+        cards = Card{<:Any}[Card(key, 2.5)]
+        @test verified(type, cards) === cards
+    end
+    cards = Card{<:Any}[Card("TNULL1", "NULL")]
+    @test verified(Table, cards) === cards
+    @test_throws ArgumentError("TNULL1 must be an integer, but its value is \"NULL\".") verified(Bintable, cards)
+
+    #  verifyinteger verifies the keywords of one dictionary that match the pattern
+    dict(pairs...) = Dict{AbstractString, FITSFiles.ValueType}(pairs...)
+    @test FITSFiles.verifyinteger(dict("BITPIX" => 8, "NAXIS" => 0), r"^(BITPIX|NAXIS\d*)$") === nothing
+    @test FITSFiles.verifyinteger(dict("NAXIS" => 1.5), r"^BITPIX$") === nothing
+    @test FITSFiles.verifyinteger(dict(), r"^BITPIX$") === nothing
+    @test_throws ArgumentError("NAXIS2 must be an integer, but its value is 2.5.") FITSFiles.verifyinteger(
+        dict("BITPIX" => 8, "NAXIS2" => 2.5), r"^(BITPIX|NAXIS\d*)$")
+
+    #  the keywords that are verified are in the dictionary of the mandatory or of the reserved keywords that
+    #  the verify! method of the type verifies
+    for (key, mandatory) in ["BITPIX" => true, "NAXIS3" => true, "PCOUNT" => true, "GCOUNT" => true, "TFIELDS" => true,
+        "TBCOL2" => true, "THEAP" => true, "ZBITPIX" => true, "ZNAXIS1" => true, "ZPCOUNT" => true, "ZTILELEN" => true,
+        "EXTVER" => false, "EXTLEVEL" => false, "WCSAXES" => false, "MJDREFI" => false, "JDREFI" => false,
+        "BLANK" => false, "TNULL3" => false, "ZTILE2" => false, "ZDITHER0" => false, "ZGCOUNT" => false,
+        "ZBLANK" => false, "ZTHEAP" => false]
+        mankeys, reskeys = FITSFiles.getreservedkeys(Card{<:Any}[Card(key, 3)])
+        @test haskey(mandatory ? mankeys : reskeys, key)
+    end
 
     #  mandatory keywords are verified before the data format is created when an HDU is read,
     #  written, or created without data. The data format of ProbeHDU is not defined.
@@ -23,6 +145,51 @@
 
     #  the format of the data is created before the header is corrected to match the data.
     @test_throws MethodError HDU(ProbeHDU, [1, 2, 3], cards)
+
+    ####    Test the keywords of the fields and the heap of a table    ####
+
+    @testset "verifyfields! and verifyheap!" begin
+        cards = Card{<:Any}[Card("TFIELDS", 2)]
+        keys(pairs...) = Dict{AbstractString, FITSFiles.ValueType}(pairs...)
+        ok = keys("TFIELDS" => 2, "TFORM1" => "I4", "TFORM2" => "F5.1", "TBCOL1" => 1, "TBCOL2" => 5)
+
+        #  the cards are returned unchanged, and a header without TFIELDS is not verified (Sects. 7.2.1, 7.3.1)
+        @test FITSFiles.verifyfields!(cards, ok; columns = true) === cards
+        @test FITSFiles.verifyfields!(cards, keys("TFORM3" => "I4")) === cards
+        @test FITSFiles.verifyfields!(cards, keys("TFIELDS" => 0)) === cards
+
+        #  TFIELDS is not negative, and TFORMn and TBCOLn are present for each field
+        @test_throws ArgumentError("TFIELDS must be non-negative, but its value is -1.") FITSFiles.verifyfields!(
+            cards, keys("TFIELDS" => -1))
+        @test_throws ArgumentError("TFORM2 is missing, but TFIELDS is 2.") FITSFiles.verifyfields!(
+            cards, keys("TFIELDS" => 2, "TFORM1" => "I4"))
+        @test_throws ArgumentError("TBCOL2 is missing, but TFIELDS is 2.") FITSFiles.verifyfields!(
+            cards, delete!(copy(ok), "TBCOL2"); columns = true)
+        @test FITSFiles.verifyfields!(cards, delete!(copy(ok), "TBCOL2")) === cards
+
+        #  the first column of a row is 1
+        @test_throws ArgumentError FITSFiles.verifyfields!(cards, merge(ok, keys("TBCOL1" => 0)); columns = true)
+        @test FITSFiles.verifyfields!(cards, merge(ok, keys("TBCOL1" => 0))) === cards
+
+        #  more than 999 fields, and keywords of fields that are beyond TFIELDS, are warnings
+        @test_logs (:warn, r"TFIELDS 1000 is more than the maximum of 999") FITSFiles.verifyfields!(
+            cards, keys("TFIELDS" => 1000, [("TFORM$j" => "I4") for j = 1:1000]...))
+        @test_logs (:warn, r"TFORM3 is beyond TFIELDS 2") FITSFiles.verifyfields!(cards, merge(ok, keys("TFORM3" => "I4")))
+        @test_logs (:warn, r"TBCOL3 is beyond TFIELDS 2") FITSFiles.verifyfields!(
+            cards, merge(ok, keys("TBCOL3" => 9)); columns = true)
+        @test_logs FITSFiles.verifyfields!(cards, merge(ok, keys("TBCOL3" => 9)))
+
+        #  the heap starts at the end of the main data table or later, and within PCOUNT bytes of it (Sect. 7.3.2)
+        table = keys("NAXIS1" => 8, "NAXIS2" => 3, "PCOUNT" => 10)
+        @test_logs FITSFiles.verifyheap!(cards, table)
+        @test_logs FITSFiles.verifyheap!(cards, merge(table, keys("THEAP" => 24)))
+        @test_logs FITSFiles.verifyheap!(cards, merge(table, keys("THEAP" => 34)))
+        @test_logs (:warn, r"THEAP 23 is less than NAXIS1\*NAXIS2, 24") FITSFiles.verifyheap!(
+            cards, merge(table, keys("THEAP" => 23)))
+        @test_logs (:warn, r"THEAP 35 is more than NAXIS1\*NAXIS2 \+ PCOUNT, 34") FITSFiles.verifyheap!(
+            cards, merge(table, keys("THEAP" => 35)))
+        @test FITSFiles.verifyheap!(cards, merge(table, keys("THEAP" => 23))) === cards
+    end
 
     ####    Test the correction of the shape and the counts    ####
 

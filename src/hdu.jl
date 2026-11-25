@@ -121,6 +121,10 @@ const BITS2TYPE = Dict(8 => UInt8, 16 => Int16, 32 => Int32, 64 => Int64,
 const TYPE2BITS = Dict(UInt8 => 8, Int16 => 16, Int32 => 32, Int64 => 64,
 	Float32 => -32, Float64 => -64)
 
+#  The valid values of BITPIX (Table 8 of the standard), and the largest number of axes
+const BITPIXVALUES = (8, 16, 32, 64, -32, -64)
+const MAXAXES = 999
+
 const MISSTYPE = (UInt8, Int16, Int32, Int64)
 const TEMPTYPE = Dict(-2^7 => Int16, 2^15 => UInt32, UInt32(2)^31 => UInt64,
 	UInt64(2)^63 => UInt128)
@@ -132,6 +136,8 @@ const OUTTYPE  = Dict(
     #  significant, so the keys are not padded.
 #  The XTENSION value is padded to 8 characters.
 const XTENSIONLENGTH = 8
+#  The maximum number of fields of a table (Sects. 7.2.1 and 7.3.1)
+const MAXFIELDS = 999
 const XTENSIONTYPE = Dict("IMAGE" => Image, "TABLE" => Table, "BINTABLE" => Bintable)
 
 const MANDATORYKEYS = (
@@ -150,6 +156,8 @@ const RESERVEDKEYS = (
 	"PTYPE", "PSCAL", "PZERO",
 	#  Image field keys
 	"BSCALE", "BZERO", "BUNIT", "BLANK", "DATAMAX", "DATAMIN",
+	#  World-coordinate and time keys that are integers
+	"WCSAXES", "MJDREFI", "JDREFI",
 	#  Table field keys
 	"TFIELDS", "TFORM", "TBCOL", "TSCAL", "TZERO", "TNULL", "TTYPE", "TUNIT",
 	"TDISP", "TDMAX", "TDMIN", "TLMAX", "TLMIN",
@@ -158,7 +166,7 @@ const RESERVEDKEYS = (
 	"TDISP", "TDIM", "TDMAX", "TDMIN", "TLMAX", "TLMIN",
 	#  ZImage field keys
 	"ZTILE", "ZNAME", "ZVAL", "ZMASKCMP", "ZQUANTIZ", "ZDITHER0", "ZSIMPLE",
-	"ZEXTEND", "ZBLOCKED", "ZTENSION", "ZPCOUNT", "ZGCOUNT", "ZHECKSUM",
+	"ZEXTEND", "ZBLOCKED", "ZTENSION", "ZPCOUNT", "ZGCOUNT", "ZBLANK", "ZHECKSUM",
 	"ZDATASUM",
 	#  ZTable field keys
 	"FZTILELN", "FZALGOR", "FZALG", "ZTHEAP", "ZHECKSUM", "ZDATASUM")
@@ -205,7 +213,7 @@ function HDU(type::Type, ::Missing = missing, cards::C = missing; kwds...) where
 	#  Create dictionaries of mandatory and reserved keywords
 	mankeys, reskeys = getreservedkeys(kards)
 
-	kards  = verify!(type, kards, mankeys)
+	kards  = verify!(type, kards, mankeys, reskeys)
 	format = DataFormat(type, missing, mankeys)
 	kards  = verify!(type, kards, format, mankeys)
 	fields = FieldFormat(type, format, reskeys, missing)
@@ -338,7 +346,7 @@ function Base.read(io::IO, ::Type{HDU}; type = nothing, strict::Bool = true, uni
 
 	#  Read data
 	type_  = type === nothing ? typeofhdu(mankeys) : type
-	cards  = verify!(type_, cards, mankeys)
+	cards  = verify!(type_, cards, mankeys, reskeys)
 	format = DataFormat(type_, missing, mankeys)
 	cards  = verify!(type_, cards, format, mankeys)
 	fields = FieldFormat(type_, format, reskeys, missing)
@@ -371,7 +379,7 @@ function Base.write(io::IO, hdu::HDU{<:AbstractHDU}; kwds...)
 	mankeys, reskeys = getreservedkeys(cards)
 
 	type   = typeofhdu(hdu)
-	cards  = verify!(type, cards, mankeys)
+	cards  = verify!(type, cards, mankeys, reskeys)
 	format = DataFormat(type, missing, mankeys)
 	cards  = verify!(type, cards, format, mankeys)
 	fields = FieldFormat(type, format, reskeys, missing)
@@ -446,18 +454,145 @@ function leastfloat(value::Union{Real, Nothing})
 end
 
 """
-    verify!(type, cards, mankeys)
+    verify!(type, cards, mankeys, reskeys)
 
-Verify the values of the mandatory keywords of a header before the data format is created
-from them. Return the cards. A verify! method of an HDU type corrects the cards and the
+Verify the values of the mandatory and reserved keywords of a header, `mankeys` and `reskeys`, before
+the data format is created from them. Return the cards. A verify! method of an HDU type corrects the cards and the
 mandatory keywords, `mankeys`, when it is possible, and otherwise raises an error that names
-the keyword and its value. The generic method warns if the XTENSION value is not padded.
+the keyword and its value. The generic method raises an error if the value of a keyword that
+must be an integer is not (see [`verifyinteger`](@ref)), and warns if the XTENSION value is
+not padded.
 
 The verify! methods that also have a data format argument are for the HDU types that create
 the format from data and then correct the header to match the data.
 """
-function verify!(::Type{<:AbstractHDU}, cards::Cards, mankeys::AbstractDict)
+function verify!(::Type{<:AbstractHDU}, cards::Cards, mankeys::AbstractDict, reskeys::AbstractDict)
+	#  The integer keywords that are common to all HDUs: BITPIX, NAXIS, NAXISn, PCOUNT, and GCOUNT (Sects. 4.4.1.1,
+	#  4.4.1.2, and 6.1.1) are mandatory, and EXTVER and EXTLEVEL (Sect. 4.4.2.6), WCSAXES, with an optional alternate
+	#  version letter (Sect. 8.2), and MJDREFI and JDREFI (Sect. 9.2.2) are reserved. The integer keywords of one
+	#  type of HDU, e.g., TFIELDS or BLANK, are verified by the verify! method of that type.
+	verifyinteger(mankeys, r"^(BITPIX|NAXIS\d*|PCOUNT|GCOUNT)$")
+	verifyinteger(reskeys, r"^(EXTVER|EXTLEVEL|WCSAXES[A-Z]?|MJDREFI|JDREFI)$")
 	verifyxtension!(cards)
+end
+
+"""
+	verifyinteger(keys, pattern)
+
+Raise an `ArgumentError` that names the keyword and its value if the value of a keyword of the dictionary
+`keys` that matches the regular expression `pattern` is not an integer, e.g., NAXIS1 = 2.0 or PCOUNT = 'two'.
+`keys` is the dictionary of the mandatory keywords, `mankeys`, or of the reserved keywords, `reskeys`, of a
+header (see `MANDATORYKEYS` and `RESERVEDKEYS`), and a verify! method calls `verifyinteger` once for each. A
+floating-point value, even of a whole number, is not an integer, and the size of the data cannot be determined
+from it, so the HDU cannot be read. The values of other keywords are not checked.
+"""
+function verifyinteger(keys::AbstractDict, pattern::Regex)
+	for (key, value) in keys
+		occursin(pattern, key) || continue
+		value isa Integer && !(value isa Bool) && continue
+		throw(ArgumentError("$key must be an integer, but its value is $(repr(value))."))
+	end
+	nothing
+end
+
+"""
+	verifyvalue(keys, key, allowed, requirement)
+
+Raise an `ArgumentError` that names the keyword and its value if the keyword `key` is in the dictionary
+`keys`, of the mandatory keywords, and its value is not in `allowed`, e.g., a range or a tuple of values.
+`requirement` describes the allowed values for the message, e.g., "the integer 0". A keyword that is not in
+`keys` is not verified, since the header of an HDU that is created without cards has no keywords. The
+value is an integer, which `verifyinteger` verifies first.
+"""
+function verifyvalue(keys::AbstractDict, key::AbstractString, allowed, requirement::AbstractString)
+	haskey(keys, key) && !(keys[key] in allowed) &&
+		throw(ArgumentError("$key must be $requirement, but its value is $(repr(keys[key]))."))
+	nothing
+end
+
+#  The requirement of the value of BITPIX of the data types of an array (Table 8)
+verifybitpix(mankeys::AbstractDict) = verifyvalue(mankeys, "BITPIX", BITPIXVALUES,
+	"one of $(join(BITPIXVALUES[1:end-1], ", ")), or $(BITPIXVALUES[end])")
+
+#  The structure of a table extension, ASCII or binary, which is an array of bytes with NAXIS = 2 axes, the
+#  length of a row and the number of rows (Sects. 7.2.1 and 7.3.1)
+function verifyrows(mankeys::AbstractDict)
+	verifyvalue(mankeys, "BITPIX", 8:8, "the integer 8")
+	verifyvalue(mankeys, "NAXIS", 2:2, "the integer 2")
+	verifyaxes(mankeys)
+end
+
+"""
+	verifyaxes(mankeys; first = 1)
+
+Verify the NAXISn keywords of an HDU, from the index `first` to NAXIS, in the dictionary `mankeys` of the
+mandatory keywords. It is an error, since the size of the data cannot be determined, if NAXISn is missing for
+an n from `first` to NAXIS, or if it is negative. It is a warning, since the extra keywords are not used, if
+NAXISn is present for an n greater than NAXIS. A header with no NAXIS is not verified. `first` is 2 for random
+groups, where NAXIS1 is 0 (Sects. 4.4.1.1, 6.1.1, 7.1.1, 7.2.1, and 7.3.1).
+"""
+function verifyaxes(mankeys::AbstractDict; first::Integer = 1)
+	N = get(mankeys, "NAXIS", nothing)
+	isnothing(N) && return nothing
+	for j = first:N
+		haskey(mankeys, "NAXIS$j") || throw(ArgumentError("NAXIS$j is missing, but NAXIS is $N."))
+		verifyvalue(mankeys, "NAXIS$j", 0:typemax(Int), "non-negative")
+	end
+	for key in sort!(collect(keys(mankeys)))
+		m = match(r"^NAXIS(\d+)$", key)
+		!isnothing(m) && Base.parse(Int, m[1]) > max(N, 0) && @warn "$key is beyond NAXIS $N, and is not used."
+	end
+	nothing
+end
+
+"""
+	verifyfields!(cards, mankeys; columns = false)
+
+Verify the keywords that describe the fields of a table extension, and return the cards unchanged
+(Sects. 7.2.1 and 7.3.1 of the standard). It is an error, since the fields cannot be read, if TFIELDS
+is negative, if TFORMn is missing for an n from 1 to TFIELDS, or, for an ASCII table (`columns = true`),
+if TBCOLn is missing or less than 1, since the first column of a row is numbered 1. It is a warning,
+since the extra keywords are not used, if TFIELDS is more than 999, the maximum, or if TFORMn or TBCOLn
+is present for an n greater than TFIELDS. A header with no TFIELDS is not verified.
+"""
+function verifyfields!(cards::Cards, mankeys::AbstractDict; columns::Bool = false)
+	N = get(mankeys, "TFIELDS", nothing)
+	isnothing(N) && return cards
+	N < 0 && throw(ArgumentError("TFIELDS must be non-negative, but its value is $N."))
+	N > MAXFIELDS && @warn "TFIELDS $N is more than the maximum of $MAXFIELDS."
+	for j = 1:N
+		haskey(mankeys, "TFORM$j") || throw(ArgumentError("TFORM$j is missing, but TFIELDS is $N."))
+		if columns
+			haskey(mankeys, "TBCOL$j") || throw(ArgumentError("TBCOL$j is missing, but TFIELDS is $N."))
+			mankeys["TBCOL$j"] >= 1 || throw(ArgumentError(
+				"TBCOL$j must be at least 1, the first column of a row, but its value is $(mankeys["TBCOL$j"])."))
+		end
+	end
+	for key in sort!(collect(keys(mankeys)))
+		m = match(r"^(TFORM|TBCOL)(\d+)$", key)
+		!isnothing(m) && Base.parse(Int, m[2]) > N && (columns || m[1] == "TFORM") &&
+			@warn "$key is beyond TFIELDS $N, and is not used."
+	end
+	cards
+end
+
+"""
+	verifyheap!(cards, mankeys)
+
+Warn if THEAP of a binary table is outside of the range that the standard allows (Sect. 7.3.2), and
+return the cards unchanged. The heap starts THEAP bytes after the start of the main data table, so THEAP
+cannot be less than NAXIS1*NAXIS2 or more than that plus PCOUNT, the bytes of the gap and the heap.
+"""
+function verifyheap!(cards::Cards, mankeys::AbstractDict)
+	haskey(mankeys, "THEAP") || return cards
+	heap = mankeys["THEAP"]
+	table = get(mankeys, "NAXIS1", 0) * get(mankeys, "NAXIS2", 0)
+	if heap < table
+		@warn "THEAP $heap is less than NAXIS1*NAXIS2, $table, and the heap overlaps the table."
+	elseif heap > table + get(mankeys, "PCOUNT", 0)
+		@warn "THEAP $heap is more than NAXIS1*NAXIS2 + PCOUNT, $(table + get(mankeys, "PCOUNT", 0)), and the heap is past the data."
+	end
+	cards
 end
 
 """

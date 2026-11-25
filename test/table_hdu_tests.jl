@@ -167,6 +167,18 @@
         @test isequal(reread(bytes; scale = false).data.column1, [missing, 12])
         @test isequal([r.column1 for r in reread(bytes; scale = false, record = true).data], [missing, 12])
 
+        #  an HDU without a TFORMn or with a TBCOLn less than 1 cannot be read (Sect. 7.2.1)
+        fields = ["TFIELDS =                    2", "TFORM1  = 'I4      '", "TBCOL1  =                    1",
+            "TFORM2  = 'F5.1    '", "TBCOL2  =                    5"]
+        rows = ["   1  1.5", "   2  2.5"]
+        @test reread(tablebytes(fields, rows)).data.column1 == [1, 2]
+        @test_throws ArgumentError("TFORM2 is missing, but TFIELDS is 2.") reread(tablebytes(fields[1:3], rows))
+        @test_throws ArgumentError("TBCOL2 is missing, but TFIELDS is 2.") reread(tablebytes(fields[1:4], rows))
+        @test_throws ArgumentError r"TBCOL1 must be at least 1" reread(tablebytes(
+            [fields[1:2]; "TBCOL1  =                    0"; fields[4:5]], rows))
+        @test_throws ArgumentError r"TFIELDS must be an integer" reread(tablebytes(
+            [["TFIELDS =                  2.0"]; fields[2:5]], rows))
+
         #  an undefined entry is written as TNULLn, or as blanks if there is no TNULLn
         function written(hdu)
             io = IOBuffer(); write(io, hdu); take!(io)[end-2879:end]

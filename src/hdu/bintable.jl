@@ -109,6 +109,20 @@ function Base.write(io::IO, ::Type{Bintable}, data::Union{AbstractArray, NamedTu
     end
 end
 
+function verify!(::Type{Bintable}, cards::Cards, mankeys::AbstractDict, reskeys::AbstractDict)
+    cards = invoke(verify!, Tuple{Type{<:AbstractHDU}, Cards, AbstractDict, AbstractDict}, Bintable, cards,
+        mankeys, reskeys)
+    verifyrows(mankeys)
+    #  PCOUNT is the number of bytes of the heap and the gap, and there is a single table (Sect. 7.3.1)
+    verifyvalue(mankeys, "PCOUNT", 0:typemax(Int), "non-negative")
+    verifyvalue(mankeys, "GCOUNT", 1:1, "the integer 1")
+    #  The number of fields, the heap offset, and the null values are integers (Sects. 7.3.1 and 7.3.2)
+    verifyinteger(mankeys, r"^(TFIELDS|THEAP)$")
+    verifyinteger(reskeys, r"^TNULL\d+$")
+    verifyfields!(cards, mankeys)
+    verifyheap!(cards, mankeys)
+end
+
 function verify!(::Type{Bintable}, cards::Cards, format::DataFormat,
     mankeys::AbstractDict)
 

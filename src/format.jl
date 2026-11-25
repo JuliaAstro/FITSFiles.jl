@@ -9,13 +9,13 @@ struct DataFormat
 	"The type of the array element."
 	type::Type
 	"The number of elements."
-	leng::Integer
+	leng::Int
 	"The shape of the array."
-	shape::Tuple
+	shape::Tuple{Vararg{Int}}
 	"The number of parameters."
-	param::Integer
+	param::Int
 	"The number of groups."
-	group::Integer
+	group::Int
 	"The offset of the heap in bytes."
-	heap::Integer
+	heap::Int
 end

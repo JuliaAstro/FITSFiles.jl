@@ -1,5 +1,12 @@
 ####    Primary HDU functions
 
+function verify!(::Type{Primary}, cards::Cards, mankeys::AbstractDict, reskeys::AbstractDict)
+    cards = invoke(verify!, Tuple{Type{<:AbstractHDU}, Cards, AbstractDict, AbstractDict}, Primary, cards,
+        mankeys, reskeys)
+    verifyarray(mankeys, reskeys)
+    cards
+end
+
 function verify!(::Type{Primary}, cards::Cards, format::DataFormat,
     mankeys::AbstractDict)
 
