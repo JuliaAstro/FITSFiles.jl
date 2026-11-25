@@ -158,6 +158,99 @@ Table 5 for the units that take them, e.g., `a`, the Julian year, `Ma`, `R`, the
 Standard, e.g., a function such as `log(Hz)`, remains in the comment. The units of a card are
 not read if the keyword `units = false` is given to `parse`.
 
+### DynamicQuantities
+
+The units of a card are [Unitful.jl](https://github.com/PainterQubits/Unitful.jl) units by
+default. The units can be [DynamicQuantities.jl](https://github.com/SymbolicML/DynamicQuantities.jl)
+units instead, by the package extension `DynamicQuantitiesExt`, which is loaded when
+DynamicQuantities is loaded. It needs Julia 1.10 or later. The unit strings of the FITS Standard
+are the same for both packages. The examples are not run when the documentation is built, since
+DynamicQuantities is not a dependency of FITSFiles.
+
+#### Reading units
+
+The keyword `units` of `parse(Card, ...)`, and of `read` for a `Card` or an `HDU`, is `true`
+for Unitful (the default), `false` for no units, or the module `DynamicQuantities`.
+
+```julia
+julia> using FITSFiles, DynamicQuantities
+
+julia> image = rpad("RATE    =                  3.5 / [km/s] velocity", 80);
+
+julia> card = parse(Card, image; units = DynamicQuantities);
+
+julia> card.value, card.units, card.comment
+(3.5f0, 1.0 s⁻¹ km, "velocity")
+
+julia> units(card)
+1.0 s⁻¹ km
+
+julia> card.value * units(card)
+3.5 s⁻¹ km
+
+julia> hdu = read(io, HDU; units = DynamicQuantities);   # the units of every number of the header
+```
+
+A unit is a `Quantity` with the value one and symbolic dimensions, e.g., `km/s` has the
+symbols `km` and `s`, so the unit string of a card is written again from the symbols. The
+rules of the units of a card are those above: the units are in square
+brackets at the beginning of the comment of a number, a mandatory keyword has no units, and text
+that is not a unit string remains in the comment.
+
+#### Writing units
+
+A `Quantity` that is given in place of a number is split into its number and its units,
+as for Unitful.
+
+```julia
+julia> card = Card("RATE", 3.5 * DynamicQuantities.sym_uparse("km/s"), "velocity");
+
+julia> println(card)
+RATE    =                  3.5 / [km s-1] velocity
+
+julia> card.units
+1.0 s⁻¹ km
+```
+
+A quantity must have symbolic dimensions, e.g., from `sym_uparse` or `us"..."`. A quantity
+that is expanded to the base units, e.g., by `uexpand`, has no symbols, so it has no FITS name
+and is an `ArgumentError`.
+
+#### Parsing and formatting units
+
+```julia
+julia> using FITSFiles: parseunit, formunit
+
+julia> parseunit(DynamicQuantities, "solMass/pc3")
+1.0 pc⁻³ solMass
+
+julia> unit = parseunit(DynamicQuantities, "erg/(cm2 s)");
+
+julia> formunit(unit), formunit(unit, " /d")
+("erg s-1 cm-2", "erg/s/cm2")
+
+julia> parseunit(DynamicQuantities, "10**3 m")      # a scale factor is a quantity and not a unit
+1000.0 m
+
+julia> parseunit(DynamicQuantities, "foo") === nothing
+true
+```
+
+#### Differences from Unitful
+
+- DynamicQuantities orders the units by its own symbol order, not by the order of the string,
+  so `kg m2 s-2` is written as `m2 kg s-2`.
+- A unit that DynamicQuantities does not have is registered when the package is loaded, e.g.,
+  the units of Table 4 of the Standard such as `solMass`, `Ry`, `lm`, `barn`, `D`, `R`, and the
+  units of counting (`pix`, `ct`, `ph`, `adu`, `beam`, `chan`, `bin`, `voxel`, `bit`, `byte`,
+  `mag`, `Sun`). A prefixed unit, e.g., `kyr` or `uJy`, is registered the first time it is read.
+  The units of counting have no dimension, but the symbols keep them apart, e.g., `ct` and `ph`.
+- The constants of DynamicQuantities that are units of the Standard, i.e., `pc`, `au`, `ly`, and
+  `u`, and the gauss `G`, which DynamicQuantities calls `Gauss`, are read and written as the FITS
+  names. `a`, the Julia year, is `yr`.
+- The registration uses `DynamicQuantities.update_all_values`, which is not public, so a
+  future release of DynamicQuantities may change it.
+
 ## Fixed and free format
 
 The values of a card are in fixed format by default, where a number ends at byte 30 and a string
