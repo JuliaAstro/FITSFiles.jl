@@ -121,28 +121,10 @@ function Base.write(io::IO, ::Type{Bintable}, data::NamedTuple, format::DataForm
 end
 
 function verify!(::Type{Bintable}, cards::Cards, format::DataFormat,
-    mankeys::D) where D <: Dict{AbstractString, ValueType}
+    mankeys::AbstractDict)
 
-    if haskey(mankeys, "BITPIX") && format.type != BITS2TYPE[mankeys["BITPIX"]]
-        setindex!(cards, TYPE2BITS[format.type], "BITPIX")
-        println("Warning: BITPIX set to $(TYPE2BITS[format.type])).")
-    end
-    if haskey(mankeys, "NAXIS1") && format.shape != datasize(cards, 1)
-        println("$(format.shape), $(datasize(cards, 1))")
-        N = length(format.shape)
-        setindex!(cards, N, "NAXIS")
-        for j=1:N setindex!(cards, format.shape[j], "NAXIS$j") end
-        println("Warning: NAXIS$(1:N) set to $(format.shape)")
-    end
-    if haskey(mankeys, "PCOUNT") && (format.param != mankeys["PCOUNT"])
-        setindex!(cards, format.param, "PCOUNT")
-        println("Warning: PCOUNT set to $(format.param)")
-    end
-    if haskey(mankeys, "GCOUNT") && (format.group != mankeys["GCOUNT"])
-        setindex!(cards, format.group, "GCOUNT")
-        println("Warning: GCOUNT set to $(format.group)")
-    end
-    cards
+    verify_shape!(cards, mankeys, format)
+    verify_counts!(cards, mankeys, format)
 end
 
 function DataFormat(::Type{Bintable}, data::Missing, mankeys::Dict{S, V}) where

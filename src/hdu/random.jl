@@ -101,35 +101,15 @@ function Base.write(io::IO, ::Type{Random}, data::NamedTuple, format::DataFormat
 end
 
 function verify!(::Type{Random}, cards::Cards, format::DataFormat,
-    mankeys::Dict{S, V}) where {S<:AbstractString, V<:ValueType}
+    mankeys::AbstractDict)
 
-    if !get(mankeys, "SIMPLE", true)
-        println("Warning: Primary HDU is nonconformant.")
-    end
-    if haskey(mankeys, "BITPIX") && format.type != BITS2TYPE[mankeys["BITPIX"]]
-        setindex!(cards, TYPE2BITS[format.type], "BITPIX")
-        println("Warning: BITPIX set to $(TYPE2BITS[format.type])).")
-    end
-    if haskey(mankeys, "NAXIS1") && (format.shape != datasize(cards, 2))
-        N = length(format.shape)+1
-        setindex!(cards, N, "NAXIS")
-        setindex!(cards, 0, "NAXIS1")
-        for j=2:N setindex!(cards, format.shape[j-1], "NAXIS$j") end
-        println("Warning: NAXIS$(2:N) set to $(format.shape)")
-    end
+    !get(mankeys, "SIMPLE", true) && println("Warning: Primary HDU is nonconformant.")
+    verify_shape!(cards, mankeys, format; first = 2)
     if !get(mankeys, "GROUPS", true)
         setindex!(cards, true, "GROUPS")
         println("Warning: GROUPS set to true")
     end
-    if haskey(mankeys, "PCOUNT") && (format.param != mankeys["PCOUNT"])
-        setindex!(cards, format.param, "PCOUNT")
-        println("Warning: PCOUNT set to $(format.param)")
-    end
-    if haskey(mankeys, "GCOUNT") && (format.group != mankeys["GCOUNT"])
-        setindex!(cards, format.group, "GCOUNT")
-        println("Warning: GCOUNT set to $(format.group)")
-    end
-    cards
+    verify_counts!(cards, mankeys, format)
 end
 
 function DataFormat(::Type{Random}, data::Missing, mankeys::Dict{S, V}) where

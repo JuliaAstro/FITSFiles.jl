@@ -106,19 +106,9 @@ function Base.write(io::IO, ::Type{Table}, data::NamedTuple, format::DataFormat,
 end
 
 function verify!(::Type{Table}, cards::Cards, format::DataFormat,
-    mankeys::D) where D<:Dict{AbstractString, ValueType}
+    mankeys::AbstractDict)
 
-    if haskey(mankeys, "BITPIX") && format.type != BITS2TYPE[mankeys["BITPIX"]]
-        setindex!(cards, TYPE2BITS[format.type], "BITPIX")
-        println("Warning: BITPIX set to $(TYPE2BITS[format.type])).")
-    end
-    if haskey(mankeys, "NAXIS1") && format.shape != datasize(cards, 1)
-        N = length(format.shape)
-        setindex!(cards, N, "NAXIS")
-        for j=1:N setindex!(cards, format.shape[j], "NAXIS$j") end
-        println("Warning: NAXIS$(1:N) set to $(format.shape)")
-    end
-    cards
+    verify_shape!(cards, mankeys, format)
 end
 
 function DataFormat(::Type{Table}, data::Missing, mankeys::Dict{S, V}) where

@@ -56,22 +56,10 @@ function Base.write(io::IO, ::Type{Primary}, data::AbstractArray,
 end
 
 function verify!(::Type{Primary}, cards::Cards, format::DataFormat,
-    mankeys::D) where D<:Dict{AbstractString, ValueType}
+    mankeys::AbstractDict)
 
-    if !get(mankeys, "SIMPLE", true)
-        println("Warning: Primary HDU is nonconformant.")
-    end
-    if haskey(mankeys, "BITPIX") && format.type != BITS2TYPE[mankeys["BITPIX"]]
-        setindex!(cards, TYPE2BITS[format.type], "BITPIX")
-        println("Warning: BITPIX set to $(TYPE2BITS[format.type])).")
-    end
-    if haskey(mankeys, "NAXIS1") && format.shape != datasize(cards, 1)
-        N = length(format.shape)
-        setindex!(cards, N, "NAXIS")
-        for j=1:N setindex!(cards, format.shape[j], "NAXIS$j") end
-        println("Warning: NAXIS$(1:N) set to $(format.shape)")
-    end
-    cards
+    !get(mankeys, "SIMPLE", true) && println("Warning: Primary HDU is nonconformant.")
+    verify_shape!(cards, mankeys, format)
 end
 
 function DataFormat(::Type{Primary}, data::Missing, mankeys::Dict{S, V}) where

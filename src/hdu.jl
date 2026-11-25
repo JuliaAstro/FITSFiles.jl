@@ -457,6 +457,43 @@ the format from data and then correct the header to match the data.
 verify!(::Type{<:AbstractHDU}, cards::Cards, mankeys::AbstractDict) = cards
 
 """
+	verify_shape!(cards, mankeys, format; first = 1)
+
+Correct BITPIX and the NAXIS keywords of `cards` to match the data format `format`, and return
+the cards. `first` is the index of the first NAXISn keyword that describes the data, which is 2
+for random groups, where NAXIS1 is 0.
+"""
+function verify_shape!(cards::Cards, mankeys::AbstractDict, format::DataFormat; first::Integer = 1)
+	if haskey(mankeys, "BITPIX") && format.type != BITS2TYPE[mankeys["BITPIX"]]
+		setindex!(cards, TYPE2BITS[format.type], "BITPIX")
+		println("Warning: BITPIX set to $(TYPE2BITS[format.type]).")
+	end
+	if haskey(mankeys, "NAXIS1") && format.shape != datasize(cards, first)
+		N = length(format.shape) + first - 1
+		setindex!(cards, N, "NAXIS")
+		first == 2 && setindex!(cards, 0, "NAXIS1")
+		for j = first:N setindex!(cards, format.shape[j-first+1], "NAXIS$j") end
+		println("Warning: NAXIS$(first:N) set to $(format.shape)")
+	end
+	cards
+end
+
+"""
+	verify_counts!(cards, mankeys, format)
+
+Correct PCOUNT and GCOUNT of `cards` to match the data format `format`, and return the cards.
+"""
+function verify_counts!(cards::Cards, mankeys::AbstractDict, format::DataFormat)
+	for (key, value) in (("PCOUNT", format.param), ("GCOUNT", format.group))
+		if haskey(mankeys, key) && value != mankeys[key]
+			setindex!(cards, value, key)
+			println("Warning: $key set to $value")
+		end
+	end
+	cards
+end
+
+"""
     scaled(data, scale, zero)
 
 Return `zero + scale*data`. The type of the result is the promotion of the types of `data`,
