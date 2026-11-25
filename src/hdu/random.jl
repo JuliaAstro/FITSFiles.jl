@@ -7,17 +7,17 @@ Random array element descriptor
 """
 struct RandomField <: AbstractField
     "The name of the field"
-    name::AbstractString
+    name::String
     "The index of the field for common name fields"
-    index::Integer
+    index::Int
     "The type of the field"
     type::Type
     "The slice of the field bytes from start of record"
-    slice::UnitRange{Integer}
+    slice::UnitRange{Int}
     "The number of elements in the field"
-    leng::Integer
+    leng::Int
     "The dimensions of the field"
-    shape::Tuple
+    shape::Tuple{Vararg{Int}}
     "The offset value of the field"
     zero::Union{AbstractFloat, Missing}
     "The scale factor of the field"
