@@ -53,11 +53,34 @@ function verifyname(hdus::AbstractVector)
 end
 
 """
+    specialrecords(io, n)
+
+Return true, with a warning, if the bytes of `io` that follow the `n`th HDU are special records (Sect. 3.5 of the standard), and
+move to the end of `io`. Special records are the blocks after the last HDU, which do not meet the requirements of a conforming
+extension, so that the first eight bytes of them are not `XTENSION`. The first eight bytes of the header of an HDU after the first
+are `XTENSION`, and `SIMPLE  ` is read as an HDU that is in the wrong place (see [`verifyposition`](@ref)). The special records are
+not read, and are not written.
+"""
+function specialrecords(io::IO, n::Integer)
+	pos = position(io)
+	head = String(read(io, 8))
+	seek(io, pos)
+	head in ("XTENSION", "SIMPLE  ") && return false
+	nbytes = unreadbytes(io)
+	nbytes == typemax(Int) && (nbytes = length(read(io)); seek(io, pos))
+	@warn "The $nbytes bytes after HDU $n of the file are special records (Sect. 3.5 of the standard), because they do not " *
+		"begin with XTENSION. They are not read."
+	seekend(io)
+	true
+end
+
+"""
 	fits(io::IO; <keywords>)
 	fits(filename::AbstractString; <keywords>)
 
 Open and read a FITS file, returning a vector of header-data units (HDUs). The first HDU is the primary HDU and the
 others are extensions (Sect. 3.1 of the standard), and a file whose HDUs are not in this order is read with a warning.
+The special records after the last HDU (Sect. 3.5) are not read, with a warning.
 
 The default data structure for Random and Bintable HDUs is a named tuple of arrays.
 
@@ -78,6 +101,7 @@ The default data structure for Random and Bintable HDUs is a named tuple of arra
 function fits(io::IO; kwds...)
 	hdus = HDU{<:AbstractHDU}[]
 	while !eof(io)
+		!isempty(hdus) && specialrecords(io, length(hdus)) && break
 		push!(hdus, verifyposition(read(io, HDU; kwds...), length(hdus) + 1))
 		verifyname(hdus)
 	end

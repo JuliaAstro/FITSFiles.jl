@@ -147,4 +147,32 @@
         @test_logs (:warn, r"HDU 3 of a FITS file has the same type IMAGE, EXTNAME \"\", EXTVER 2, and EXTLEVEL 1 as HDU 2") written(HDU[HDU(Primary, data), named, named])
     end
 
+    ####    Test the special records after the last HDU (Sect. 3.5)    ####
+
+    @testset "Special records" begin
+        written(hdus) = (io = IOBuffer(); write(io, hdus); take!(io))
+        primary, image = HDU(Primary, Int16[1 2 3; 4 5 6]), HDU(Image, Float32[1.5 2.5; -1 7])
+        bytes = written(HDU[primary, image])
+        #  the HDUs of a file that ends with the last of them are read without a warning
+        @test length(@test_logs fits(IOBuffer(bytes))) == 2
+        #  and the blocks that follow the last HDU, whatever they are, are special records, which are not read
+        for extra in (zeros(UInt8, 2880), fill(UInt8('x'), 2880), zeros(UInt8, 3 * 2880), fill(UInt8(' '), 100),
+            [codeunits(rpad("JUNK = 3", 2880)); zeros(UInt8, 12)])
+            file = @test_logs (:warn, "The $(length(extra)) bytes after HDU 2 of the file are special records (Sect. 3.5 of " *
+                "the standard), because they do not begin with XTENSION. They are not read.") fits(IOBuffer([bytes; extra]))
+            @test length(file) == 2 && file[1] isa HDU{Primary} && file[2] isa HDU{Image}
+            @test file[2].data == Float32[1.5 2.5; -1 7]
+        end
+        #  as they are for a file that is opened
+        mktemp() do path, io
+            write(io, [bytes; zeros(UInt8, 2880)]); close(io)
+            file = @test_logs (:warn, r"The 2880 bytes after HDU 2 of the file are special records") fits(path)
+            @test length(file) == 2 && file[2].data == Float32[1.5 2.5; -1 7]
+        end
+        #  the first HDU is always read, and an HDU that begins with SIMPLE is an HDU in the wrong place, and not a record
+        twoprimaries = @test_logs (:warn, r"HDU 2 of a FITS file has SIMPLE") written(HDU[primary, primary])
+        @test length(@test_logs((:warn, r"HDU 2 of a FITS file has SIMPLE"), fits(IOBuffer(twoprimaries)))) == 2
+        @test_throws ArgumentError fits(IOBuffer(zeros(UInt8, 2880)))
+    end
+
 end
