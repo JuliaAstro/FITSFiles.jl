@@ -21,6 +21,37 @@ function verifyposition(hdu::HDU, j::Integer)
 end
 
 """
+    verifyname(hdus)
+
+Warn if the last HDU of the vector `hdus` has the same type, EXTNAME, EXTVER, and EXTLEVEL as an HDU before it. It is
+recommended that the combination of these keywords is unique in each HDU of a FITS file that has them (Sect. 4.4.2.6 of
+the standard). The type of an HDU is the value of its XTENSION, and the primary array is equivalent to an IMAGE extension.
+An absent EXTVER or EXTLEVEL is 1, and the HDUs that have none of the three keywords are not compared. The HDUs are read
+and written as they are. Return the HDUs.
+"""
+function verifyname(hdus::AbstractVector)
+	isempty(hdus) && return hdus
+	hdu = last(hdus)
+	named(hdu) = any(haskey(getfield(hdu, :cards), key) for key in ("EXTNAME", "EXTVER", "EXTLEVEL"))
+	named(hdu) || return hdus
+	function signature(hdu)
+		cards = getfield(hdu, :cards)
+		type = haskey(cards, "XTENSION") ? rstrip(string(cards["XTENSION"])) : "IMAGE"
+		(type, extname(hdu), extver(hdu), extlevel(hdu))
+	end
+	for j = 1:(length(hdus)-1)
+		if named(hdus[j]) && signature(hdus[j]) == signature(hdu)
+			type, name, version, level = signature(hdu)
+			@warn "HDU $(length(hdus)) of a FITS file has the same type $type, EXTNAME $(repr(name)), EXTVER $version, " *
+				"and EXTLEVEL $level as HDU $j (Sect. 4.4.2.6): it is recommended that the combination is unique. " *
+				"It is read as it is."
+			break
+		end
+	end
+	hdus
+end
+
+"""
 	fits(io::IO; <keywords>)
 	fits(filename::AbstractString; <keywords>)
 
@@ -46,6 +77,7 @@ function fits(io::IO; kwds...)
 	hdus = HDU{<:AbstractHDU}[]
 	while !eof(io)
 		push!(hdus, verifyposition(read(io, HDU; kwds...), length(hdus) + 1))
+		verifyname(hdus)
 	end
 	hdus
 end
@@ -67,6 +99,7 @@ CHECKSUM keywords of each HDU (see [`Base.write(io::IO, hdu::HDU)`](@ref)).
 """
 function Base.write(io::IO, hdus::Vector{<:HDU}; kwds...)
     for (j, hdu) in enumerate(hdus)
+        verifyname(view(hdus, 1:j))
         write(io, verifyposition(hdu, j); kwds...)
     end
 end

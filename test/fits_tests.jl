@@ -120,6 +120,27 @@
         @test_throws KeyError("NONE") hdus["NONE"]
         @test_throws KeyError(("SCI", 3)) hdus["SCI", 3]
         @test_throws KeyError(("ERR", 2)) hdus["ERR", 2]
+
+        #  the combination of the type, the name, the version, and the level is unique, as is recommended
+        repeated = r"HDU 3 of a FITS file has the same type IMAGE, EXTNAME \"SCI\", EXTVER 1, and EXTLEVEL 1 as HDU 2 \(Sect. 4.4.2.6\)"
+        for hdus in (HDU[HDU(Primary, data), sci, sci2], HDU[HDU(Primary, data), sci, extension(Card("EXTNAME", "SCI"), Card("EXTLEVEL", 2))],
+            HDU[HDU(Primary, data), sci, HDU(Bintable, (a = Int32[1],), Card{<:Any}[Card("EXTNAME", "SCI")])],
+            HDU[HDU(Primary, data), sci, plain, plain], HDU[HDU(Primary, data), plain, plain])
+            bytes = @test_logs written(hdus)
+            @test length(@test_logs(fits(IOBuffer(bytes)))) == length(hdus)
+        end
+        for hdus in (HDU[HDU(Primary, data), sci, extension(Card("EXTNAME", "SCI"), Card("EXTVER", 1), Card("EXTLEVEL", 1))],
+            HDU[HDU(Primary, data), sci, extension(Card("EXTNAME", "SCI   "))])
+            bytes = @test_logs (:warn, repeated) written(hdus)
+            @test length(@test_logs((:warn, repeated), fits(IOBuffer(bytes)))) == 3
+        end
+        #  the primary array is equivalent to an IMAGE extension, and a table of the same name is not
+        primary = HDU(Primary, data, Card{<:Any}[Card("EXTNAME", "SCI")])
+        @test_logs (:warn, r"HDU 2 of a FITS file has the same type IMAGE, EXTNAME \"SCI\", EXTVER 1, and EXTLEVEL 1 as HDU 1") written(HDU[primary, sci])
+        #  and only the keywords that are there are compared
+        named = extension(Card("EXTVER", 2))
+        @test_logs written(HDU[HDU(Primary, data), named, extension(Card("EXTVER", 3))])
+        @test_logs (:warn, r"HDU 3 of a FITS file has the same type IMAGE, EXTNAME \"\", EXTVER 2, and EXTLEVEL 1 as HDU 2") written(HDU[HDU(Primary, data), named, named])
     end
 
 end
