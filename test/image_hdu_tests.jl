@@ -331,6 +331,46 @@
         hdu = @test_logs (:warn, r"PCOUNT is missing") (:warn, r"GCOUNT is missing") reading(filebytes([xtension, bitpix, naxis, naxis1], data))
         @test hdu.data == Int16[1, 2, 3]
 
+        ####    The order of the mandatory keywords (Sects. 4.4.1.2 and 7.1.1)
+
+        for (cards, j, key, required) in (
+            ([bitpix, xtension, naxis, naxis1, pcount, gcount], 1, "BITPIX", "XTENSION"),
+            ([xtension, naxis, bitpix, naxis1, pcount, gcount], 2, "NAXIS", "BITPIX"),
+            ([xtension, bitpix, naxis1, naxis, pcount, gcount], 3, "NAXIS1", "NAXIS"),
+            ([xtension, bitpix, naxis, naxis1, gcount, pcount], 5, "GCOUNT", "PCOUNT"),
+            ([xtension, bitpix, naxis, "DATE    = '2020-01-01'", naxis1, pcount, gcount], 4, "DATE", "NAXIS1"),
+            ([xtension, bitpix, naxis, naxis1, "DATE    = '2020-01-01'", pcount, gcount], 5, "DATE", "PCOUNT"),
+            ([xtension, bitpix, naxis, naxis1, pcount, "", gcount], 6, "a blank card", "GCOUNT"))
+            #  one warning, and the file is read and written as it is
+            bytes = filebytes(cards, data)
+            message = Regex("Keyword $j of the header is $key, but the Standard requires $required \\(Sects. 4.4.1.2 and 7.1.1\\)")
+            hdu = @test_logs (:warn, message) reading(bytes)
+            @test hdu isa HDU{Image} && hdu.data == Int16[1, 2, 3]
+            @test @test_logs((:warn, message), written(hdu)) == codeunits(bytes)
+        end
+        #  the keywords after GCOUNT are in any order
+        silent([header; "OBJECT  = 'NGC 1275'"; kw("BSCALE", 2.0); "BUNIT   = 'adu'"])
+        #  and the keywords of an array that has no axes, or a zero axis, are the keywords that it has
+        silent([xtension, bitpix, kw("NAXIS", 0), pcount, gcount], UInt8[])
+        silent([xtension, bitpix, kw("NAXIS", 2), kw("NAXIS1", 3), kw("NAXIS2", 0), pcount, gcount], UInt8[])
+
+        ####    The fixed format of the mandatory keywords (Sect. 4.4)
+
+        for (cards, keys) in (
+            (["XTENSION=  'IMAGE   '", bitpix, naxis, naxis1, pcount, gcount], "XTENSION"),
+            ([xtension, "BITPIX  = 16", naxis, naxis1, pcount, gcount], "BITPIX"),
+            ([xtension, bitpix, naxis, naxis1, "PCOUNT  = 0", "GCOUNT  = 1"], "PCOUNT, GCOUNT"),
+            ([xtension, "BITPIX  = 16", "NAXIS   = 1", "NAXIS1  = 3", "PCOUNT  = 0 / none", "GCOUNT  = 1"],
+                "BITPIX, NAXIS, NAXIS1, PCOUNT, GCOUNT"))
+            bytes = filebytes(cards, data)
+            message = Regex("The value of $keys is not in fixed format \\(Sect. 4.4.1\\)")
+            hdu = @test_logs (:warn, message) reading(bytes)
+            @test hdu isa HDU{Image} && hdu.data == Int16[1, 2, 3]
+            @test @test_logs((:warn, message), written(hdu)) == codeunits(bytes)
+        end
+        #  the other keywords can be in free format
+        silent([header; "BZERO   = 1.0"; "OBJECT  = 'NGC 1275'"])
+
     end
 
 end

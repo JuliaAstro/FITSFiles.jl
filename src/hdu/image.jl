@@ -1,5 +1,9 @@
 ####    Image HDU functions
 
+#  The mandatory keywords of the header of an IMAGE extension, in the order that they must have (Sect. 7.1.1, Table 13)
+imagekeys(mankeys::AbstractDict) =
+    vcat(["XTENSION", "BITPIX", "NAXIS"], ["NAXIS$j" for j = 1:get(mankeys, "NAXIS", 0)], ["PCOUNT", "GCOUNT"])
+
 function verify!(::Type{Image}, cards::Cards, mankeys::AbstractDict, reskeys::AbstractDict)
     #  A header that is being created does not have the keywords yet, and is arranged when it is created.
     created = !haskey(mankeys, "XTENSION")
@@ -20,6 +24,12 @@ function verify!(::Type{Image}, cards::Cards, mankeys::AbstractDict, reskeys::Ab
         haskey(mankeys, key) || @warn "$key is missing, but it is a mandatory keyword of an IMAGE extension " *
             "(Sect. 7.1.1), and has the value $value. It is read as $value."
     end
+    #  The mandatory keywords are the first keywords, in order and in fixed format (Sects. 4.4 and 7.1.1)
+    #  (a keyword that is missing is warned about above, and is not in the order)
+    required = filter(key -> haskey(mankeys, key), imagekeys(mankeys))
+    verifyorder(cards, required; section = "Sects. 4.4.1.2 and 7.1.1",
+        names = "XTENSION, BITPIX, NAXIS, the NAXISn, PCOUNT, and GCOUNT")
+    verifyfixed(cards, required)
     cards
 end
 
