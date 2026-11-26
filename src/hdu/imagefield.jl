@@ -159,10 +159,48 @@ function Base.read(io::IO, format::DataFormat, fields::ImageField)
     setmissing(data, fields.miss)
 end
 
+#  The stored value of a physical value, which is (value - BZERO)/BSCALE (Eq. 3 of the standard), rounded to the
+#  nearest integer for integer data. An undefined value, which is missing, or NaN for integer data that has a BLANK,
+#  is missing.
+storedvalue(::Missing, fields::ImageField) = missing
+function storedvalue(x::Real, fields::ImageField)
+    type = fields.type
+    if isnan(x)
+        type <: AbstractFloat && return type(x)
+        isnothing(fields.miss) && throw(ArgumentError(
+            "NaN cannot be written as integer data that does not have a BLANK keyword."))
+        return missing
+    end
+    fields.scale == 0 && throw(ArgumentError(
+        "The values cannot be written as stored values, since BSCALE is 0."))
+    W = promote_type(typeof(fields.scale), typeof(fields.zero), Float64)
+    value = (W(x) - W(fields.zero)) / W(fields.scale)
+    type <: AbstractFloat && return type(value)
+    stored = round(value)
+    typemin(type) <= stored <= typemax(type) || throw(ArgumentError(
+        "The value $x is not in the range of the $type data that BSCALE $(fields.scale) and BZERO " *
+        "$(fields.zero) describe: its stored value $stored is not from $(typemin(type)) to $(typemax(type))."))
+    type(stored)
+end
+
+#  The stored values of the data, which are the values of the type of the HDU (BITPIX): the data that are the
+#  physical values of the offset convention of Table 11 are the stored values with the offset, and the data of
+#  another type are the physical values that are read with BSCALE and BZERO, so they are inverted. The data of the
+#  type of the HDU are the stored values, even when BSCALE and BZERO are not 1 and 0, i.e., they were read unscaled.
+function storedvalues(data::AbstractArray, fields::ImageField)
+    type = nonmissingtype(eltype(data))
+    offset = offsettype(fields.type, fields.scale, fields.zero)
+    if !isnothing(offset) && type == offset
+        offsetvalue.(data, fields.type)
+    elseif type != fields.type
+        storedvalue.(data, Ref(fields))
+    else
+        data
+    end
+end
+
 function Base.write(io::IO, data::AbstractArray, fields::ImageField)
-    #  The physical values of the offset convention are written as the stored values
-    T = offsettype(fields.type, fields.scale, fields.zero)
-    !isnothing(T) && nonmissingtype(eltype(data)) == T && (data = offsetvalue.(data, fields.type))
+    data = storedvalues(data, fields)
     #  The undefined values are written as BLANK, or NaN for floating-point data
     data = unsetmissing(data, fields.miss, fields.type)
     n = Base.write(io, hton.(reshape(data, :)))

@@ -382,6 +382,11 @@ end
 Write a header-data unit (HDU) to `io`: the header cards, the END card, and blank cards that pad
 the header to a multiple of 2880 bytes, followed by the data.
 
+The data of an image array that was read with the BSCALE and BZERO applied, or was changed, is written as the stored
+values, which are `(value - BZERO)/BSCALE` rounded to the type of BITPIX (Eq. 3 of the standard). A value that is not in
+the range of the type, or NaN when the data do not have a BLANK, is an error. Data that is of the type of BITPIX is the
+stored values, and is written as it is.
+
 # Keywords
 
 - `checksum::Bool=false`: set the DATASUM and CHECKSUM keywords to the checksums of the data and of the HDU
