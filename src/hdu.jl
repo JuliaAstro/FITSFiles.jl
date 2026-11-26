@@ -28,7 +28,8 @@ The data are a named tuple of arrays, or, with `record = true`, a vector of name
 parameters are named by their PTYPEn keywords (or `param1`, `param2`, ... if there are none) and the array of a group is
 named `data`, so a parameter whose PTYPEn is `data` is named `param<n>` (see the warning). The groups are along the first
 axis of the array. Parameters that have the same name are the columns of one array, whose sum along its columns is the
-value of the parameter (Sect. 6.1.2 of the standard), so that the parameters are written as they were read. The data
+value of the parameter (Sect. 6.1.2 of the standard), so that the parameters are written as they were read, and
+`sum(data.DATE; dims = 2)` (`sum(record.DATE)` in a record) is the value of the parameter `DATE`. The data
 are written by position, so the names of the data do not have to be the names of the header.
 
 The parameters and the array have the same type, which is the type of BITPIX (Sect. 6.3). The data are read with
@@ -38,6 +39,9 @@ A parameter with the PSCALn of 1 and the PZEROn of the offsets of Table 11 (Sect
 the parameters), and the array with the BSCALE of 1 and the BZERO of the offsets, are the unsigned integers or the signed
 bytes: `UInt16`, `UInt32`, `UInt64`, or `Int8`, for the values of 16-, 32-, or 64-bit integers, or bytes. Data of those
 types have the PZEROn and BZERO keywords of the offsets when the HDU is made.
+
+A header with an NAXIS of 1 has no axes in the array of a group, and so one value in each group (Eq. 6 of the standard), which is
+a vector of the groups in the data, and a number in a record. Data of a vector are a table by default, so make them with `HDU(Random, data)`.
 
 The elements of the array of integers that are the stored value of BLANK are `missing` (Sect. 4.4.2.5), with and without
 `scale = false`, and are written as BLANK. The parameters do not have undefined values.
