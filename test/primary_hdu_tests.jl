@@ -423,6 +423,18 @@
         hdu = HDU(Primary, UInt16[0, 1], Card{<:Any}[Card("BZERO", 32768, "offset")])
         @test hdu.cards["BZERO"] == 32768 && count(c -> c.key == "BZERO", hdu.cards) == 1
 
+        ####    EXTEND and BLOCKED are logicals, and INHERIT is not in the primary header (Sects. 4.4.2.1 and 4.4.2.6)
+
+        silent(["EXTEND  =                    T", kw("BLOCKED", "T")])
+        for key in ("EXTEND", "BLOCKED")
+            warned(["$(rpad(key, 8))= 'yes'"], Regex("$key must be a logical, T or F, but its value is \"yes\""))
+            warned([kw(key, 1)], Regex("$key must be a logical, T or F, but its value is 1"))
+        end
+        warned([kw("INHERIT", "T")], r"INHERIT must not appear in the primary header")
+        #  an extension may inherit
+        extension = [kw("XTENSION", "'IMAGE   '"), bitpix, naxis, naxis1, kw("PCOUNT", 0), kw("GCOUNT", 1)]
+        @test_logs reading(filebytes([extension; kw("INHERIT", "T")], data))
+
         ####    BUNIT is a units string (Sect. 4.3)
 
         for unit in ("adu", "km/s", "Jy/beam", "mJy", "erg s-1 cm-2", "m**2", "")

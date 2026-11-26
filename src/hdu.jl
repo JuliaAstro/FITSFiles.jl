@@ -532,6 +532,20 @@ function verifyfloat(keys::AbstractDict, pattern::Regex)
 end
 
 """
+	verifylogical(keys, pattern)
+
+Warn if the value of a keyword of the dictionary `keys` that matches `pattern` is not a logical, T or F.
+The value is read and written as it is.
+"""
+function verifylogical(keys::AbstractDict, pattern::Regex)
+	for (key, value) in keys
+		occursin(pattern, key) && !(value isa Bool) &&
+			@warn "$key must be a logical, T or F, but its value is $(repr(value)). It is read as it is."
+	end
+	nothing
+end
+
+"""
 	verifyunit(keys, pattern)
 
 Warn if the value of a keyword of the dictionary `keys` that matches `pattern` is a character string that is
