@@ -32,7 +32,19 @@ function verifyarray(mankeys::AbstractDict, reskeys::AbstractDict)
     verifybitpix(mankeys)
     verifyvalue(mankeys, "NAXIS", 0:MAXAXES, "an integer from 0 to $MAXAXES")
     verifyaxes(mankeys)
+    verifysize(mankeys)
     verifyinteger(reskeys, r"^BLANK$")
+end
+
+#  The size of the data array, |BITPIX|/8 × NAXIS1 × ... × NAXISm bytes, is at most the largest integer, so
+#  that the array can be read and indexed (Eq. 1 of the standard).
+function verifysize(mankeys::AbstractDict; first::Integer = 1)
+    N, bits = get(mankeys, "NAXIS", 0), get(mankeys, "BITPIX", 0)
+    N < first && return
+    sizes = [BigInt(mankeys["NAXIS$j"]) for j = first:N]
+    nbytes = abs(bits) ÷ 8 * prod(sizes)
+    nbytes > typemax(Int) && throw(ArgumentError("The data array is too large: " *
+        "$(abs(bits) ÷ 8) bytes × $(join(sizes, " × ")) values is more than $(typemax(Int)) bytes."))
 end
 
 #  The data format of an array, from the mandatory keywords or from the data.
@@ -102,7 +114,7 @@ function Base.read(io::IO, format::DataFormat, fields::ImageField)
     M, N, shape = sizeof(format.type), format.leng, format.shape
     #  Or preallocate array and use read!
     data = reshape(ntoh.(
-        reinterpret(format.type, read(io, M*N))), shape)
+        reinterpret(format.type, readbytes(io, M*N))), shape)
     #  The undefined values are the raw ones equal to BLANK (Sect. 4.4.2.5)
     setmissing(data, fields.miss)
 end

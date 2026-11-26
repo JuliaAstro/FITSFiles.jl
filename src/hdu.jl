@@ -617,6 +617,56 @@ function verifyxtension!(cards::Cards)
 end
 
 """
+	verifyprimary(cards, mankeys)
+
+Warn if the header of a primary HDU does not begin with SIMPLE, BITPIX, NAXIS, and the NAXISn keywords, in
+that order and with no other keyword between them (Sect. 4.4.1.1 of the standard), or if the values of
+these keywords are not in fixed format (Sect. 4.4.1), and return the cards unchanged. The file is read and
+written as it is, so the cards are not reordered or reformatted. The NAXIS value of `mankeys` must be
+valid (see [`verifyarray`](@ref)).
+"""
+function verifyprimary(cards::Cards, mankeys::AbstractDict)
+	#  A header that is being created does not have the keywords yet, and is arranged when it is created.
+	haskey(mankeys, "SIMPLE") || return cards
+	required = vcat(["SIMPLE", "BITPIX", "NAXIS"], ["NAXIS$j" for j = 1:get(mankeys, "NAXIS", 0)])
+	verifyorder(cards, required)
+	verifyfixed(cards, required)
+end
+
+"""
+	verifyorder(cards, required)
+
+Warn at the first of the first cards that is not the keyword in the same place of `required`, and return the
+cards unchanged (see [`verifyprimary`](@ref)).
+"""
+function verifyorder(cards::Cards, required::AbstractVector{<:AbstractString})
+	for (j, key) in enumerate(required)
+		found = j <= length(cards) ? uppercase(cards[j].key) : "END"
+		if found != key
+			found = isempty(found) ? "a blank card" : found
+			@warn "Keyword $j of the header is $found, but the Standard requires $key (Sect. 4.4.1.1): " *
+				"SIMPLE, BITPIX, NAXIS, and the NAXISn come first, in order, with no other keyword between them. " *
+				"The cards are not reordered."
+			break
+		end
+	end
+	cards
+end
+
+"""
+	verifyfixed(cards, required)
+
+Warn if the value of a card of the keywords `required` is not in fixed format, and return the cards unchanged
+(see [`verifyprimary`](@ref)).
+"""
+function verifyfixed(cards::Cards, required::AbstractVector{<:AbstractString})
+	free = unique([uppercase(card.key) for card in cards if uppercase(card.key) in required && !card.format.fixd])
+	isempty(free) || @warn "The value of $(join(free, ", ")) is not in fixed format (Sect. 4.4.1): " *
+		"a fixed-format value is right-justified in bytes 11 to 30. The cards are not changed."
+	cards
+end
+
+"""
 	verifyshape!(cards, mankeys, format; first = 1)
 
 Correct BITPIX and the NAXIS keywords of `cards` to match the data format `format`, and return
@@ -805,8 +855,16 @@ function typeofhdu(mankeys::Dict{S, V}) where {S <: AbstractString, V <: ValueTy
 				type = ZTable
 			end
 		end
-	elseif get(mankeys, "SIMPLE", false) == true
-		if get(mankeys, "GROUPS", false) == true &&
+	elseif haskey(mankeys, "SIMPLE")
+		#  SIMPLE is T if the file conforms to the Standard, and F if it does not (Sect. 4.4.1.1). The primary
+		#  HDU of a file that does not conform is a Conform HDU, if its other mandatory keywords conform, which
+		#  its verify! method checks.
+		simple = mankeys["SIMPLE"]
+		simple isa Bool ||
+			throw(ArgumentError("SIMPLE must be a logical, T or F, but its value is $(repr(simple))."))
+		if !simple
+			type = Conform
+		elseif get(mankeys, "GROUPS", false) == true &&
 		   haskey(mankeys, "NAXIS1") && mankeys["NAXIS1"] == 0
 			type = Random
 		else
@@ -893,6 +951,26 @@ function datalength(cards::Cards, start::Integer = 1)
 end
 
 ####    Generic IO Functions
+
+#  The number of bytes that are left to read in `io`, or the largest integer if they are not known.
+unreadbytes(io::IOBuffer) = bytesavailable(io)
+unreadbytes(io::IOStream) = filesize(io) - position(io)
+unreadbytes(io::IO) = typemax(Int)
+
+"""
+	readbytes(io, n)
+
+Read the `n` bytes of the data of an HDU. An error says that the file is shorter than the header says if
+it has fewer bytes, instead of the data failing to match the shape of the array.
+"""
+function readbytes(io::IO, n::Integer)
+	short(m) = ArgumentError("The data of the HDU is $n bytes, as its header says, but the file has " *
+		"only $m of them.")
+	n > unreadbytes(io) && throw(short(unreadbytes(io)))
+	bytes = read(io, n)
+	length(bytes) < n && throw(short(length(bytes)))
+	bytes
+end
 
 function padblock(io::IO, format::DataFormat, pad::UInt8 = 0x00)
 	#  Pad remaining data block to BLOCKLEN length (2880 bytes)
