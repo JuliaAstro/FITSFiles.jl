@@ -1,12 +1,25 @@
 ####    Image HDU functions
 
 function verify!(::Type{Image}, cards::Cards, mankeys::AbstractDict, reskeys::AbstractDict)
+    #  A header that is being created does not have the keywords yet, and is arranged when it is created.
+    created = !haskey(mankeys, "XTENSION")
+    #  BITPIX and NAXIS describe the data, so the data cannot be read without them (Sect. 7.1.1)
+    for key in ("BITPIX", "NAXIS")
+        created || haskey(mankeys, key) || throw(ArgumentError(
+            "$key is missing, but it is a mandatory keyword of an IMAGE extension (Sect. 7.1.1)."))
+    end
     cards = invoke(verify!, Tuple{Type{<:AbstractHDU}, Cards, AbstractDict, AbstractDict}, Image, cards,
         mankeys, reskeys)
     verifyarray(mankeys, reskeys)
     #  An IMAGE extension has a single array and no parameters (Sect. 7.1.1)
     verifyvalue(mankeys, "PCOUNT", 0:0, "the integer 0")
     verifyvalue(mankeys, "GCOUNT", 1:1, "the integer 1")
+    created && return cards
+    #  PCOUNT and GCOUNT have the values 0 and 1, so the data can be read without them
+    for (key, value) in ("PCOUNT" => 0, "GCOUNT" => 1)
+        haskey(mankeys, key) || @warn "$key is missing, but it is a mandatory keyword of an IMAGE extension " *
+            "(Sect. 7.1.1), and has the value $value. It is read as $value."
+    end
     cards
 end
 

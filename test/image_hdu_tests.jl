@@ -45,7 +45,7 @@
              Card("NAXIS1", 3),
              Card("NAXIS2", 3)]
     #  the header has no PCOUNT or GCOUNT, which the IMAGE header made from it has
-    hdu = HDU(cards)
+    hdu = @test_logs (:warn, r"PCOUNT is missing") (:warn, r"GCOUNT is missing") HDU(cards)
 
     @test isequal(showfields.(hdu.cards),
                   [("XTENSION", "IMAGE   ", "",
@@ -312,10 +312,24 @@
         #  the header of an HDU that is created without data has them too, and a header of cards that have them keeps them
         hdu = HDU(Image)
         @test [c.key for c in hdu.cards] == ["XTENSION", "BITPIX", "NAXIS", "PCOUNT", "GCOUNT"]
-        hdu = HDU(Card{<:Any}[Card("XTENSION", "IMAGE"), Card("BITPIX", 16), Card("NAXIS", 0)])
+        hdu = @test_logs (:warn, r"PCOUNT is missing") (:warn, r"GCOUNT is missing") HDU(
+            Card{<:Any}[Card("XTENSION", "IMAGE"), Card("BITPIX", 16), Card("NAXIS", 0)])
         @test [c.key for c in hdu.cards] == ["XTENSION", "BITPIX", "NAXIS", "PCOUNT", "GCOUNT"]
         hdu = HDU(Image, Int16[1 2], Card{<:Any}[Card("EXTNAME", "SCI"), Card("PCOUNT", 0), Card("GCOUNT", 1)])
         @test [c.key for c in hdu.cards] == ["XTENSION", "BITPIX", "NAXIS", "NAXIS1", "NAXIS2", "PCOUNT", "GCOUNT", "EXTNAME"]
+
+        ####    BITPIX and NAXIS are required, and PCOUNT and GCOUNT have values that are known (Sect. 7.1.1)
+
+        for (cards, key) in (([xtension, naxis, naxis1, pcount, gcount], "BITPIX"),
+            ([xtension, bitpix, naxis1, pcount, gcount], "NAXIS"), ([xtension, pcount, gcount], "BITPIX"))
+            @test_throws ArgumentError("$key is missing, but it is a mandatory keyword of an IMAGE extension (Sect. 7.1.1).") reading(
+                filebytes(cards, data))
+        end
+        warned([xtension, bitpix, naxis, naxis1, gcount], r"PCOUNT is missing, but it is a mandatory keyword of an IMAGE extension \(Sect. 7.1.1\), and has the value 0")
+        warned([xtension, bitpix, naxis, naxis1, pcount], r"GCOUNT is missing, but it is a mandatory keyword of an IMAGE extension \(Sect. 7.1.1\), and has the value 1")
+        #  a header that is missing the two has the values and the order of the keywords that it has
+        hdu = @test_logs (:warn, r"PCOUNT is missing") (:warn, r"GCOUNT is missing") reading(filebytes([xtension, bitpix, naxis, naxis1], data))
+        @test hdu.data == Int16[1, 2, 3]
 
     end
 

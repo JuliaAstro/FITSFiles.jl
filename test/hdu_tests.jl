@@ -82,7 +82,7 @@
         #  except that the cards of a primary header are not the mandatory keywords in order
         cards = structureheader(type, "NAXIS" => nothing)
         if type === Image
-            @test_logs verified(type, cards)
+            @test_throws ArgumentError("NAXIS is missing, but it is a mandatory keyword of an IMAGE extension (Sect. 7.1.1).") verified(type, cards)
         else
             @test_logs (:warn, r"Keyword 3 of the header is NAXIS1, but the Standard requires NAXIS") verified(type, cards)
         end
