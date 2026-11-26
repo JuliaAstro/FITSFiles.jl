@@ -1183,6 +1183,59 @@
         @test_logs (:warn, r"PSCAL2 is 0") (:warn, r"PSCAL2 is 0") @test written(reading(zeroscale; scale = false)) == zeroscale
         @test_logs reading(withkeys(kw("PSCAL2", "0.5"), kw("PZERO2", "0.0")))
 
+        ####    The header of random groups: the order and the fixed format (Sects. 4.4.1 and 6.1.1, Table 12)
+
+        firstcards = [kw("SIMPLE", "T"), kw("BITPIX", 16), kw("NAXIS", 2), kw("NAXIS1", 0), kw("NAXIS2", 3)]
+        groupcards = [kw("GROUPS", "T"), kw("PCOUNT", 2), kw("GCOUNT", 2)]
+        asfile(cards) = filebytes(cards, bytesof(stored))
+        orderwarning(n, found, required) = "Keyword $n of the header is $found, but the Standard requires $required " *
+            "(Sects. 4.4.1.1 and 6.1.1): SIMPLE, BITPIX, NAXIS, NAXIS1 of 0, and the NAXISn come first, in order, with no " *
+            "other keyword between them. The cards are not reordered."
+        #  the keywords of random groups are anywhere after the mandatory keywords, and so are the other keywords
+        @test_logs reading(asfile([firstcards; groupcards]))
+        @test_logs reading(asfile([firstcards; kw("OBJECT", "'x'"); groupcards[[3, 1, 2]]]))
+        @test_logs reading(asfile([firstcards; groupcards[[2, 3]]; kw("OBJECT", "'x'"); groupcards[1]]))
+        #  nothing is between them, and they are in order
+        @test_logs (:warn, orderwarning(5, "GROUPS", "NAXIS2")) reading(
+            asfile([firstcards[1:4]; groupcards[1]; firstcards[5]; groupcards[2:3]]))
+        @test_logs (:warn, orderwarning(3, "OBJECT", "NAXIS")) reading(
+            asfile([firstcards[1:2]; kw("OBJECT", "'x'"); firstcards[3:5]; groupcards]))
+        @test_logs (:warn, orderwarning(2, "NAXIS", "BITPIX")) reading(asfile([firstcards[[1, 3, 2]]; firstcards[4:5]; groupcards]))
+        @test_logs (:warn, orderwarning(1, "OBJECT", "SIMPLE")) reading(asfile([kw("OBJECT", "'x'"); firstcards; groupcards]))
+        @test_logs (:warn, orderwarning(4, "NAXIS2", "NAXIS1")) reading(
+            asfile([firstcards[1:3]; firstcards[5]; firstcards[4]; groupcards]))
+        #  the cards are not reordered, so the file is written as it was read
+        misordered = asfile([firstcards[1:4]; groupcards[1]; firstcards[5]; groupcards[2:3]])
+        @test_logs (:warn, orderwarning(5, "GROUPS", "NAXIS2")) (:warn, orderwarning(5, "GROUPS", "NAXIS2")) @test written(
+            reading(misordered)) == misordered
+        #  the values of the mandatory keywords are in fixed format, and so are the keywords of random groups
+        free = asfile([firstcards[1]; "BITPIX  = 16"; firstcards[3:5]; groupcards[1]; "PCOUNT  = 2"; groupcards[3]])
+        freewarning = "The value of BITPIX, PCOUNT is not in fixed format (Sect. 4.4.1): a fixed-format value is " *
+            "right-justified in bytes 11 to 30, and a string begins in byte 11. The cards are not changed."
+        @test_logs (:warn, freewarning) reading(free)
+        @test_logs (:warn, freewarning) (:warn, freewarning) @test written(reading(free)) == free
+        @test_logs (:warn, r"The value of GROUPS is not in fixed format") reading(
+            asfile([firstcards; "GROUPS  = T"; groupcards[2:3]]))
+        #  a header that is being created is not verified, and is arranged when it is created
+        @test_logs HDU(Random, missing, Card{<:Any}[Card("OBJECT", "x"), Card("GROUPS", true)])
+
+        ####    SIMPLE of F is not random groups, and nor is GROUPS that is not T, unless the type is given (Sect. 6.1.1)
+
+        simplef = asfile([kw("SIMPLE", "F"); firstcards[2:5]; groupcards])
+        @test (@test_logs match_mode = :any (:warn, r"SIMPLE is F") reading(simplef)) isa HDU{Conform}
+        typed = @test_logs (:warn, "Random HDU is nonconformant, since SIMPLE is F.") reading(simplef; type = Random)
+        @test typed isa HDU{Random} && typed.data.data == Float32[10 11 12; 20 21 22]
+        groupsf = asfile([firstcards; kw("GROUPS", "F"); groupcards[2:3]])
+        @test (@test_logs match_mode = :any (:warn, r"read as a primary array") reading(groupsf)) isa HDU{Primary}
+        typed = @test_logs (:warn, "GROUPS set to true") reading(groupsf; type = Random)
+        @test typed isa HDU{Random} && getfield(typed, :cards)["GROUPS"] == true
+        @test typed.data.data == Float32[10 11 12; 20 21 22]
+        #  the header of data that are made from cards that have GROUPS of F has GROUPS of T
+        madef = @test_logs (:warn, "GROUPS set to true") HDU(Random, (a = Int16[1, 3], b = Int16[2, 4],
+            data = Int16[10 11 12; 20 21 22]), Card{<:Any}[Card("GROUPS", false)])
+        @test getfield(madef, :cards)["GROUPS"] == true
+        @test reading(written(madef); scale = false).data == (a = Int16[1, 3], b = Int16[2, 4], data = Int16[10 11 12; 20 21 22])
+
         ####    The lazy file of random groups reads the same
 
         mktemp() do path, io
