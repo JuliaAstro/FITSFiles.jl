@@ -276,7 +276,8 @@
             (Image, FITSFiles.ImageField(Int16, 0f0, 1f0, nothing, nothing, nothing), "XTENSION"),
             (FITSFiles.Conform, FITSFiles.ConformField(), "SIMPLE"))
             kards = FITSFiles.createcards!(type, fmt, field, Card{<:Any}[])
-            @test [c.key for c in kards] == [first, "BITPIX", "NAXIS", "NAXIS1", "NAXIS2"]
+            #  an IMAGE header has PCOUNT of 0 and GCOUNT of 1 (Sect. 7.1.1)
+            @test [c.key for c in kards] == [first, "BITPIX", "NAXIS", "NAXIS1", "NAXIS2", (type === Image ? ["PCOUNT", "GCOUNT"] : [])...]
         end
     end
 

@@ -19,5 +19,6 @@ end
 function createcards!(::Type{Image}, format::DataFormat,
     fields::ImageField, cards::Cards; kwds...)
 
-    offsetcards!(arrangecards!(cards, ["XTENSION" => "IMAGE"; shapekeys(format)]), fields)
+    #  The mandatory keywords are XTENSION, BITPIX, NAXIS, the NAXISn, PCOUNT of 0, and GCOUNT of 1 (Sect. 7.1.1)
+    offsetcards!(arrangecards!(cards, ["XTENSION" => "IMAGE"; shapekeys(format); "PCOUNT" => 0; "GCOUNT" => 1]), fields)
 end
