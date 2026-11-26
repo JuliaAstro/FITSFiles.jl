@@ -1230,6 +1230,15 @@
         typed = @test_logs (:warn, "GROUPS set to true") reading(groupsf; type = Random)
         @test typed isa HDU{Random} && getfield(typed, :cards)["GROUPS"] == true
         @test typed.data.data == Float32[10 11 12; 20 21 22]
+        #  GROUPS that is not a logical is a primary array, and is T when the type is given
+        for groups in ("1", "'T'")
+            value = groups == "1" ? 1 : "T"
+            notlogical = asfile([firstcards; groups == "1" ? kw("GROUPS", groups) : "GROUPS  = 'T'"; groupcards[2:3]])
+            warning = "GROUPS must be a logical, T or F, but its value is $(repr(value)). It is read as it is."
+            @test (@test_logs (:warn, warning) reading(notlogical)) isa HDU{Primary}
+            typed = @test_logs (:warn, warning) (:warn, "GROUPS set to true") reading(notlogical; type = Random)
+            @test typed isa HDU{Random} && getfield(typed, :cards)["GROUPS"] === true
+        end
         #  the header of data that are made from cards that have GROUPS of F has GROUPS of T
         madef = @test_logs (:warn, "GROUPS set to true") HDU(Random, (a = Int16[1, 3], b = Int16[2, 4],
             data = Int16[10 11 12; 20 21 22]), Card{<:Any}[Card("GROUPS", false)])

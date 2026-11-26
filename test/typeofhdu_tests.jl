@@ -19,6 +19,14 @@
     mankeys, reskmeys = FITSFiles.getreservedkeys(cards)
     @test FITSFiles.typeofhdu(data, mankeys) == Random
 
+    #  GROUPS that is not the logical T is not the signature of random groups, even if it is equal to it
+    for groups in (false, 1, 1.0, "T", "TRUE")
+        cards = Card[Card("SIMPLE", true), Card("BITPIX", 32), Card("NAXIS", 2),
+                     Card("NAXIS1", 0), Card("NAXIS2", 10), Card("GROUPS", groups)]
+        mankeys, reskeys = FITSFiles.getreservedkeys(cards)
+        @test FITSFiles.typeofhdu(missing, mankeys) == Primary
+    end
+
     #  test Image type
     #  It is not possible to distinquish between Primary and Image HDUs
     #  based just on data. Both are just N-dimensional arrays.
