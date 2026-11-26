@@ -401,4 +401,185 @@
             filebytes([xtension, bitpix, naxis, naxis1, kw("INHERIT", "T")], data))
     end
 
+    ####    Test the array of an IMAGE extension (Sects. 4.4.2.5 and 7.1.3)    ####
+
+    @testset "Image array" begin
+        kw(key, value) = rpad(key, 8) * "= " * lpad(value, 20)
+        function filebytes(cards, data = UInt8[]; pad = true)
+            nfill = pad ? 2880*cld(length(data), 2880) - length(data) : 0
+            rpad(join(rpad.(vcat(cards, ["END"]), 80)), 2880) * String(vcat(data, zeros(UInt8, nfill)))
+        end
+        bytesof(values) = collect(reinterpret(UInt8, hton.(values)))
+        #  an HDU that is read, which has the data scaled unless scale is false, and the bytes of an HDU that is written
+        reading(bytes; kwds...) = read(IOBuffer(bytes), HDU; kwds...)
+        written(hdu; kwds...) = (buffer = IOBuffer(); write(buffer, hdu; kwds...); take!(buffer))
+        #  the cards of the header of an IMAGE extension of an array of one axis, and the cards that follow them
+        header(bitpix = 16, n = 3, extra...) = ["XTENSION= 'IMAGE   '", kw("BITPIX", bitpix), kw("NAXIS", 1), kw("NAXIS1", n),
+            kw("PCOUNT", 0), kw("GCOUNT", 1), extra...]
+        stored = bytesof(Int16[-5, 0, 300])
+
+        ####    The types of Table 11: an offset in BZERO is the type of the physical values
+
+        offsets = (
+            (16, Int16, UInt16, 2^15, Int16[-2^15, 0, 2^15-1], UInt16[0, 2^15, 2^16-1]),
+            (32, Int32, UInt32, 2^31, Int32[-2^31, 0, 2^31-1], UInt32[0, 2^31, 2^32-1]),
+            (64, Int64, UInt64, UInt64(2)^63, Int64[typemin(Int64), 0, typemax(Int64)], UInt64[0, UInt64(2)^63, typemax(UInt64)]),
+            (8, UInt8, Int8, -128, UInt8[0, 128, 255], Int8[-128, 0, 127]))
+        for (bits, type, physical, offset, values, expected) in offsets
+            bytes = filebytes(header(bits, 3, kw("BZERO", offset)), bytesof(values))
+            hdu = @test_logs reading(bytes)
+            @test hdu isa HDU{Image} && eltype(hdu.data) === physical && hdu.data == expected
+            hdu = reading(bytes; scale = false)
+            @test eltype(hdu.data) === type && hdu.data == values
+            #  an HDU that is read is written with the same bytes, as the stored values
+            @test @test_logs(written(reading(bytes))) == codeunits(bytes)
+            @test @test_logs(written(reading(bytes; scale = false))) == codeunits(bytes)
+            #  an array of the physical type has the offset, and is stored as the values
+            hdu = HDU(Image, expected)
+            @test eltype(hdu.data) === physical && hdu.cards["BITPIX"] == bits && hdu.cards["BZERO"] == offset
+            @test count(c -> c.key == "BZERO", hdu.cards) == 1
+            file = @test_logs written(hdu)
+            @test file[2881:2880+sizeof(values)] == bytesof(values)
+            again = @test_logs reading(file)
+            @test eltype(again.data) === physical && again.data == expected
+            #  a scale that is not 1 is not the offset convention, and the values are floating-point
+            hdu = reading(filebytes(header(bits, 3, kw("BZERO", offset), kw("BSCALE", 2.0)), bytesof(values)))
+            @test eltype(hdu.data) <: AbstractFloat && hdu.data == 2 .* BigFloat.(values) .+ BigFloat(offset)
+        end
+        #  a floating-point BZERO of the offset is the convention, and another offset or no offset is not
+        @test eltype(reading(filebytes(header(16, 3, "BZERO   = 32768.0"), stored)).data) === UInt16
+        @test eltype(reading(filebytes(header(16, 3, kw("BZERO", 100)), stored)).data) <: AbstractFloat
+        @test eltype(reading(filebytes(header(16, 3), stored)).data) <: AbstractFloat
+        #  the undefined values of the stored values are undefined in the physical values
+        bytes = filebytes(header(16, 3, kw("BZERO", 32768), kw("BLANK", -32768)), bytesof(Int16[-32768, 0, 32767]))
+        hdu = reading(bytes)
+        @test isequal(hdu.data, [missing, 32768, 65535]) && nonmissingtype(eltype(hdu.data)) === UInt16
+        @test @test_logs(written(hdu)) == codeunits(bytes)
+        #  an array of integers is not given an offset
+        @test !haskey(HDU(Image, Int16[1, 2]).cards, "BZERO") && !haskey(HDU(Image, UInt8[1, 2]).cards, "BZERO")
+
+        ####    BLANK, BSCALE, BZERO, DATAMIN, DATAMAX, and BUNIT (Sect. 4.4.2.5)
+
+        warned(cards, message, bytes = stored) = @test_logs (:warn, message) reading(filebytes(cards, bytes))
+        silent(cards, bytes = stored) = @test_logs reading(filebytes(cards, bytes))
+        #  BLANK is for integer data
+        floats = bytesof(Float32[1, 2, 3])
+        warned(header(-32, 3, kw("BLANK", -1)), r"BLANK is for integer data", floats)
+        silent(header(-32, 3), floats)
+        for key in ("BSCALE", "BZERO", "DATAMIN", "DATAMAX"), (value, shown) in (("'two'", "\"two\""), ("T", "true"))
+            @test_throws ArgumentError("$key must be a number, but its value is $shown.") reading(
+                filebytes(header(16, 3, "$(rpad(key, 8))= $value"), stored))
+        end
+        @test_throws ArgumentError("BLANK must be an integer, but its value is 2.5f0.") reading(filebytes(header(16, 3, kw("BLANK", 2.5)), stored))
+        silent(header(16, 3, "BSCALE  = 2", "BZERO   = 1.5", "DATAMIN =                  0.5", "DATAMAX = 3.0"))
+        for key in ("DATAMIN", "DATAMAX")
+            warned(header(16, 3, kw(key, 3)), Regex("$key must be a floating-point number, but its value is the integer 3"))
+        end
+        #  BUNIT is a units string
+        for unit in ("adu", "km/s", "Jy/beam", "")
+            silent(header(16, 3, "BUNIT   = '$unit'"))
+        end
+        warned(header(16, 3, "BUNIT   = 'not a unit'"), r"BUNIT must be a units string \(Sect. 4.3\)")
+        warned(header(16, 3, kw("BUNIT", 7)), r"BUNIT must be a character string, but its value is 7")
+        #  and the dates and the descriptive keywords are checked in an extension
+        silent(header(16, 3, "DATE    = '2020-01-31'", "DATE-OBS= '2020-01-31T12:30:00'", "ORIGIN  = 'a name'", "EXTNAME = 'SCI'"))
+        warned(header(16, 3, "DATE    = '2020-02-30'"), r"DATE must be a date of the form YYYY-MM-DD")
+        warned(header(16, 3, kw("OBJECT", 7)), r"OBJECT must be a character string, but its value is 7")
+
+        ####    The scaled data are written as the stored values (Eq. 3 of the standard)
+
+        cases = (
+            "default" => (filebytes(header(), stored), Float32),
+            "BSCALE and BZERO" => (filebytes(header(16, 3, kw("BSCALE", 2.5), kw("BZERO", 10)), stored), Float32),
+            "BSCALE" => (filebytes(header(16, 3, kw("BSCALE", 0.5)), stored), Float32),
+            "BZERO" => (filebytes(header(16, 3, kw("BZERO", -7)), stored), Float32),
+            "BLANK" => (filebytes(header(16, 3, kw("BSCALE", 2.5), kw("BLANK", -32768)), bytesof(Int16[-5, -32768, 300])), Float32),
+            "offset of Table 11" => (filebytes(header(16, 3, kw("BZERO", 32768)), stored), UInt16),
+            "32 bits" => (filebytes(header(32, 3, kw("BSCALE", 0.5), kw("BZERO", 10)), bytesof(Int32[-5, 0, 3000])), Float32),
+            "bytes" => (filebytes(header(8, 3, kw("BSCALE", 2.0), kw("BZERO", -3)), UInt8[0, 7, 255]), Float32),
+            "floating-point" => (filebytes(header(-32), bytesof(Float32[1.5, NaN, -3])), Float32),
+            "double precision" => (filebytes(header(-64), bytesof(Float64[1.5, Inf, -3])), Float64))
+        for (name, (bytes, type)) in cases
+            hdu = reading(bytes)
+            @test hdu isa HDU{Image} && nonmissingtype(eltype(hdu.data)) === type
+            @test @test_logs(written(hdu)) == codeunits(bytes)
+        end
+        bytes = filebytes(header(16, 3, kw("BSCALE", 2.5), kw("BZERO", 10)), stored)
+        hdu = reading(bytes)
+        @test hdu.data == Float32[-2.5, 10, 760]
+        #  the data that are changed are the stored values, if applying BSCALE and BZERO to them gives the data again
+        hdu.data .= Float32[10, 12.5, -10]
+        @test reading(written(hdu); scale = false).data == Int16[0, 1, -8]
+        hdu.data .= Float32[11.2, 11.3, -10.0]
+        @test_throws ArgumentError("The value 11.2 cannot be stored as Int16 data with BSCALE 2.5 and BZERO 10.0: the " *
+            "nearest stored value, 0, is the value 10.0. Use check = false to write the stored value.") written(hdu)
+        @test reading(written(hdu; check = false); scale = false).data == Int16[0, 1, -8]
+        #  NaN is undefined if the data have a BLANK, a value is in the range of the type, and BSCALE is not 0
+        hdu = reading(filebytes(header(16, 3, kw("BSCALE", 2.5), kw("BLANK", -32768)), bytesof(Int16[-5, -32768, 300])))
+        @test isequal(hdu.data, Union{Float32, Missing}[-12.5, missing, 750])
+        hdu.data[1], hdu.data[3] = NaN32, missing
+        @test written(hdu)[2881:2886] == bytesof(Int16[-32768, -32768, -32768])
+        hdu = reading(filebytes(header(16, 3, kw("BSCALE", 2.5)), stored))
+        hdu.data[2] = NaN32
+        @test_throws ArgumentError("NaN cannot be written as integer data that does not have a BLANK keyword.") written(hdu)
+        hdu = reading(filebytes(header(16, 3, kw("BSCALE", 2.5), kw("BZERO", 10)), stored))
+        hdu.data[2] = 1.0f9
+        @test_throws r"The value 1.0e9 is not in the range of the Int16 data" written(hdu)
+        @test_throws ArgumentError("The values cannot be written as stored values, since BSCALE is 0.") written(
+            reading(filebytes(header(16, 3, kw("BSCALE", 0)), stored)))
+        #  an HDU that is created from data has the type of the data, and is not changed
+        for data in (Int16[1 2; 3 4], Float32[1.5 2.5; -1 7], UInt16[0 40000; 5 65535], UInt8[1 2; 3 4], Float64[1 2; 3 4])
+            @test @test_logs(reading(written(HDU(Image, data)))).data == data
+        end
+
+        ####    The size of the data (Eq. 2)
+
+        big = "4611686018427387904"
+        @test_throws r"The data array is too large: 2 bytes × 4611686018427387904 values" reading(filebytes(header(16, big), stored))
+        @test_throws r"The data array is too large: 8 bytes × 2 × 4611686018427387904 values" reading(filebytes(
+            ["XTENSION= 'IMAGE   '", kw("BITPIX", -64), kw("NAXIS", 2), kw("NAXIS1", 2), kw("NAXIS2", big), kw("PCOUNT", 0),
+            kw("GCOUNT", 1)], stored))
+        #  a file that has fewer bytes than the header says is an error that says so
+        @test_throws ArgumentError("The data of the HDU is 20 bytes, as its header says, but the file has only 6 of them.") reading(
+            filebytes(header(16, 10), bytesof(Int16[1, 2, 3]); pad = false))
+        @test_throws r"as its header says, but the file has only 6 of them" reading(
+            filebytes(header(16, 2^61), bytesof(Int16[1, 2, 3]); pad = false))
+        #  and the fill of the last block is not required
+        hdu = @test_logs reading(filebytes(header(16, 3), bytesof(Int16[1, 2, 3]); pad = false))
+        @test hdu.data == [1, 2, 3]
+        #  an array of two axes is in the order of the first axis, as is an array of three, and no axes or a zero axis has no data
+        bytes = filebytes(["XTENSION= 'IMAGE   '", kw("BITPIX", 16), kw("NAXIS", 2), kw("NAXIS1", 2), kw("NAXIS2", 3),
+            kw("PCOUNT", 0), kw("GCOUNT", 1)], bytesof(Int16[1, 2, 3, 4, 5, 6]))
+        @test reading(bytes).data == [1 3 5; 2 4 6]
+        bytes = filebytes(["XTENSION= 'IMAGE   '", kw("BITPIX", 16), kw("NAXIS", 3), kw("NAXIS1", 2), kw("NAXIS2", 1),
+            kw("NAXIS3", 2), kw("PCOUNT", 0), kw("GCOUNT", 1)], bytesof(Int16[1, 2, 3, 4]))
+        @test size(reading(bytes).data) == (2, 1, 2) && vec(reading(bytes).data) == [1, 2, 3, 4]
+        for axes in ([kw("NAXIS", 0)], [kw("NAXIS", 2), kw("NAXIS1", 3), kw("NAXIS2", 0)])
+            hdu = @test_logs reading(filebytes(["XTENSION= 'IMAGE   '", kw("BITPIX", 16), axes..., kw("PCOUNT", 0), kw("GCOUNT", 1)]))
+            @test ismissing(hdu.data) && @test_logs(written(hdu)) == codeunits(filebytes(
+                ["XTENSION= 'IMAGE   '", kw("BITPIX", 16), axes..., kw("PCOUNT", 0), kw("GCOUNT", 1)]))
+        end
+
+        ####    The data of the IMAGE extensions of a file are read when they are used
+
+        mktemp() do path, io
+            close(io)
+            data = (UInt16[0 40000; 5 65535], Float32[1.5 2.5; -1 7], Int16[1 2 3; 4 5 6])
+            scaled = HDU(Image, data[3], Card{<:Any}[Card("BSCALE", 2.0), Card("BZERO", 10.0), Card("EXTNAME", "SCI")])
+            write(path, [HDU(Primary), HDU(Image, data[1]), HDU(Image, data[2]), scaled])
+            file = @test_logs fits(path)
+            @test all(h -> getfield(h, :data) isa FITSFiles.LazyArray, file[2:4])
+            @test file[2].data == data[1] && eltype(file[2].data) === UInt16
+            @test file[3].data == data[2] && eltype(file[3].data) === Float32
+            @test file[4].data == 2.0 .* data[3] .+ 10 && eltype(file[4].data) === Float32
+            #  and the keywords of the read are the keywords of the lazy read
+            file = @test_logs fits(path; scale = false)
+            @test eltype(file[2].data) === Int16 && file[2].data == Int16[-32768 7232; -32763 32767]
+            @test file[4].data == data[3]
+            #  the HDUs are the HDUs of the vector, and the displays work
+            @test length(file) == 4 && all(h -> h isa HDU{Image}, file[2:4])
+            @test occursin(r"4\s+Image\s+SCI\s+1", sprint(show, MIME("text/plain"), file))
+        end
+    end
+
 end
