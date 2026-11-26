@@ -85,11 +85,13 @@
         else
             @test_logs (:warn, r"NAXIS1 is beyond NAXIS 0") (:warn, r"NAXIS2 is beyond NAXIS 0") verified(type, cards)
         end
-        #  except that the cards of a primary header are not the mandatory keywords in order, and an IMAGE header must
-        #  have NAXIS
+        #  except that the cards of a conforming header are not the mandatory keywords in order, and a primary or IMAGE
+        #  header must have NAXIS
         cards = structureheader(type, "NAXIS" => nothing)
         if type === Image
             @test_throws ArgumentError("NAXIS is missing, but it is a mandatory keyword of an IMAGE extension (Sect. 7.1.1).") verified(type, cards)
+        elseif type === FITSFiles.Primary
+            @test_throws ArgumentError("NAXIS is missing, but it is a mandatory keyword of the primary header (Sect. 4.4.1.1).") verified(type, cards)
         else
             @test_logs (:warn, r"Keyword 3 of the header is NAXIS1, but the Standard requires NAXIS") verified(type, cards)
         end

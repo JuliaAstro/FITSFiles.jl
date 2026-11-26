@@ -235,6 +235,16 @@
         data = UInt8[0, 1, 0, 2, 0, 3]
         header = [simple, bitpix, naxis, naxis1]
 
+        #  BITPIX and NAXIS describe the data, which cannot be read without them, so a header that does not have them is an error
+        for (key, cards) in (("BITPIX", [simple, naxis, naxis1]), ("NAXIS", [simple, bitpix, naxis1]),
+            ("BITPIX", [simple]), ("NAXIS", [simple, bitpix]))
+            @test_throws ArgumentError("$key is missing, but it is a mandatory keyword of the primary header (Sect. 4.4.1.1).") reading(
+                filebytes(cards, data))
+        end
+        #  but the keywords of a header that is being made are not yet, and are arranged
+        @test HDU(Primary, Int16[1 2 3], Card{<:Any}[Card("OBJECT", "x")]) isa HDU{Primary}
+        @test HDU(Primary) isa HDU{Primary}
+
         #  a header that conforms is read and written without a warning, as it is, with or without the fill
         for pad in (true, false)
             bytes = filebytes(header, data; pad)

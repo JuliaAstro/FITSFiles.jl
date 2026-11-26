@@ -4,6 +4,12 @@ function verify!(::Type{Primary}, cards::Cards, mankeys::AbstractDict, reskeys::
     cards = invoke(verify!, Tuple{Type{<:AbstractHDU}, Cards, AbstractDict, AbstractDict}, Primary, cards,
         mankeys, reskeys)
     verifyarray(mankeys, reskeys)
+    #  BITPIX and NAXIS describe the data, so the data cannot be read without them (Sect. 4.4.1.1). A header that is being
+    #  created does not have the keywords yet, and is arranged when it is created.
+    for key in ("BITPIX", "NAXIS")
+        !haskey(mankeys, "SIMPLE") || haskey(mankeys, key) || throw(ArgumentError(
+            "$key is missing, but it is a mandatory keyword of the primary header (Sect. 4.4.1.1)."))
+    end
     verifyprimarykeys(reskeys)
     verifygroups(mankeys)
     verifyprimary(cards, mankeys)
