@@ -37,6 +37,7 @@ function verify!(::Type{Conform}, cards::Cards, mankeys::AbstractDict, reskeys::
     if haskey(mankeys, "SIMPLE")
         mankeys["SIMPLE"] === false && @warn "SIMPLE is F, so the file does not conform to the " *
             "Standard (Sect. 4.4.1.1). The primary HDU is read as a Conform HDU, and its data are not scaled."
+        cards = verifyprimary(cards, mankeys)
     end
     cards
 end

@@ -275,6 +275,48 @@
         @test FITSFiles.typeofhdu(mankeys(false)) == Conform
         @test_throws ArgumentError("SIMPLE must be a logical, T or F, but its value is missing.") FITSFiles.typeofhdu(
             mankeys(missing))
+
+        ####    The order of the mandatory keywords (Sect. 4.4.1.1)
+
+        for (cards, j, key, required) in (
+            ([bitpix, simple, naxis, naxis1], 1, "BITPIX", "SIMPLE"),
+            ([simple, naxis, bitpix, naxis1], 2, "NAXIS", "BITPIX"),
+            ([simple, bitpix, naxis1, naxis], 3, "NAXIS1", "NAXIS"),
+            ([simple, bitpix, naxis, "DATE    = '2020-01-01'", naxis1], 4, "DATE", "NAXIS1"),
+            ([simple, "", bitpix, naxis, naxis1], 2, "a blank card", "BITPIX"),
+            ([simple, bitpix, kw("NAXIS", 2), kw("NAXIS2", 2), kw("NAXIS1", 3)], 4, "NAXIS2", "NAXIS1"))
+            #  one warning, and the file is read and written as it is
+            bytes = filebytes(cards, data)
+            message = Regex("Keyword $j of the header is $key, but the Standard requires $required")
+            hdu = @test_logs (:warn, message) reading(bytes)
+            @test hdu isa HDU{Primary}
+            @test @test_logs((:warn, message), written(hdu)) == codeunits(bytes)
+        end
+        #  the extra cards after the mandatory keywords are in any order
+        hdu = @test_logs reading(filebytes([header; ["DATE    = '2020-01-01'", "BZERO   =                  1.0"]], data))
+        @test hdu.data == Int16[1, 2, 3]
+        #  a Conform HDU of a file that does not conform has the same header
+        @test_logs (:warn, r"SIMPLE is F") (:warn, r"Keyword 2 of the header is NAXIS, but the Standard requires BITPIX") reading(
+            filebytes([simplef, naxis, bitpix, naxis1], data))
+
+        ####    The fixed format of the mandatory keywords (Sect. 4.4.1)
+
+        for (cards, keys) in (
+            (["SIMPLE  = T", bitpix, naxis, naxis1], "SIMPLE"),
+            ([simple, "BITPIX  = 16", naxis, naxis1], "BITPIX"),
+            ([simple, bitpix, "NAXIS   = 1 / one axis", "NAXIS1  = 3"], "NAXIS, NAXIS1"),
+            (["SIMPLE  = T", "BITPIX  = 16", "NAXIS   = 1", "NAXIS1  = 3"], "SIMPLE, BITPIX, NAXIS, NAXIS1"))
+            bytes = filebytes(cards, data)
+            message = Regex("The value of $keys is not in fixed format")
+            hdu = @test_logs (:warn, message) reading(bytes)
+            @test hdu isa HDU{Primary} && hdu.data == [1, 2, 3]
+            @test @test_logs((:warn, message), written(hdu)) == codeunits(bytes)
+        end
+        #  the other keywords can be in free format
+        @test_logs reading(filebytes([header; ["BZERO   = 1.0", "BUNIT   = 'adu'"]], data))
+        #  an HDU that is created has the fixed format and the order
+        hdu = HDU(Primary, rand(Float32, 2, 3))
+        @test_logs written(hdu)
     end
 
 end

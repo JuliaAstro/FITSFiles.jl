@@ -79,8 +79,13 @@
         #  the axes of an array of no axes, and a header with no NAXIS, are not used
         cards = structureheader(type, "NAXIS" => 0)
         @test_logs (:warn, r"NAXIS1 is beyond NAXIS 0") (:warn, r"NAXIS2 is beyond NAXIS 0") verified(type, cards)
+        #  except that the cards of a primary header are not the mandatory keywords in order
         cards = structureheader(type, "NAXIS" => nothing)
-        @test_logs verified(type, cards)
+        if type === Image
+            @test_logs verified(type, cards)
+        else
+            @test_logs (:warn, r"Keyword 3 of the header is NAXIS1, but the Standard requires NAXIS") verified(type, cards)
+        end
     end
     invalidstructure(Image, "PCOUNT must be the integer 0, but its value is 3.", "PCOUNT" => 3)
     invalidstructure(Image, "GCOUNT must be the integer 1, but its value is 2.", "GCOUNT" => 2)

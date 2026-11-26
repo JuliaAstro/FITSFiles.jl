@@ -617,6 +617,54 @@ function verifyxtension!(cards::Cards)
 end
 
 """
+	verifyprimary(cards, mankeys)
+
+Warn if the header of a primary HDU does not begin with SIMPLE, BITPIX, NAXIS, and the NAXISn keywords, in
+that order and with no other keyword between them (Sect. 4.4.1.1 of the standard), or if the values of
+these keywords are not in fixed format (Sect. 4.4.1), and return the cards unchanged. The file is read and
+written as it is, so the cards are not reordered or reformatted. The NAXIS value of `mankeys` must be
+valid (see [`verifyarray`](@ref)).
+"""
+function verifyprimary(cards::Cards, mankeys::AbstractDict)
+	required = vcat(["SIMPLE", "BITPIX", "NAXIS"], ["NAXIS$j" for j = 1:get(mankeys, "NAXIS", 0)])
+	verifyorder(cards, required)
+	verifyfixed(cards, required)
+end
+
+"""
+	verifyorder(cards, required)
+
+Warn at the first of the first cards that is not the keyword in the same place of `required`, and return the
+cards unchanged (see [`verifyprimary`](@ref)).
+"""
+function verifyorder(cards::Cards, required::AbstractVector{<:AbstractString})
+	for (j, key) in enumerate(required)
+		found = j <= length(cards) ? uppercase(cards[j].key) : "END"
+		if found != key
+			found = isempty(found) ? "a blank card" : found
+			@warn "Keyword $j of the header is $found, but the Standard requires $key (Sect. 4.4.1.1): " *
+				"SIMPLE, BITPIX, NAXIS, and the NAXISn come first, in order, with no other keyword between them. " *
+				"The cards are not reordered."
+			break
+		end
+	end
+	cards
+end
+
+"""
+	verifyfixed(cards, required)
+
+Warn if the value of a card of the keywords `required` is not in fixed format, and return the cards unchanged
+(see [`verifyprimary`](@ref)).
+"""
+function verifyfixed(cards::Cards, required::AbstractVector{<:AbstractString})
+	free = unique([uppercase(card.key) for card in cards if uppercase(card.key) in required && !card.format.fixd])
+	isempty(free) || @warn "The value of $(join(free, ", ")) is not in fixed format (Sect. 4.4.1): " *
+		"a fixed-format value is right-justified in bytes 11 to 30. The cards are not changed."
+	cards
+end
+
+"""
 	verifyshape!(cards, mankeys, format; first = 1)
 
 Correct BITPIX and the NAXIS keywords of `cards` to match the data format `format`, and return
