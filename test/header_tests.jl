@@ -223,6 +223,25 @@
             "last header block must have it (Sect. 3.3.1).") read(IOBuffer(codeunits(noend)[1:100]), Card)
         @test_throws ArgumentError("The header has no END keyword: the file ends after 1000 bytes of header block 2, and " *
             "the last header block must have it (Sect. 3.3.1).") read(IOBuffer([codeunits(noend); codeunits(noend)[1:1000]]), Card)
+        #  the records after END are filled with spaces, and bytes that are not spaces are a warning, and are not read
+        warning = "The header has bytes after the END keyword that are not ASCII spaces (Sect. 3.3.1). They are not read, and " *
+            "are written as spaces."
+        junk = rpad(join([simple, bitpix, naxis, card("END"), card("JUNK    = 3")]), 2880)
+        @test length((@test_logs (:warn, warning) read(IOBuffer(junk), Card))[1]) == 3
+        @test_logs (:warn, warning) read(IOBuffer(junk), HDU)
+        endblock = join([simple, bitpix, naxis, card("END")])
+        zeroed = endblock * "\0"^(2880 - length(endblock))
+        @test_logs (:warn, warning) read(IOBuffer(zeroed), Card)
+        trailing = codeunits(rpad(join([simple, bitpix, naxis, card("END")]), 2880))
+        for j in (321, 1000, 2880)
+            changed = copy(trailing)
+            changed[j] = UInt8('x')
+            @test_logs (:warn, warning) read(IOBuffer(changed), Card)
+        end
+        @test_logs read(IOBuffer(trailing), Card)
+        #  the header is written with spaces after END, so a file that is read and written does not have the bytes
+        written_ = (io = IOBuffer(); write(io, (@test_logs (:warn, warning) read(IOBuffer(junk), HDU))); take!(io))
+        @test written_[1:2880] == codeunits(rpad(join([simple, bitpix, naxis, card("END")]), 2880))
         #  a file with the blocks of zeros after the last HDU does not have another header
         @test_throws ArgumentError(message(1, "")) read(IOBuffer(zeros(UInt8, 2880)), HDU)
     end

@@ -485,6 +485,9 @@ function Base.read(io::IO, ::Type{Card}; strict::Bool = true, units::Union{Bool,
                          isempty(cards) ? nothing : cards[end]; strict, units)
             if typename(card) == End
                 lastblok = true
+                #  The records after END are filled with ASCII spaces (Sect. 3.3.1)
+                all(==(0x20), @view block[M*j+1:end]) || @warn "The header has bytes after the END keyword that are not " *
+                    "ASCII spaces (Sect. 3.3.1). They are not read, and are written as spaces."
                 break
             end
             push!(cards, card)
