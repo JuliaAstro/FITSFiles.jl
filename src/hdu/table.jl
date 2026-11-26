@@ -25,7 +25,7 @@ struct TableField <: AbstractField
     "The type of the field"
     type::Type
     "The slice of the field from start of record"
-    slice::UnitRange{Integer}
+    slice::UnitRange{Int}
     "The unit of the field"
     unit::String
     "The format of the field"

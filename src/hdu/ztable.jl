@@ -6,11 +6,11 @@ using CodecZlib
 struct ZTableField
     name::String
     type::Type
-    slice::UnitRange{Int64}
-    leng::Int64
-    shape::Tuple
+    slice::UnitRange{Int}
+    leng::Int
+    shape::Tuple{Vararg{Int}}
     comp::String
-    param::Int64
+    param::Int
 end
 
 function Base.read(io::IO, ::Type{ZTable}, cards::Vector{Card}; kwds...)
