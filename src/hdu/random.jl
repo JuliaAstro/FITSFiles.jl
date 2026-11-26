@@ -119,16 +119,32 @@ function Base.read(io::IO, ::Type{Random}, format::DataFormat,
         end
         #  The type of the records, which is that of the values that they have
         data = map(identity, data)
+        #  The physical values of floating-point stored values have the type of the stored values, so the records say that they are,
+        #  and have the PSCALn and PZEROn of the parameters, and the BSCALE and BZERO of the array
+        physicalfloat(fields) && scale && (data = ScaledRecords(data, [field.scale for field in fields],
+            [field.zero for field in fields]))
     else
         #  Return data as NamedTuple of arrays
         #  Concatenate (horizontally) columns having the same name.
         cols = Any[apply(values[k, :], k) for k = 1:P]
         push!(cols, apply(reshape(permutedims(values[P+1:end, :]), (G, shape...)), P+1))
-        data = (; [Symbol(name) => (length(ndx) > 1 ? hcat(cols[ndx]...) : cols[ndx...])
-            for (name, ndx) in ndxs]...)
+        columns = [length(ndx) > 1 ? hcat(cols[ndx]...) : cols[ndx...] for (name, ndx) in ndxs]
+        #  The physical values of floating-point stored values have the type of the stored values, so the columns say that they are,
+        #  and have the PSCALn and PZEROn, or the BSCALE and BZERO, of the parameters of the name, or the array
+        if physicalfloat(fields) && scale
+            columns = [ScaledArray(column, length(ndx) > 1 ? [fields[i].scale for i in ndx] : fields[first(ndx)].scale,
+                length(ndx) > 1 ? [fields[i].zero for i in ndx] : fields[first(ndx)].zero)
+                for (column, (name, ndx)) in zip(columns, ndxs)]
+        end
+        data = (; [Symbol(name) => column for ((name, ndx), column) in zip(ndxs, columns)]...)
     end
     data
 end
+
+#  Are the physical values of the parameters and the array the same type as the stored values, which are floating-point? They are if
+#  one of them is not scaled by a PSCALn or BSCALE of 1 and a PZEROn or BZERO of 0.
+physicalfloat(fields::Vector{RandomField}) =
+    first(fields).type <: AbstractFloat && any(field -> !(field.scale == 1 && field.zero == 0), fields)
 
 #  Random groups without any group have no data
 function Base.write(io::IO, ::Type{Random}, data::Missing, format::DataFormat, fields::Vector{RandomField}; kwds...)
@@ -145,17 +161,41 @@ function Base.write(io::IO, ::Type{Random}, data::Union{AbstractArray, NamedTupl
         #  The parameters of a name are one value of the data, which is found by its position, whatever its name is
         names = unique(field.name for field in fields[1:format.param])
         positions = [findfirst(==(field.name), names) for field in fields[1:format.param]]
+        #  The values that are the physical values of floating-point stored values are written as the stored values: the records of a
+        #  ScaledRecords, and the vectors and the array of columns that are ScaledArrays
+        scaled = scaledfields(data, fields, positions)
+        for (k, sz) in enumerate(scaled)
+            #  Their scale and zero are those of the header, whose PSCALn, PZEROn, BSCALE, and BZERO are those of the data
+            isnothing(sz) || sz == (fields[k].scale, fields[k].zero) || throw(ArgumentError("The scale and the zero of the " *
+                "$(k <= format.param ? "parameter $(fields[k].name)" : "array"), $(sz[1]) and $(sz[2]), are not the " *
+                "$(k <= format.param ? "PSCAL$k and the PZERO$k" : "BSCALE and the BZERO") of the header, $(fields[k].scale) and " *
+                "$(fields[k].zero)."))
+        end
+        scaled = .!isnothing.(scaled)
         for j=1:N
             for (k, field) in enumerate(fields[1:format.param])
-                write(io, hton(storedparam(getparam(data, field, j, positions[k]), field, images[k], k, j; check)))
+                write(io, hton(storedparam(getparam(data, field, j, positions[k]), field, images[k], k, j; check,
+                    scaled = scaled[k])))
             end
-            stored = storedgroup(getgroup(data, fields[end], j, format), fields[end], images[end], j; check)
+            stored = storedgroup(getgroup(data, fields[end], j, format), fields[end], images[end], j; check,
+                scaled = scaled[end])
             #  The undefined values are written as BLANK, or NaN for floating-point data
             write(io, hton.(unsetmissing(stored, images[end].miss, images[end].type)))
         end
         #  Pad last block with zeros
         padblock(io, format)
     end
+end
+
+#  The scale and the zero of the values of each parameter, and of the array, if they are the physical values of floating-point stored
+#  values, which are a ScaledArray or ScaledRecords, and nothing if they are not
+scaledfields(records::ScaledRecords, fields, positions) = [(records.scales[k], records.zeros[k]) for k in eachindex(fields)]
+scaledfields(records::AbstractArray, fields, positions) = fill(nothing, length(fields))
+function scaledfields(data::NamedTuple, fields, positions)
+    values = Tuple(data)
+    [[values[u] isa ScaledArray ? (scaleof(values[u], field.index), zeroof(values[u], field.index)) : nothing
+        for (u, field) in zip(positions, fields[1:end-1])];
+        values[end] isa ScaledArray ? (scaleof(values[end]), zeroof(values[end])) : nothing]
 end
 
 #  The error of a value that cannot be stored, with the name of the field and the group of the value
@@ -166,8 +206,10 @@ end
 
 #  The stored value of the value of a parameter, which is the value as it is if it is of the type of BITPIX, and
 #  otherwise is the value without PZEROn and PSCALn (see `storedvalue`), or the value of the offset convention.
-function storedparam(value, field::RandomField, image::ImageField, k::Integer, j::Integer; check::Bool = true)
-    typeof(value) == field.type && return value
+function storedparam(value, field::RandomField, image::ImageField, k::Integer, j::Integer; check::Bool = true,
+    scaled::Bool = false)
+
+    typeof(value) == field.type && !scaled && return value
     #  The value of the offset convention of Table 11 is the stored value with the offset
     typeof(value) == offsettype(field.type, field.scale, field.zero) && return offsetvalue(value, field.type)
     image.scale == 0 && throw(ArgumentError(
@@ -180,9 +222,11 @@ function storedparam(value, field::RandomField, image::ImageField, k::Integer, j
 end
 
 #  The stored values of the values of the array of a group (see `storedvalues`).
-function storedgroup(values::AbstractArray, field::RandomField, image::ImageField, j::Integer; check::Bool = true)
+function storedgroup(values::AbstractArray, field::RandomField, image::ImageField, j::Integer; check::Bool = true,
+    scaled::Bool = false)
+
     try
-        storedvalues(values, image; check)
+        storedvalues(scaled ? ScaledArray(values, image.scale, image.zero) : values, image; check)
     catch e
         e isa ArgumentError ? throw(storeerror(e, field, j)) : rethrow()
     end
@@ -456,4 +500,34 @@ function createdata(::Type{Random}, format::DataFormat,
         data = missing
     end
     data
+end
+
+
+#  The PSCALn, PZEROn, BSCALE, and BZERO cards of the parameters and the array that are the physical values of floating-point stored
+#  values, which have the scale and the zero of the data
+function scalecards!(::Type{Random}, cards::Cards, data::ScaledRecords)
+    P = length(data.scales) - 1
+    for k = 1:P
+        setscalecard!(cards, "PSCAL$k", data.scales[k], 1)
+        setscalecard!(cards, "PZERO$k", data.zeros[k], 0)
+    end
+    setscalecard!(cards, "BSCALE", data.scales[end], 1)
+    setscalecard!(cards, "BZERO", data.zeros[end], 0)
+end
+function scalecards!(::Type{Random}, cards::Cards, data::NamedTuple)
+    values = Tuple(data)
+    k = 0
+    for value in values[1:end-1]
+        for j = 1:paramcount(value)
+            k += 1
+            value isa ScaledArray || continue
+            setscalecard!(cards, "PSCAL$k", scaleof(value, j), 1)
+            setscalecard!(cards, "PZERO$k", zeroof(value, j), 0)
+        end
+    end
+    if values[end] isa ScaledArray
+        setscalecard!(cards, "BSCALE", scaleof(values[end]), 1)
+        setscalecard!(cards, "BZERO", zeroof(values[end]), 0)
+    end
+    cards
 end

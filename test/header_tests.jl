@@ -197,4 +197,68 @@
         @test first(FITSFiles.getall(cards, "OBJECT")) == get(cards, "OBJECT") == cards["OBJECT"]
     end
 
+    ####    Test the end of the header (Sect. 3.3.1)    ####
+
+    @testset "End of the header" begin
+        card(text) = rpad(text, 80)
+        simple, bitpix, naxis = card("SIMPLE  =                    T"), card("BITPIX  =                    8"), card("NAXIS   =                    0")
+        #  the header ends with the END keyword in its last block, which is read without more bytes after it
+        block = rpad(join([simple, bitpix, naxis, card("END")]), 2880)
+        cards, _ = read(IOBuffer(block), Card)
+        @test length(cards) == 3
+        @test length(read(IOBuffer(block * "more bytes"), Card)[1]) == 3
+        #  a header that has no END keyword is an error, which says how far the file goes, and the HDU read is the same
+        message(n, plural) = "The header has no END keyword: the file ends after $n header block$plural, and the last header " *
+            "block must have it (Sect. 3.3.1)."
+        noend = rpad(join([simple, bitpix, naxis]), 2880)
+        @test_throws ArgumentError(message(1, "")) read(IOBuffer(noend), Card)
+        @test_throws ArgumentError(message(1, "")) read(IOBuffer(noend), HDU)
+        @test_throws ArgumentError(message(2, "s")) read(IOBuffer(noend * rpad(card("HISTORY a"), 2880)), Card)
+        @test_throws ArgumentError(message(0, "s")) read(IOBuffer(UInt8[]), Card)
+        #  an END keyword that is in a later block ends it
+        later = noend * rpad(join([card("HISTORY a"), card("END")]), 2880)
+        @test length(read(IOBuffer(later), Card)[1]) == 3 + 33 + 1  # the blank cards that fill the first block, and HISTORY
+        #  and a block that is cut before it has it is not the end of a header
+        @test_throws ArgumentError("The header has no END keyword: the file ends after 100 bytes of header block 1, and the " *
+            "last header block must have it (Sect. 3.3.1).") read(IOBuffer(codeunits(noend)[1:100]), Card)
+        @test_throws ArgumentError("The header has no END keyword: the file ends after 1000 bytes of header block 2, and " *
+            "the last header block must have it (Sect. 3.3.1).") read(IOBuffer([codeunits(noend); codeunits(noend)[1:1000]]), Card)
+        #  the records after END are filled with spaces, and bytes that are not spaces are a warning, and are not read
+        warning = "The header has bytes after the END keyword that are not ASCII spaces (Sect. 3.3.1). They are not read, and " *
+            "are written as spaces."
+        junk = rpad(join([simple, bitpix, naxis, card("END"), card("JUNK    = 3")]), 2880)
+        @test length((@test_logs (:warn, warning) read(IOBuffer(junk), Card))[1]) == 3
+        @test_logs (:warn, warning) read(IOBuffer(junk), HDU)
+        endblock = join([simple, bitpix, naxis, card("END")])
+        zeroed = endblock * "\0"^(2880 - length(endblock))
+        @test_logs (:warn, warning) read(IOBuffer(zeroed), Card)
+        trailing = codeunits(rpad(join([simple, bitpix, naxis, card("END")]), 2880))
+        for j in (321, 1000, 2880)
+            changed = copy(trailing)
+            changed[j] = UInt8('x')
+            @test_logs (:warn, warning) read(IOBuffer(changed), Card)
+        end
+        @test_logs read(IOBuffer(trailing), Card)
+        #  the header is written with spaces after END, so a file that is read and written does not have the bytes
+        written_ = (io = IOBuffer(); write(io, (@test_logs (:warn, warning) read(IOBuffer(junk), HDU))); take!(io))
+        @test written_[1:2880] == codeunits(rpad(join([simple, bitpix, naxis, card("END")]), 2880))
+        #  a header block is 2880 bytes, so a file that ends in the block that has END is cut short, and the header is read
+        short = (n, size) -> "Header block $n, which has the END keyword, has only $size of the 2880 bytes of a block " *
+            "(Sect. 3.3.1), so the file ends in the header. The header is read as it is."
+        @test length((@test_logs (:warn, short(1, 2000)) read(IOBuffer(codeunits(block)[1:2000]), Card))[1]) == 3
+        @test length((@test_logs (:warn, short(2, 1500)) read(IOBuffer([codeunits(noend); codeunits(rpad(join([card("HISTORY a"),
+            card("END")]), 2880))[1:1500]]), Card))[1]) == 3 + 33 + 1
+        @test_logs (:warn, short(1, 500)) read(IOBuffer(codeunits(block)[1:500]), HDU)
+        #  and the data that it says it has are an error, as they are for a file that is cut short
+        data = codeunits(rpad(join([simple, card("BITPIX  =                   16"), card("NAXIS   =                    1"),
+            card("NAXIS1  =                    3"), card("END")]), 2880))
+        logs, error_ = Test.collect_test_logs() do
+            try read(IOBuffer(data[1:2000]), HDU) catch e e end
+        end
+        @test error_ == ArgumentError("The data of the HDU is 6 bytes, as its header says, but the file has only 0 of them.")
+        @test length(logs) == 1 && logs[1].message == short(1, 2000)
+        #  a file with the blocks of zeros after the last HDU does not have another header
+        @test_throws ArgumentError(message(1, "")) read(IOBuffer(zeros(UInt8, 2880)), HDU)
+    end
+
 end

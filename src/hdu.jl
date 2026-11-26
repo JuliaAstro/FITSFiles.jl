@@ -110,7 +110,8 @@ HDU types are: Primary, Random, Image, Table, Bintable, and Conform.
 # Keywords
 
 - `record::Bool=false`: structure the data as a list of records
-- `scale::Bool=true`: apply the scale and zero keywords to the data
+- `scale::Bool=true`: apply the scale and zero keywords to the data; floating-point data that have a scale and a zero that are not 1
+  and 0 are a `FITSFiles.ScaledArray`, which has them, and is written as the stored values
 
 The following keywords format the cards that are created, and are those of [`Card`](@ref), which
 describes them.
@@ -249,6 +250,20 @@ function HDU(type::Type, ::Missing = missing, cards::C = missing; kwds...) where
 	HDU{type}(kards, data)
 end
 
+#  Verify the keywords of the cards that are given with the data of an HDU that is made, so that a value that cannot be used is
+#  the error of a read, and not a MethodError. The mandatory keywords of the first card, SIMPLE and XTENSION, are not verified,
+#  since the header is arranged when it is made (see `createcards!`). Only the HDUs of an array, which verify their keywords
+#  when they are read, are verified.
+verifycards!(::Type, cards::Cards, mankeys::AbstractDict, reskeys::AbstractDict, format::DataFormat) = cards
+function verifycards!(type::Type{<:Union{Primary, Image, Random}}, cards::Cards, mankeys::AbstractDict, reskeys::AbstractDict,
+	format::DataFormat)
+
+	keys = filter(pair -> first(pair) ∉ ("SIMPLE", "XTENSION"), mankeys)
+	#  The number of parameters of random groups is the number of the data, and the keywords of the parameters are verified with it
+	type == Random && (keys["PCOUNT"] = format.param)
+	verify!(type, cards, keys, reskeys)
+end
+
 function HDU(type::Type, data::AbstractArray, cards::C = missing; kwds...) where
 	C <: Union{Card, Vector{Card}, Vector{Card{<:Any}}, Missing}
 
@@ -264,9 +279,11 @@ function HDU(type::Type, data::AbstractArray, cards::C = missing; kwds...) where
 	mankeys, reskeys = getreservedkeys(kards)
 
 	format = DataFormat(type, data, mankeys)
+	verifycards!(type, kards, mankeys, reskeys, format)
 	kards  = verify!(type, kards, format, mankeys)
 	fields = FieldFormat(type, format, reskeys, data)
 	kards  = createcards!(type, format, fields, kards; kwds...)
+	kards  = scalecards!(type, kards, data)
 	if eltype(data) <: Tuple
 		data = [(; [Symbol(fields[j].name) => data[k][j]
 					for j ∈ 1:format.param]..., data = data[k][end]) for k ∈ 1:format.group]
@@ -291,9 +308,11 @@ function HDU(type::Type, data::U, cards::C = missing; kwds...) where
 	mankeys, reskeys = getreservedkeys(kards)
 
 	format = DataFormat(type, data, mankeys)
+	verifycards!(type, kards, mankeys, reskeys, format)
 	kards  = verify!(type, kards, format, mankeys)
 	fields = FieldFormat(type, format, reskeys, data; kwds...)
 	kards  = createcards!(type, format, fields, kards; kwds...)
+	kards  = scalecards!(type, kards, data)
 	if typeof(data) <: Tuple
 		data = (; [Symbol(fields[j].name) => data[j] for j ∈ 1:format.param]...,
 			data = data[end])
@@ -432,7 +451,10 @@ the header to a multiple of 2880 bytes, followed by the data.
 The data of an image array that was read with the BSCALE and BZERO applied, or was changed, is written as the stored
 values, which are `(value - BZERO)/BSCALE` rounded to the type of BITPIX (Eq. 3 of the standard). A value that is not in
 the range of the type, or NaN when the data do not have a BLANK, is an error. Data that is of the type of BITPIX is the
-stored values, and is written as it is.
+stored values, and is written as it is, except a [`FITSFiles.ScaledArray`](@ref) (and `ScaledRecords` of random groups), which is the
+physical values of floating-point stored values that were read with a BSCALE and a BZERO (or PSCALn and PZEROn) that are not 1 and 0,
+with that scale and zero, and the stored values, `(value - BZERO)/BSCALE`, are written. The BSCALE and BZERO of the header of an HDU that
+is made from such data are those of the data.
 
 # Keywords
 
@@ -473,21 +495,31 @@ function Base.read(io::IO, ::Type{Card}; strict::Bool = true, units::Union{Bool,
     N, M = BLOCKLEN÷CARDLENGTH, CARDLENGTH
 
     lastblok = false
-    block = read(io, BLOCKLEN)
+    nblocks = 0
     while !lastblok
-        for j=1:N
+        block = read(io, BLOCKLEN)
+        nblocks += 1
+        #  The last header block has the END keyword (Sect. 3.3.1), so the file ends before it if there are no more bytes
+        isempty(block) && throw(ArgumentError("The header has no END keyword: the file ends after $(nblocks - 1) header " *
+            "block$(nblocks == 2 ? "" : "s"), and the last header block must have it (Sect. 3.3.1)."))
+        for j=1:min(N, length(block)÷M)
             card = parse(Card, String(block[M*(j-1)+1:M*j]),
                          isempty(cards) ? nothing : cards[end]; strict, units)
             if typename(card) == End
                 lastblok = true
+                #  The records after END are filled with ASCII spaces (Sect. 3.3.1)
+                all(==(0x20), @view block[M*j+1:end]) || @warn "The header has bytes after the END keyword that are not " *
+                    "ASCII spaces (Sect. 3.3.1). They are not read, and are written as spaces."
                 break
             end
             push!(cards, card)
         end
-        if lastblok
-            break
-        end
-        block = read(io, BLOCKLEN)
+        #  A block that ends before END is the end of the file
+        lastblok || length(block) < BLOCKLEN && throw(ArgumentError("The header has no END keyword: the file ends after " *
+            "$(length(block)) bytes of header block $nblocks, and the last header block must have it (Sect. 3.3.1)."))
+        #  A header block has 2880 bytes, so the header is cut short if the file ends in the block that has END
+        length(block) < BLOCKLEN && @warn "Header block $nblocks, which has the END keyword, has only $(length(block)) of the " *
+            "$BLOCKLEN bytes of a block (Sect. 3.3.1), so the file ends in the header. The header is read as it is."
     end
     #  Create dictionaries of mandatory and reserved keywords, which include the END keyword.
     mankeys, reskeys = getreservedkeys(cards)

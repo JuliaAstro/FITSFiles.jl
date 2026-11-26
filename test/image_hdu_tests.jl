@@ -532,6 +532,43 @@
             @test @test_logs(reading(written(HDU(Image, data)))).data == data
         end
 
+        ####    The floating-point data with a scale are the physical values, which are a ScaledArray with the scale and the zero
+
+        for (bitpix, T) in ((-32, Float32), (-64, Float64))
+            floats = filebytes(header(bitpix, 3, kw("BSCALE", 2.0), kw("BZERO", 1.0)), bytesof(T[1, 2, 3]))
+            hdu = reading(floats)
+            @test hdu.data isa FITSFiles.ScaledArray && hdu.data == T[3, 5, 7] && eltype(hdu.data) == T
+            @test hdu.data.scale == 2 && hdu.data.zero == 1
+            @test written(hdu) == codeunits(floats)
+            hdu.data[3] = 21
+            @test reading(written(hdu); scale = false).data == T[1, 2, 10]
+            raw = reading(floats; scale = false)
+            @test raw.data isa Vector{T} && raw.data == T[1, 2, 3] && written(raw) == codeunits(floats)
+            #  the data tell it, so they are the physical values in another HDU, which has the scale and the zero
+            fresh = reading(floats)
+            @test written(HDU(Image, fresh.data, getfield(fresh, :cards))) == codeunits(floats)
+            fromdata = HDU(Image, fresh.data)
+            @test fromdata.cards["BSCALE"] == 2 && fromdata.cards["BZERO"] == 1
+            @test reading(written(fromdata); scale = false).data == T[1, 2, 3]
+            #  an array that is made from them is plain, and the data that are made are the stored values
+            @test !(fresh.data .+ 0 isa FITSFiles.ScaledArray) && copy(fresh.data) isa FITSFiles.ScaledArray
+            @test !(reading(filebytes(header(bitpix, 3), bytesof(T[1, 2, 3]))).data isa FITSFiles.ScaledArray)
+            @test !(reading(filebytes(header(bitpix, 3, kw("BSCALE", 1.0), kw("BZERO", 0.0)), bytesof(T[1, 2, 3]))).data isa
+                FITSFiles.ScaledArray)
+            @test HDU(Image, T[1, 2, 3], Card{<:Any}[Card("BSCALE", 2.0)]).data isa Vector{T}
+            #  the undefined values stay undefined
+            nans = filebytes(header(bitpix, 3, kw("BSCALE", 2.0), kw("BZERO", 1.0)), bytesof(T[1, NaN, 3]))
+            @test isnan(reading(nans).data[2]) && written(reading(nans)) == codeunits(nans)
+        end
+        #  a file of HDUs that are read lazily, and are the same
+        mktemp() do path, io
+            write(io, [HDU(Primary), HDU(Image, FITSFiles.ScaledArray(Float32[3, 5, 7], 2.0f0, 1.0f0))]); close(io)
+            file = fits(path)
+            @test file[2].data isa FITSFiles.ScaledArray && file[2].data == Float32[3, 5, 7] && file[2].data.scale == 2
+            unscaled = fits(path; scale = false)
+            @test unscaled[2].data isa Vector{Float32} && unscaled[2].data == Float32[1, 2, 3]
+        end
+
         ####    The size of the data (Eq. 2)
 
         big = "4611686018427387904"
