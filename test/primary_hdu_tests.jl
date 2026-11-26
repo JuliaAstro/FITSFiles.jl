@@ -474,7 +474,50 @@
         end
     end
 
-    ####    Test that the scaled data are written as the stored values (Eq. 3 of the standard)    ####
+    ####    Test that the scaled data are written as the stored values (Eq. 3 of the standard)    ####    Test the signature of random groups, which a primary array does not have (Sect. 6.1.1)    ####
+
+    @testset "Primary and random groups" begin
+        data = collect(reinterpret(UInt8, hton.(Int16[1, 2, 10, 11, 12, 3, 4, 20, 21, 22])))
+        simple, bitpix = kw("SIMPLE", "T"), kw("BITPIX", 16)
+        counts = [kw("PCOUNT", 2), kw("GCOUNT", 2)]
+        #  GROUPS of T and an NAXIS1 that is not 0 are not random groups, so the header is read as a primary array, whose
+        #  data are the NAXISn, and not the groups of PCOUNT parameters and an array
+        notgroups = [simple, bitpix, kw("NAXIS", 2), kw("NAXIS1", 3), kw("NAXIS2", 2), kw("GROUPS", "T"), counts...]
+        warning = r"GROUPS is T, which says that the HDU has random groups, but NAXIS1 is 3, and not 0 \(Sect. 6.1.1\), " *
+            r"so it is read as a primary array, and PCOUNT and GCOUNT are not used."
+        hdu = @test_logs (:warn, warning) reading(filebytes(notgroups, data))
+        @test hdu isa HDU{Primary} && hdu.data == Int16[1 11; 2 12; 10 3]
+        hdu = @test_logs (:warn, r"but NAXIS1 is absent, and not 0 \(Sect. 6.1.1\)") reading(filebytes(
+            [simple, bitpix, kw("NAXIS", 0), kw("GROUPS", "T"), counts...], data))
+        @test hdu isa HDU{Primary} && ismissing(hdu.data)
+        #  and NAXIS1 of 0, which is the signature of random groups, is not without GROUPS of T
+        groupsf = [simple, bitpix, kw("NAXIS", 2), kw("NAXIS1", 0), kw("NAXIS2", 3), kw("GROUPS", "F"), counts...]
+        hdu = @test_logs (:warn, "NAXIS1 is 0, which is the signature of random groups, but GROUPS is F (Sect. 6.1.1), " *
+            "so it is read as a primary array without data, and PCOUNT and GCOUNT are not used.") reading(
+            filebytes(groupsf, data))
+        @test hdu isa HDU{Primary} && ismissing(hdu.data)
+        #  a primary array that has an axis of 0 has no data, with or without PCOUNT and GCOUNT, and without a warning
+        for cards in ([simple, bitpix, kw("NAXIS", 2), kw("NAXIS1", 0), kw("NAXIS2", 3)],
+            [simple, bitpix, kw("NAXIS", 2), kw("NAXIS1", 0), kw("NAXIS2", 3), counts...],
+            [simple, bitpix, kw("NAXIS", 1), kw("NAXIS1", 0), kw("GROUPS", "F")])
+            @test ismissing(@test_logs(reading(filebytes(cards, data))).data)
+        end
+        #  GROUPS of F is not the signature, whatever NAXIS1 is
+        hdu = @test_logs reading(filebytes([simple, bitpix, kw("NAXIS", 2), kw("NAXIS1", 3), kw("NAXIS2", 2),
+            kw("GROUPS", "F")], data))
+        @test hdu.data == Int16[1 11; 2 12; 10 3]
+        #  PCOUNT and GCOUNT are not keywords of a primary array, so they do not change the size of its data
+        hdu = @test_logs reading(filebytes([simple, bitpix, kw("NAXIS", 2), kw("NAXIS1", 3), kw("NAXIS2", 2), counts...], data))
+        @test hdu.data == Int16[1 11; 2 12; 10 3]
+        hdu = @test_logs reading(filebytes([simple, bitpix, kw("NAXIS", 1), kw("NAXIS1", 4), kw("PCOUNT", 7),
+            kw("GCOUNT", 3)], data))
+        @test hdu.data == Int16[1, 2, 10, 11]
+        #  the data of a header that is written have the size of the axes
+        written_ = @test_logs (:warn, warning) (:warn, warning) written(reading(filebytes(notgroups, data)))
+        @test @test_logs((:warn, warning), reading(written_)).data == Int16[1 11; 2 12; 10 3]
+    end
+
+    ####
 
     @testset "Scaled data" begin
         bytesof(values) = collect(reinterpret(UInt8, hton.(values)))
