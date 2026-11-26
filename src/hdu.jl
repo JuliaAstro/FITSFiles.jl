@@ -249,6 +249,20 @@ function HDU(type::Type, ::Missing = missing, cards::C = missing; kwds...) where
 	HDU{type}(kards, data)
 end
 
+#  Verify the keywords of the cards that are given with the data of an HDU that is made, so that a value that cannot be used is
+#  the error of a read, and not a MethodError. The mandatory keywords of the first card, SIMPLE and XTENSION, are not verified,
+#  since the header is arranged when it is made (see `createcards!`). Only the HDUs of an array, which verify their keywords
+#  when they are read, are verified.
+verifycards!(::Type, cards::Cards, mankeys::AbstractDict, reskeys::AbstractDict, format::DataFormat) = cards
+function verifycards!(type::Type{<:Union{Primary, Image, Random}}, cards::Cards, mankeys::AbstractDict, reskeys::AbstractDict,
+	format::DataFormat)
+
+	keys = filter(pair -> first(pair) ∉ ("SIMPLE", "XTENSION"), mankeys)
+	#  The number of parameters of random groups is the number of the data, and the keywords of the parameters are verified with it
+	type == Random && (keys["PCOUNT"] = format.param)
+	verify!(type, cards, keys, reskeys)
+end
+
 function HDU(type::Type, data::AbstractArray, cards::C = missing; kwds...) where
 	C <: Union{Card, Vector{Card}, Vector{Card{<:Any}}, Missing}
 
@@ -264,6 +278,7 @@ function HDU(type::Type, data::AbstractArray, cards::C = missing; kwds...) where
 	mankeys, reskeys = getreservedkeys(kards)
 
 	format = DataFormat(type, data, mankeys)
+	verifycards!(type, kards, mankeys, reskeys, format)
 	kards  = verify!(type, kards, format, mankeys)
 	fields = FieldFormat(type, format, reskeys, data)
 	kards  = createcards!(type, format, fields, kards; kwds...)
@@ -291,6 +306,7 @@ function HDU(type::Type, data::U, cards::C = missing; kwds...) where
 	mankeys, reskeys = getreservedkeys(kards)
 
 	format = DataFormat(type, data, mankeys)
+	verifycards!(type, kards, mankeys, reskeys, format)
 	kards  = verify!(type, kards, format, mankeys)
 	fields = FieldFormat(type, format, reskeys, data; kwds...)
 	kards  = createcards!(type, format, fields, kards; kwds...)

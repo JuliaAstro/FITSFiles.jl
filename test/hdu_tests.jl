@@ -506,4 +506,44 @@
             @test length(file) == 3
         end
     end
+
+    ####    Test the keywords of the cards of an HDU that is made from data    ####
+
+    @testset "verifycards!" begin
+        image, groups = Int16[1 2 3; 4 5 6], (a = Int16[1, 3], data = Int16[10 11 12; 20 21 22])
+        made = [HDU(Primary, image), HDU(Image, image), HDU(Random, groups)]
+        datas = (image, image, groups)
+        #  a value that cannot be used is the error that a read gives, and not a MethodError or an InexactError
+        for (type, data) in zip((Primary, Image, Random), datas)
+            @test_throws ArgumentError("BSCALE must be a number, but its value is \"two\".") HDU(type, data,
+                Card{<:Any}[Card("BSCALE", "two")])
+            @test_throws ArgumentError("BZERO must be a number, but its value is true.") HDU(type, data,
+                Card{<:Any}[Card("OBJECT", "x"), Card("BZERO", true)])
+            @test_throws ArgumentError("BLANK must be an integer, but its value is 2.5.") HDU(type, data,
+                Card{<:Any}[Card("BLANK", 2.5)])
+            @test_throws ArgumentError("BLANK must be an integer, but its value is 2.5.") HDU(type, data,
+                Card{<:Any}[Card("BLANK", 2.5)]; record = false)
+            #  and the others are warnings, as they are for a read
+            @test_logs (:warn, "DATAMIN must be a floating-point number, but its value is the integer 3. It is read as it is.") HDU(
+                type, data, Card{<:Any}[Card("DATAMIN", 3)])
+            @test_logs (:warn, "BUNIT must be a units string (Sect. 4.3), but its value is \"furlongs/fortnight^x\". It is " *
+                "read as it is.") HDU(type, data, Card{<:Any}[Card("BUNIT", "furlongs/fortnight^x")])
+            @test_logs (:warn, "ORIGIN must be a character string, but its value is 3. It is read as it is.") HDU(type, data,
+                Card{<:Any}[Card("ORIGIN", 3)])
+            #  cards that are valid are not a warning, and their order is not, since the header is arranged
+            @test_logs HDU(type, data, Card{<:Any}[Card("BSCALE", 2.0), Card("OBJECT", "NGC 1275"), Card("BUNIT", "m/s")])
+        end
+        #  the keywords of the first card are made from the data, so cards of the wrong place or the wrong value are not verified
+        @test_logs (:warn, r"BITPIX set to") HDU(Primary, image, Card{<:Any}[Card("OBJECT", "x"), Card("BITPIX", 32),
+            Card("SIMPLE", true)])
+        @test_logs (:warn, r"BITPIX set to") HDU(Image, image, Card{<:Any}[Card("OBJECT", "x"), Card("BITPIX", 32),
+            Card("XTENSION", "IMAGE")])
+        #  the keywords of random groups that are the parameters are verified, too
+        @test_throws ArgumentError("PSCAL1 must be a number, but its value is \"x\".") HDU(Random, groups,
+            Card{<:Any}[Card("PSCAL1", "x")])
+        @test_logs (:warn, "PSCAL9 is beyond PCOUNT 1, and is not used.") HDU(Random, groups, Card{<:Any}[Card("PSCAL9", 2.0)])
+        #  the HDUs of the other types are made as they were
+        table = HDU(Bintable, (a = Int32[1, 2, 3],), Card{<:Any}[Card("TTYPE1", "a")])
+        @test table isa HDU{Bintable}
+    end
 end
