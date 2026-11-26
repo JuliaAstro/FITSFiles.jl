@@ -65,7 +65,8 @@
     end
 
     hdus = [HDU(Primary, Int16[1 2 3; 4 5 6]), HDU(Image, Float32[1.5 2.5; -1 7]),
-        HDU(Bintable, (a = Int32[1, 2, 3], b = [1.5, 2.5, 3.5])), HDU(Primary)]
+        HDU(Bintable, (a = Int32[1, 2, 3], b = [1.5, 2.5, 3.5])), HDU(Primary),
+        HDU(Random, (a = Int16[1, 3], b = Int16[2, 4], data = Int16[10 11 12; 20 21 22]))]
     for hdu in hdus
         bytes = written(hdu; checksum = true)
         #  the sum of the HDU is negative zero, and DATASUM is the sum of the data records
@@ -151,6 +152,22 @@
         tampered = copy(bytes)
         hdr = length(written(filehdus[1]; checksum = true))
         tampered[hdr + 2881 + 1] ⊻= 0x40
+        write(path, tampered)
+        @test_logs (:warn, r"DATASUM is") (:warn, r"checksum of the HDU") fits(path; checksum = true)
+    end
+
+    #  random groups, which are the primary HDU, and a table of the groups of a file of the visibilities of an interferometer
+    groupfile = [hdus[5], hdus[3]]
+    mktemp() do path, io
+        write(io, groupfile; checksum = true)
+        close(io)
+        bytes = read(path)
+        @test sumof(bytes) === 0xffffffff
+        file = @test_logs fits(path; checksum = true)
+        @test file[1] isa HDU{Random} && file[1].data.data == Int16[10 11 12; 20 21 22]
+        #  a change of a parameter, which is in the data of the random groups, is found in them
+        tampered = copy(bytes)
+        tampered[2881 + 1] ⊻= 0x40
         write(path, tampered)
         @test_logs (:warn, r"DATASUM is") (:warn, r"checksum of the HDU") fits(path; checksum = true)
     end
