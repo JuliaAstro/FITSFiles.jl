@@ -907,6 +907,44 @@
         #  missing values are not of another type
         @test HDU(Random, (a = Union{Int16, Missing}[1, 2], data = Int16[1 2 3; 4 5 6])) isa HDU{Random}
 
+        ####    The size of the data (Eq. 4)
+
+        #  a file that has fewer bytes than the header says is an error, and an unpadded last block is not
+        short = filebytes(grouphdr(), bytesof(stored)[1:14])
+        @test_throws ArgumentError("The data of the HDU is 20 bytes, as its header says, but the file has only 14 of " *
+            "them.") reading(short[1:2880+14])
+        @test reading(filebytes(grouphdr(), bytesof(stored); pad = false)).data.data == Float32[10 11 12; 20 21 22]
+        mktemp() do path, io
+            write(io, groups[1:2880+14]); close(io)
+            #  the data of a file are read when they are used
+            @test_throws ArgumentError("The data of the HDU is 20 bytes, as its header says, but the file has only 14 " *
+                "of them.") fits(path)[1].data
+        end
+        #  a size that is more than the largest integer is an error, and the data are not read
+        toolarge = r"The random groups are too large: 2 bytes × 2 groups × \(2 parameters \+ 1099511627776 × " *
+            r"1099511627776 values\) is more than 9223372036854775807 bytes."
+        @test_throws toolarge reading(filebytes(grouphdr(axes = [2^40, 2^40])))
+        @test_throws ArgumentError reading(filebytes(grouphdr(gcount = 2^62)))
+        @test_throws ArgumentError reading(filebytes(grouphdr(pcount = 2^62, gcount = 2^62)))
+        @test_throws ArgumentError reading(filebytes(grouphdr(bitpix = -64, gcount = 2^61, axes = [4])))
+        #  the size that is allowed is read
+        @test reading(filebytes(grouphdr(gcount = 0))).data === missing
+        #  an array without elements has the parameters of the groups
+        empty = reading(filebytes(grouphdr(axes = [0], gcount = 3), bytesof(Int16[1, 2, 3, 4, 5, 6]))).data
+        @test size(empty.data) == (3, 0) && empty.param1 == Float32[1, 3, 5] && empty.param2 == Float32[2, 4, 6]
+
+        ####    The lazy file of random groups reads the same
+
+        mktemp() do path, io
+            write(io, [HDU(Random, (a = Int16[1, 3], c = Int16[2, 4], data = Int16[10 11 12; 20 21 22]),
+                Card{<:Any}[Card("PSCAL1", 2.0), Card("BZERO", 1.0)])]; check = false)
+            close(io)
+            file = fits(path)
+            @test file[1].data == (a = Float32[2, 6], c = Float32[2, 4], data = Float32[11 12 13; 21 22 23])
+            @test fits(path; scale = false)[1].data ==
+                (a = Int16[1, 3], c = Int16[2, 4], data = Int16[10 11 12; 20 21 22])
+            @test fits(path; record = true)[1].data[2] == (a = 6.0f0, c = 4.0f0, data = Float32[21, 22, 23])
+        end
     end
 
 end

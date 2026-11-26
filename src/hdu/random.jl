@@ -59,36 +59,33 @@ function verifyparams(reskeys::AbstractDict, P::Integer)
 end
 
 function Base.read(io::IO, ::Type{Random}, format::DataFormat,
-    fields::Vector{RandomField}; record::Bool = false, kwds...)
+    fields::Vector{RandomField}; record::Bool = false, scale::Bool = true, kwds...)
 
-    begpos = position(io)
-    M, N = sizeof(format.type), format.leng
-    #  Read data array
+    P, G, shape = format.param, format.group, format.shape
+    #  The values of the groups, one group in each column: the parameters, and then the array
+    nbytes = sizeof(format.type)*format.leng
+    values = reshape(ntoh.(reinterpret(format.type, readbytes(io, nbytes))), P + prod(shape), G)
+    physical(value, field) = scale ? scaled(value, field.scale, field.zero) : value
     names = [field.name for field in fields]
-    ndxs = [name => findall(x -> x == name, names)
-        for name in unique(names)]
+    ndxs = [name => findall(x -> x == name, names) for name in unique(names)]
     if record
         #  Return data as a vector of records
         #  Concatenate (horizontally) fields having the same name.
         data = []
-        for j=1:format.group
-            flds = [read(io, field; kwds...) for field in fields]
-            push!(data, (; [Symbol(name) => length(ndx) > 1 ?
-                hcat(flds[ndx]...) : flds[ndx...]
-                for (name, ndx) in ndxs]... ) )
+        for g = 1:G
+            flds = Any[physical(values[k, g], fields[k]) for k = 1:P]
+            push!(flds, physical(isempty(shape) ? values[end, g] : reshape(values[P+1:end, g], shape), fields[end]))
+            push!(data, (; [Symbol(name) => length(ndx) > 1 ? hcat(flds[ndx]...) : flds[ndx...]
+                for (name, ndx) in ndxs]... ))
         end
     else
         #  Return data as NamedTuple of arrays
         #  Concatenate (horizontally) columns having the same name.
-        cols = [read(io, field, format, begpos; kwds...)
-            for field in fields]
-        data = (; [Symbol(name) => (length(ndx) > 1 ? hcat(cols[ndx]...) :
-            cols[ndx...]) for (name, ndx) in ndxs]...)
+        cols = Any[physical(values[k, :], fields[k]) for k = 1:P]
+        push!(cols, physical(reshape(permutedims(values[P+1:end, :]), (G, shape...)), fields[end]))
+        data = (; [Symbol(name) => (length(ndx) > 1 ? hcat(cols[ndx]...) : cols[ndx...])
+            for (name, ndx) in ndxs]...)
     end
-    #   Seek to end of the last data block
-    # seek(io, begpos + BLOCKLEN*div(M*N, BLOCKLEN, RoundUp))
-
-    ####    Get WCS keywords
     data
 end
 
@@ -160,6 +157,17 @@ getgroup(data::AbstractArray, field, j::Integer, format::DataFormat) =
 getgroup(data::NamedTuple, field, j::Integer, format::DataFormat) =
     reshape(data[end], (format.group, :))[j, :]
 
+#  The number of bytes of the random groups, |BITPIX|/8 × GCOUNT × (PCOUNT + NAXIS2 × ... × NAXISm) (Eq. 4 of the
+#  standard), is at most the largest integer, so that the data can be read and indexed.
+function verifygroupsize(mankeys::AbstractDict)
+    N, bits = get(mankeys, "NAXIS", 0), get(mankeys, "BITPIX", 0)
+    sizes = [BigInt(mankeys["NAXIS$j"]) for j = 2:N]
+    nbytes = BigInt(abs(bits) ÷ 8) * get(mankeys, "GCOUNT", 0) * (get(mankeys, "PCOUNT", 0) + prod(sizes; init = big(1)))
+    nbytes > typemax(Int) && throw(ArgumentError("The random groups are too large: $(abs(bits) ÷ 8) bytes × " *
+        "$(get(mankeys, "GCOUNT", 0)) groups × ($(get(mankeys, "PCOUNT", 0)) parameters + $(join(sizes, " × ")) " *
+        "values) is more than $(typemax(Int)) bytes."))
+end
+
 function verify!(::Type{Random}, cards::Cards, mankeys::AbstractDict, reskeys::AbstractDict)
     cards = invoke(verify!, Tuple{Type{<:AbstractHDU}, Cards, AbstractDict, AbstractDict}, Random, cards,
         mankeys, reskeys)
@@ -171,6 +179,7 @@ function verify!(::Type{Random}, cards::Cards, mankeys::AbstractDict, reskeys::A
     verifyaxes(mankeys; first = 2)
     verifyvalue(mankeys, "PCOUNT", 0:typemax(Int), "non-negative")
     verifyvalue(mankeys, "GCOUNT", 0:typemax(Int), "non-negative")
+    haskey(mankeys, "SIMPLE") && verifygroupsize(mankeys)
     verifyparams(reskeys, get(mankeys, "PCOUNT", 0))
     cards
 end
@@ -338,41 +347,4 @@ function createdata(::Type{Random}, format::DataFormat,
         data = missing
     end
     data
-end
-
-function Base.read(io::IO, field::RandomField, format::DataFormat,
-    begpos::Integer; scale::Bool = true)
-
-    L = sizeof(format.type)*(format.param + prod(format.shape))
-    M, N = first(field.slice)-1, format.group
-    type, leng, shape = field.type, field.leng, field.shape
-
-    if leng == 1
-        column = Array{type}(undef, N)
-        for j=1:N
-            seek(io, begpos + L*(j-1) + M)
-            column[j] = ntoh(read(io, type))
-        end
-    else
-        column = Array{type}(undef, (N, leng))
-        for j=1:N
-            seek(io, begpos + L*(j-1) + M)
-            column[j,:] = ntoh.([read(io, type) for k=1:leng])
-        end
-        column = reshape(column, (N, shape...))
-    end
-    #  No missing values
-    scale ? scaled(column, field.scale, field.zero) : column
-end
-
-function Base.read(io::IO, field::RandomField; scale::Bool = true)
-
-    name, type, leng, shape = field.name, field.type, field.leng, field.shape
-    if leng == 1
-        value = ntoh(read(io, type))
-    else
-        value = reshape(ntoh.([read(io, type) for j=1:leng]), shape)
-    end
-    #  No missing values
-    scale ? scaled(value, field.scale, field.zero) : value
 end
