@@ -161,33 +161,39 @@ function DataFormat(::Type{Random}, data::Missing, mankeys::Dict{S, V}) where
     DataFormat(type, leng, shape, param, group, heap)
 end
 
+#  The fields of the groups: the parameters, which have the names `names` and the keywords PSCALn and PZEROn, and the
+#  array, which has the name `array` and the keywords BSCALE and BZERO. Parameters of the same name are numbered.
+function randomfields(format::DataFormat, reskeys::AbstractDict, names, array::AbstractString)
+    type, P, bytes = format.type, format.param, sizeof(format.type)
+    indices = Dict{String, Int}()
+    fields = Vector{RandomField}(undef, P+1)
+    k = 0
+    for j = 1:P
+        name  = String(names[j])
+        index = indices[name] = get!(indices, name, 0) + 1
+        pzero = leastfloat(get(reskeys, "PZERO$j", 0.0f0))
+        scale = leastfloat(get(reskeys, "PSCAL$j", 1.0f0))
+        fields[j] = RandomField(name, index, type, k+1:k+bytes, 1, (1,), pzero, scale)
+        k += bytes
+    end
+    leng  = prod(format.shape)
+    bzero = leastfloat(get(reskeys,  "BZERO", 0.0f0))
+    scale = leastfloat(get(reskeys, "BSCALE", 1.0f0))
+    fields[end] = RandomField(array, 1, type, k+1:k+leng*bytes, leng, format.shape, bzero, scale)
+    fields
+end
+
+#  The names of the parameters: the PTYPEn keywords, or param1, param2, ... for those that are absent
+paramnames(reskeys::AbstractDict, P::Integer) = [rstrip(get(reskeys, "PTYPE$j", "param$j")) for j = 1:P]
+
+#  The names of the values of a group, which are the keys of a named tuple
+groupnames(group::NamedTuple) = String.(keys(group))
+
 function FieldFormat(::Type{Random}, format::DataFormat, reskeys::Dict{S, V},
     data::Missing; record::Bool = false, kwds...) where
     {S<:AbstractString, V<:ValueType}
 
-    type = format.type
-    k, P, bytes = 0, format.param, sizeof(type)
-
-    indices = Dict{AbstractString, Integer}()
-    fields = Vector{RandomField}(undef, P+1)
-    for j = 1:P
-        name  = rstrip(get(reskeys, "PTYPE$j", "param$j"))
-        index = indices[name] = get!(indices, name, 0) + 1
-        leng  = 1
-    scale = leastfloat(get(reskeys, "PSCAL$j", 1.0f0))
-        pzero = leastfloat(get(reskeys, "PZERO$j", 0.0f0))
-        fields[j] = RandomField(name, index, type, k+1:k+bytes, leng, (leng,),
-            pzero, scale)
-        k += bytes
-    end
-    name  = "data"
-    index = 1
-    leng  = prod(format.shape)
-    bzero = leastfloat(get(reskeys,  "BZERO", 0.0f0))
-    scale = leastfloat(get(reskeys, "BSCALE", 1.0f0))
-    fields[end] = RandomField(name, index, type, k+1:k+leng*bytes, leng,
-        format.shape, bzero, scale)
-    fields
+    randomfields(format, reskeys, paramnames(reskeys, format.param), "data")
 end
 
 function DataFormat(::Type{Random}, data::AbstractArray,
@@ -206,30 +212,9 @@ end
 function FieldFormat(::Type{Random}, format::DataFormat, reskeys::Dict{S, V},
     data::AbstractArray; kwds...) where {S<:AbstractString, V<:ValueType}
 
-    type = format.type
-    k, P, bytes = 0, format.param, sizeof(type)
-
-    indices = Dict{AbstractString, Integer}()
-    fields = Vector{RandomField}(undef, P+1)
-    for j = 1:P
-        name  = typeof(data[1]) <: NamedTuple ? rstrip(String(keys(data[1])[j])) :
-            rstrip(get(reskeys, "PTYPE$j", "param$j"))
-        index = indices[name] = get!(indices, name, 0) + 1
-        leng = 1
-        pzero = leastfloat(get(reskeys, "PZERO$j", 0.0f0))
-        scale = leastfloat(get(reskeys, "PSCAL$j", 1.0f0))
-        fields[j] = RandomField(name, index, type, k+1:k+bytes, leng, (leng,),
-            pzero, scale)
-        k += bytes
-    end
-    name  = typeof(data[1]) <: NamedTuple ? String(keys(data[1])[end]) : "data"
-    index = 1
-    leng  = prod(format.shape)
-    bzero = leastfloat(get(reskeys,  "BZERO", 0.0f0))
-    scale = leastfloat(get(reskeys, "BSCALE", 1.0f0))
-    fields[end] = RandomField(name, index, type, k+1:k+leng*bytes, leng,
-        format.shape, bzero, scale)
-    fields
+    #  The names of the parameters are the keys of the records, or the PTYPEn keywords
+    names = data[1] isa NamedTuple ? groupnames(data[1]) : [paramnames(reskeys, format.param); "data"]
+    randomfields(format, reskeys, names[1:end-1], names[end])
 end
 
 function DataFormat(::Type{Random}, data::U, mankeys::Dict{S, V}) where
@@ -249,29 +234,8 @@ function FieldFormat(::Type{Random}, format::DataFormat, reskeys::Dict{S, V},
     data::U; record::Bool = false) where {U<:Union{Tuple, NamedTuple},
     S<:AbstractString, V<:ValueType}
 
-    type, P, k, bytes = format.type, format.param, 0, sizeof(format.type)
-
-    indices = Dict{AbstractString, Integer}()
-    fields = Vector{RandomField}(undef, P+1)
-    for j = 1:P
-        name  = typeof(data) <: NamedTuple ? rstrip(String(keys(data)[j])) :
-            rstrip(get(reskeys, "PTYPE$j", "param$j"))
-        index = indices[name] = get!(indices, name, 0) + 1
-        leng  = 1
-        pzero = leastfloat(get(reskeys, "PZERO$j", 0.0f0))
-        scale = leastfloat(get(reskeys, "PSCAL$j", 1.0f0))
-        fields[j] = RandomField(name, index, type, k+1:k+bytes, leng, (leng,),
-            pzero, scale)
-        k += bytes
-    end
-    name  = "data"
-    index = 1
-    leng  = prod(format.shape)
-    bzero = leastfloat(get(reskeys,  "BZERO", 0.0f0))
-    scale = leastfloat(get(reskeys, "BSCALE", 1.0f0))
-    fields[end] = RandomField(name, index, type, k+1:k+leng*bytes, leng,
-        format.shape, bzero, scale)
-    fields
+    names = data isa NamedTuple ? groupnames(data) : [paramnames(reskeys, format.param); "data"]
+    randomfields(format, reskeys, names[1:end-1], names[end])
 end
 
 function createcards!(::Type{Random}, format::DataFormat,
