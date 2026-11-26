@@ -13,6 +13,8 @@ The default data structure for Random and Bintable HDUs is a named tuple of arra
 
 # Keywords
 
+- `checksum::Bool=false`: verify the DATASUM and CHECKSUM keywords of each HDU, with a warning if a sum is not the sum
+  of the data or of the HDU (Sect. 4.4.2.7 of the standard)
 - `record::Bool=false`: structure the data as a list of records
 - `scale::Bool=true`: apply the scale and zero keywords to the data; an image of the offsets of Table 11 of the
   standard (BSCALE of 1 and BZERO of 2^15, 2^31, or 2^63 for 16-, 32-, or 64-bit integers, or -128 for bytes) is

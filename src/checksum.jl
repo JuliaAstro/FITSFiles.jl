@@ -136,3 +136,40 @@ function setchecksum!(cards::Cards, data::AbstractVector{UInt8})
     setchecksumcard!(cards, "CHECKSUM", encodechecksum(sum), "HDU checksum")
 end
 
+#  The value of the DATASUM card, which is the unsigned integer of the sum of the data records, or nothing if
+#  the value is not known, i.e., blank, or is not a number
+function datasumvalue(cards::Cards)
+    j = Base.findfirst("DATASUM", cards)
+    ismissing(j) && return nothing
+    value = cards[j].value
+    value isa AbstractString || return nothing
+    tryparse(UInt32, strip(value))
+end
+
+"""
+    verifychecksum(io, cards, first, last, datafirst)
+
+Warn if the DATASUM or the CHECKSUM of the HDU that was read from `io` is not the sum of the HDU, and return the
+cards. The bytes of the HDU are from the position `first` to `last` of `io`, and the data begins at `datafirst`. A
+keyword that is not there, or is blank (the value is not known), is not verified. The values are read as they are.
+"""
+function verifychecksum(io::IO, cards::Cards, first::Integer, datafirst::Integer, last::Integer)
+    datasum = datasumvalue(cards)
+    j = Base.findfirst("CHECKSUM", cards)
+    known = !ismissing(j) && cards[j].value isa AbstractString && !isempty(strip(cards[j].value))
+    (isnothing(datasum) && !known) && return cards
+    seek(io, first)
+    headersum = sumbytes(io, datafirst - first)
+    dataactual = sumbytes(io, last - datafirst)
+    seek(io, last)
+    if !isnothing(datasum) && datasum != dataactual
+        @warn "DATASUM is $datasum, but the sum of the data records is $dataactual (Sect. 4.4.2.7): the data " *
+            "may have changed since the sum was set. It is read as it is."
+    end
+    total = addsums(headersum, dataactual)
+    if known && total != NEGATIVEZERO
+        @warn "The checksum of the HDU is $total, and not -0 (Sect. 4.4.2.7): the HDU may have changed since " *
+            "CHECKSUM was set. It is read as it is."
+    end
+    cards
+end

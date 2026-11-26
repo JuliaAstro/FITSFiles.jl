@@ -344,9 +344,11 @@ is read from another stream is read at once.
 - `scale::Bool=true`: apply the scale and zero keywords to the data
 """
 function Base.read(io::IO, ::Type{HDU}; type = nothing, strict::Bool = true, units::Union{Bool, Module} = true,
-    kwds...)::HDU
+    checksum::Bool = false, kwds...)::HDU
     #  Read cards
+    firstpos = checksum ? position(io) : 0
     cards, mankeys, reskeys = read(io, Card; strict, units)
+    datapos = checksum ? position(io) : 0
 
 	#  Read data
 	type_  = type === nothing ? typeofhdu(mankeys) : type
@@ -368,6 +370,7 @@ function Base.read(io::IO, ::Type{HDU}; type = nothing, strict::Bool = true, uni
 		# indicate data is missing
 		data = missing
 	end
+	checksum && verifychecksum(io, cards, firstpos, datapos, position(io))
 	HDU{type_}(cards, data)
 end
 

@@ -78,6 +78,8 @@
         #  an HDU that is written without the keywords does not have them, and is written as it was
         plain = written(hdu)
         @test !any(c -> startswith(c, "CHECKSUM") || startswith(c, "DATASUM"), cardimages(plain))
+        @test @test_logs(reading(bytes; checksum = true)) isa HDU
+        @test @test_logs(reading(plain; checksum = true)) isa HDU
     end
     #  an HDU without data has a DATASUM of 0
     @test startswith(cardof(written(HDU(Primary); checksum = true), "DATASUM"), "DATASUM = '0'")
@@ -90,4 +92,59 @@
         @test written(again) == bytes
     end
 
+    ####    Verify the sums when an HDU is read
+
+    hdu = HDU(Primary, Int16[1 2 3; 4 5 6], Card{<:Any}[Card("OBJECT", "NGC 1275")])
+    bytes = written(hdu; checksum = true)
+    #  the sums are not verified unless asked, and the data is as it was
+    tampered = copy(bytes); tampered[2881 + 3] ⊻= 0x01
+    @test @test_logs(reading(tampered)).data[2, 1] != 4
+    #  a change of the data is a change of the data sum and of the HDU sum
+    @test_logs (:warn, r"DATASUM is \d+, but the sum of the data records is \d+") (:warn, r"checksum of the HDU is \d+, and not -0") reading(
+        tampered; checksum = true)
+    #  a change of the header is a change of the HDU sum only
+    changed = copy(bytes)
+    changed[first(findfirst("NGC 1275", String(copy(bytes))))] = UInt8('M')
+    @test_logs (:warn, r"checksum of the HDU is \d+, and not -0") reading(changed; checksum = true)
+    #  a sum that is not known is not verified: the DATASUM that is blank leaves the CHECKSUM, whose HDU has changed
+    #  by the blank, and the CHECKSUM that is blank leaves the DATASUM
+    nodatasum = replacecard(bytes, "DATASUM", "DATASUM = '          '")
+    @test_logs (:warn, r"checksum of the HDU") reading(nodatasum; checksum = true)
+    nochecksum = replacecard(tampered, "CHECKSUM", "CHECKSUM= '                '")
+    @test_logs (:warn, r"DATASUM is") reading(nochecksum; checksum = true)
+    @test_logs reading(replacecard(nochecksum, "DATASUM", "DATASUM = ''"); checksum = true)
+    @test_logs reading(replacecard(nochecksum, "DATASUM", "DATASUM = 'twelve'"); checksum = true)
+
+    #  the value of DATASUM may have leading zeros and blanks, and a value that is not a number is not known
+    datasum = match(r"DATASUM = '(\d+)'", cardof(bytes, "DATASUM"))[1]
+    padded = replacecard(bytes, "DATASUM", "DATASUM = '  00$datasum  '")
+    @test_logs (:warn, r"checksum of the HDU") reading(padded; checksum = true)
+    @test FITSFiles.datasumvalue(Card{<:Any}[Card("DATASUM", "0000012")]) === 0x0000000c
+    @test FITSFiles.datasumvalue(Card{<:Any}[Card("DATASUM", " 12 ")]) === 0x0000000c
+    @test isnothing(FITSFiles.datasumvalue(Card{<:Any}[Card("DATASUM", "")]))
+    @test isnothing(FITSFiles.datasumvalue(Card{<:Any}[Card("DATASUM", "twelve")]))
+    @test isnothing(FITSFiles.datasumvalue(Card{<:Any}[Card("DATASUM", 12)]))
+    @test isnothing(FITSFiles.datasumvalue(Card{<:Any}[Card("OBJECT", "x")]))
+
+    #  the fill of the last data block is zeros, so a file that does not have it has the same sums
+    short = bytes[1:2880+sizeof(Int16)*6]
+    @test @test_logs(reading(short; checksum = true)).data == Int16[1 2 3; 4 5 6]
+
+    ####    A file of HDUs
+
+    mktemp() do path, io
+        write(io, hdus; checksum = true)
+        close(io)
+        bytes = read(path)
+        #  the sum of a file of HDUs that have the sum -0 is -0
+        @test sumof(bytes) === 0xffffffff
+        file = @test_logs fits(path; checksum = true)
+        @test length(file) == 4
+        #  a change of the data of the second HDU is found in that HDU
+        tampered = copy(bytes)
+        hdr = length(written(hdus[1]; checksum = true))
+        tampered[hdr + 2881 + 1] ⊻= 0x40
+        write(path, tampered)
+        @test_logs (:warn, r"DATASUM is") (:warn, r"checksum of the HDU") fits(path; checksum = true)
+    end
 end
