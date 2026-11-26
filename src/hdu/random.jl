@@ -117,6 +117,8 @@ function Base.read(io::IO, ::Type{Random}, format::DataFormat,
             push!(data, (; [Symbol(name) => length(ndx) > 1 ? hcat(flds[ndx]...) : flds[ndx...]
                 for (name, ndx) in ndxs]... ))
         end
+        #  The type of the records, which is that of the values that they have
+        data = map(identity, data)
     else
         #  Return data as NamedTuple of arrays
         #  Concatenate (horizontally) columns having the same name.

@@ -1298,6 +1298,8 @@
         @test_throws ArgumentError("The parameter DATE of group 2 must be a number, or a matrix of one row for the " *
             "parameters of its name, but it has the size (2,).") HDU(Random, [(DATE = Int16[1 2], data = Int16[1, 2, 3]),
             (DATE = Int16[1, 2], data = Int16[4, 5, 6])])
+        #  the records have the type of their values
+        @test eltype(recorded) <: NamedTuple && eltype(reading(groups; record = true).data) <: NamedTuple
         #  the sum of the physical values of the parameters of a name is the value of the parameter, which is the sum of
         #  the columns of the matrix, and of the row of a record
         scaleddates = reading(filebytes(grouphdr(extra = [dateparams; kw("PSCAL2", "0.5")]), bytesof(stored))).data
