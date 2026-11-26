@@ -112,6 +112,14 @@
         shown = sprint(show, MIME("text/plain"), HDU[HDU(Primary, data), sci, sci2])
         @test occursin(r"2\s+Image\s+SCI\s+1\s", shown) && occursin(r"3\s+Image\s+SCI\s+2\s", shown)
         @test occursin(r"3\s+Image\s+SCI\s+2\s", captured(() -> FITSFiles.info(HDU[HDU(Primary, data), sci, sci2])))
+
+        #  an HDU is found by its name, without regard to the case, and by its version
+        hdus = HDU[HDU(Primary, data), sci, sci2, extension(Card("EXTNAME", "ERR"))]
+        @test hdus["SCI"] === sci && hdus["sci"] === sci && hdus[:SCI] === sci
+        @test hdus["SCI", 1] === sci && hdus["SCI", 2] === sci2 && hdus["err", 1] === hdus[4] && hdus[:sci, 2] === sci2
+        @test_throws KeyError("NONE") hdus["NONE"]
+        @test_throws KeyError(("SCI", 3)) hdus["SCI", 3]
+        @test_throws KeyError(("ERR", 2)) hdus["ERR", 2]
     end
 
 end

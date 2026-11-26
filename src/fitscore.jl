@@ -155,6 +155,25 @@ function Base.getindex(hdus::Vector{HDU}, name::U)::HDU where
 	throw(KeyError(name))
 end
 
+"""
+    hdus[name]
+    hdus[name, version]
+
+Return the HDU of the vector `hdus` whose EXTNAME is `name`, without regard to the case, which is the first HDU of that name
+if the name is not unique. With a `version`, return the HDU whose EXTVER is `version`, where an absent EXTVER is 1
+(Sect. 4.4.2.6 of the standard). A `KeyError` is raised if there is no such HDU.
+"""
+function Base.getindex(hdus::Vector{HDU}, name::U, version::Integer)::HDU where
+	U<:Union{AbstractString, Symbol}
+
+	for hdu in hdus
+		if uppercase(extname(hdu)) == uppercase(string(name)) && extver(hdu) == version
+			return hdu
+		end
+	end
+	throw(KeyError((name, version)))
+end
+
 function Base.get(hdus::Vector{HDU}, name::U, default::V = "")::Union{HDU, Nothing}  where
 	{U<:Union{AbstractString, Symbol}, V<:Union{AbstractString, Symbol}}
 
