@@ -1,9 +1,10 @@
 ####    Random HDU functions
 
 """
-    RandomField(name, index, type, slice, leng, shape, zero, scale)
+    RandomField(name, index, type, slice, leng, shape, zero, scale, miss)
 
-Random array element descriptor
+Random array element descriptor. `miss` is the value of BLANK, the stored value of an undefined element, for the array
+of a group (Sect. 4.4.2.5), and is nothing for a parameter and for an array without a BLANK.
 """
 struct RandomField <: AbstractField
     "The name of the field"
@@ -22,7 +23,12 @@ struct RandomField <: AbstractField
     zero::Union{AbstractFloat, Missing}
     "The scale factor of the field"
     scale::Union{AbstractFloat, Missing}
+    "The value representing a missing value of the field"
+    miss::Union{Integer, Nothing}
 end
+
+RandomField(name, index, type, slice, leng, shape, zero, scale) =
+    RandomField(name, index, type, slice, leng, shape, zero, scale, nothing)
 
 #  The names of the parameters, which are the PTYPEn keywords, or param1, param2, ... for those that are absent. The
 #  array of a group is named data, so a parameter whose name is data is named param<n>, where n is the number of the first
@@ -67,8 +73,9 @@ function Base.read(io::IO, ::Type{Random}, format::DataFormat,
     values = reshape(ntoh.(reinterpret(format.type, readbytes(io, nbytes))), P + prod(shape), G)
     #  The physical values of a field are the values of the offset convention of Table 11 of the standard (Sect. 5.2.5, which
     #  Sect. 6.3 gives to the parameters and the array) or are scaled (Eqs. 3 and 5)
-    images = [ImageField(field.type, field.zero, field.scale, nothing, nothing, nothing) for field in fields]
-    apply(value, k) = scale ? physical(value, images[k]) : value
+    images = [ImageField(field.type, field.zero, field.scale, field.miss, nothing, nothing) for field in fields]
+    #  The undefined elements of the array are missing, with and without the scale
+    apply(value, k) = (value = setmissing(value, images[k].miss); scale ? physical(value, images[k]) : value)
     names = [field.name for field in fields]
     ndxs = [name => findall(x -> x == name, names) for name in unique(names)]
     if record
@@ -103,7 +110,7 @@ function Base.write(io::IO, ::Type{Random}, data::Union{AbstractArray, NamedTupl
     N = format.group
     if N > 0
         #  The stored values of the physical values (Eqs. 3 and 5), which are the values that are of the type of BITPIX
-        images = [ImageField(field.type, field.zero, field.scale, nothing, nothing, nothing) for field in fields]
+        images = [ImageField(field.type, field.zero, field.scale, field.miss, nothing, nothing) for field in fields]
         #  The parameters of a name are one value of the data, which is found by its position, whatever its name is
         names = unique(field.name for field in fields[1:format.param])
         positions = [findfirst(==(field.name), names) for field in fields[1:format.param]]
@@ -111,7 +118,9 @@ function Base.write(io::IO, ::Type{Random}, data::Union{AbstractArray, NamedTupl
             for (k, field) in enumerate(fields[1:format.param])
                 write(io, hton(storedparam(getparam(data, field, j, positions[k]), field, images[k], k, j; check)))
             end
-            write(io, hton.(storedgroup(getgroup(data, fields[end], j, format), fields[end], images[end], j; check)))
+            stored = storedgroup(getgroup(data, fields[end], j, format), fields[end], images[end], j; check)
+            #  The undefined values are written as BLANK, or NaN for floating-point data
+            write(io, hton.(unsetmissing(stored, images[end].miss, images[end].type)))
         end
         #  Pad last block with zeros
         padblock(io, format)
@@ -180,6 +189,8 @@ end
 function verify!(::Type{Random}, cards::Cards, mankeys::AbstractDict, reskeys::AbstractDict)
     cards = invoke(verify!, Tuple{Type{<:AbstractHDU}, Cards, AbstractDict, AbstractDict}, Random, cards,
         mankeys, reskeys)
+    #  BLANK is the value of an undefined element of the array of a group (Sect. 4.4.2.5)
+    verifyblank(mankeys, reskeys)
     #  BITPIX, NAXIS, PCOUNT, and GCOUNT give the size of the data (Eq. 4 of the standard), which cannot be read
     #  without them, and they are mandatory (Sect. 6.1.1). A header that is being created does not have the keywords
     #  yet, and is arranged when it is created.
@@ -247,7 +258,9 @@ function randomfields(format::DataFormat, reskeys::AbstractDict, names, array::A
     leng  = prod(format.shape)
     bzero = leastfloat(get(reskeys,  "BZERO", zero_))
     scale = leastfloat(get(reskeys, "BSCALE", 1.0f0))
-    fields[end] = RandomField(array, 1, type, k+1:k+leng*bytes, leng, format.shape, bzero, scale)
+    #  The undefined elements of an array of integers are the elements of the value of BLANK (Sect. 4.4.2.5)
+    miss  = type in MISSTYPE ? get(reskeys, "BLANK", nothing) : nothing
+    fields[end] = RandomField(array, 1, type, k+1:k+leng*bytes, leng, format.shape, bzero, scale, miss)
     fields
 end
 

@@ -38,6 +38,9 @@ A parameter with the PSCALn of 1 and the PZEROn of the offsets of Table 11 (Sect
 the parameters), and the array with the BSCALE of 1 and the BZERO of the offsets, are the unsigned integers or the signed
 bytes: `UInt16`, `UInt32`, `UInt64`, or `Int8`, for the values of 16-, 32-, or 64-bit integers, or bytes. Data of those
 types have the PZEROn and BZERO keywords of the offsets when the HDU is made.
+
+The elements of the array of integers that are the stored value of BLANK are `missing` (Sect. 4.4.2.5), with and without
+`scale = false`, and are written as BLANK. The parameters do not have undefined values.
 """
 struct Random <: AbstractHDU end
 

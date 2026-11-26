@@ -34,13 +34,19 @@ function verifyarray(mankeys::AbstractDict, reskeys::AbstractDict)
     verifyvalue(mankeys, "NAXIS", 0:MAXAXES, "an integer from 0 to $MAXAXES")
     verifyaxes(mankeys)
     verifysize(mankeys)
-    verifyinteger(reskeys, r"^BLANK$")
-    haskey(reskeys, "BLANK") && get(mankeys, "BITPIX", 8) < 0 && @warn "BLANK is for integer data " *
-        "(a positive BITPIX) only (Sect. 4.4.2.5), so it is not used."
+    verifyblank(mankeys, reskeys)
     verifynumber(reskeys, r"^(BSCALE|BZERO|DATAMIN|DATAMAX)$")
     verifyfloat(reskeys, r"^(DATAMIN|DATAMAX)$")
     verifystring(reskeys, r"^BUNIT$")
     verifyunit(reskeys, r"^BUNIT$")
+end
+
+#  The BLANK keyword of an array, which is an integer, and is for integer data only (Sect. 4.4.2.5): the primary array, an
+#  IMAGE extension, and the array of random groups.
+function verifyblank(mankeys::AbstractDict, reskeys::AbstractDict)
+    verifyinteger(reskeys, r"^BLANK$")
+    haskey(reskeys, "BLANK") && get(mankeys, "BITPIX", 8) < 0 && @warn "BLANK is for integer data " *
+        "(a positive BITPIX) only (Sect. 4.4.2.5), so it is not used."
 end
 
 #  The size of the data array, |BITPIX|/8 × NAXIS1 × ... × NAXISm bytes, is at most the largest integer, so

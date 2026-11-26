@@ -25,7 +25,7 @@
     common = ["BITPIX", "NAXIS", "NAXIS1", "NAXIS12", "PCOUNT", "GCOUNT", "EXTVER", "EXTLEVEL", "WCSAXES",
         "WCSAXESA", "MJDREFI", "JDREFI"]
     integerkeys = [
-        FITSFiles.Primary => ["BLANK"], FITSFiles.Conform => ["BLANK"], Image => ["BLANK"], Random => String[],
+        FITSFiles.Primary => ["BLANK"], FITSFiles.Conform => ["BLANK"], Image => ["BLANK"], Random => ["BLANK"],
         Table => ["TFIELDS", "TBCOL3"], Bintable => ["TFIELDS", "THEAP", "TNULL1", "TNULL12"],
         FITSFiles.ZImage => ["ZBITPIX", "ZNAXIS", "ZNAXIS2", "ZTILE1", "ZDITHER0", "ZPCOUNT", "ZGCOUNT", "ZBLANK"],
         FITSFiles.ZTable => ["ZNAXIS1", "ZNAXIS2", "ZPCOUNT", "ZTILELEN", "ZTHEAP"]]
@@ -116,7 +116,7 @@
     #  the HDU types are independent: a keyword of one type is not verified by another type, and the other
     #  keywords are not checked
     others = Dict(FITSFiles.Primary => ["TFIELDS", "THEAP", "TNULL1", "ZBITPIX"], Image => ["TBCOL1", "ZNAXIS"],
-        Random => ["BLANK", "TFIELDS"], Table => ["BLANK", "THEAP", "TNULL1", "ZTHEAP"],
+        Random => ["TFIELDS"], Table => ["BLANK", "THEAP", "TNULL1", "ZTHEAP"],
         Bintable => ["BLANK", "TBCOL1", "ZTILELEN"], FITSFiles.ZImage => ["BLANK", "TFIELDS", "ZTHEAP"],
         FITSFiles.ZTable => ["BLANK", "THEAP", "ZBLANK"])
     for (type, keys) in others, key in [keys; "BSCALE"; "EQUINOX"; "NAXISX"; "OBJECT"]
