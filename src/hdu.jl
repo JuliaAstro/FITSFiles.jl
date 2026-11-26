@@ -40,6 +40,9 @@ the parameters), and the array with the BSCALE of 1 and the BZERO of the offsets
 bytes: `UInt16`, `UInt32`, `UInt64`, or `Int8`, for the values of 16-, 32-, or 64-bit integers, or bytes. Data of those
 types have the PZEROn and BZERO keywords of the offsets when the HDU is made.
 
+A header with an NAXIS of 1 has no axes in the array of a group, and so one value in each group (Eq. 6 of the standard), which is
+a vector of the groups in the data, and a number in a record. Data of a vector are a table by default, so make them with `HDU(Random, data)`.
+
 The elements of the array of integers that are the stored value of BLANK are `missing` (Sect. 4.4.2.5), with and without
 `scale = false`, and are written as BLANK. The parameters do not have undefined values.
 """

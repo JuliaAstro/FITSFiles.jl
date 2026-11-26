@@ -198,9 +198,9 @@ function getparam(data::NamedTuple, field, j::Integer, u::Integer)
 end
 
 #  The values of the array of group `j`, as a vector. The array is the last of the values of a group, whatever its
-#  name is.
+#  name is, and is a value, and not an array, in a record of an array without axes (NAXIS of 1).
 getgroup(data::AbstractArray, field, j::Integer, format::DataFormat) =
-    reshape(data[j][end], :)
+    data[j][end] isa AbstractArray ? reshape(data[j][end], :) : [data[j][end]]
 getgroup(data::NamedTuple, field, j::Integer, format::DataFormat) =
     reshape(data[end], (format.group, :))[j, :]
 

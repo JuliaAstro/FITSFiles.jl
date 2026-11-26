@@ -1245,6 +1245,41 @@
         @test getfield(madef, :cards)["GROUPS"] == true
         @test reading(written(madef); scale = false).data == (a = Int16[1, 3], b = Int16[2, 4], data = Int16[10 11 12; 20 21 22])
 
+        ####    An array without axes, NAXIS of 1, has one value in each group (Sect. 6.2, Eq. 6)
+
+        #  the product of no axes is 1, so a group has its parameters and one value, as cfitsio reads it
+        oneaxis = [kw("SIMPLE", "T"), kw("BITPIX", 16), kw("NAXIS", 1), kw("NAXIS1", 0), kw("GROUPS", "T"), kw("PCOUNT", 2),
+            kw("GCOUNT", 2)]
+        onevalues = Int16[1, 2, 10, 3, 4, 20]
+        onebytes = filebytes(oneaxis, bytesof(onevalues))
+        @test reading(onebytes).data == (param1 = Float32[1, 3], param2 = Float32[2, 4], data = Float32[10, 20])
+        @test reading(onebytes; scale = false).data == (param1 = Int16[1, 3], param2 = Int16[2, 4], data = Int16[10, 20])
+        @test reading(onebytes; record = true).data[2] == (param1 = 3.0f0, param2 = 4.0f0, data = 20.0f0)
+        for kwds in ((;), (; scale = false), (; record = true))
+            @test written(reading(onebytes; kwds...)) == onebytes
+        end
+        #  and the size is of the parameters and the value of each group, and a file that is shorter is an error
+        @test_throws ArgumentError("The data of the HDU is 12 bytes, as its header says, but the file has only 8 of them.") reading(
+            filebytes(oneaxis, bytesof(onevalues))[1:2880+8])
+        #  data that are made with the type of the HDU, since the data of vectors are a table by default, have the keywords
+        onegroups = HDU(Random, (a = Int16[1, 3], b = Int16[2, 4], data = Int16[10, 20]))
+        @test onegroups isa HDU{Random} && HDU((a = Int16[1, 3], data = Int16[10, 20])) isa HDU{Bintable}
+        @test [getfield(onegroups, :cards)[key] for key in ("NAXIS", "NAXIS1", "PCOUNT", "GCOUNT")] == [1, 0, 2, 2]
+        @test written(onegroups)[2881:end] == onebytes[2881:end]
+        @test reading(written(onegroups); scale = false).data == (a = Int16[1, 3], b = Int16[2, 4], data = Int16[10, 20])
+        #  and so do the records of values, a tuple of vectors, and data without parameters
+        @test written(HDU(Random, [(a = Int16(1), b = Int16(2), data = Int16(10)), (a = Int16(3), b = Int16(4),
+            data = Int16(20))])) == written(onegroups)
+        @test written(HDU(Random, (Int16[1, 3], Int16[2, 4], Int16[10, 20])))[2881:end] == onebytes[2881:end]
+        noparams = HDU(Random, (data = Int16[10, 20],))
+        @test [getfield(noparams, :cards)[key] for key in ("NAXIS", "PCOUNT", "GCOUNT")] == [1, 0, 2]
+        @test reading(written(noparams); scale = false).data == (data = Int16[10, 20],)
+        #  the data that are created from the header have a value for each group
+        fromcards = HDU(Random, missing, getfield(reading(onebytes), :cards))
+        @test fromcards.data == (param1 = Int16[0, 0], param2 = Int16[0, 0], data = Int16[0, 0])
+        @test HDU(Random, missing, getfield(reading(onebytes), :cards); record = true).data[1] ==
+            (param1 = Int16(0), param2 = Int16(0), data = Int16(0))
+
         ####    The parameters of one name, which are summed (Sect. 6.1.2)
 
         #  data that have a matrix for the parameters of a name have the parameters in the header, and write them all
