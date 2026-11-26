@@ -741,7 +741,7 @@ Warn if the header of a primary HDU does not begin with SIMPLE, BITPIX, NAXIS, a
 that order and with no other keyword between them (Sect. 4.4.1.1 of the standard), or if the values of
 these keywords are not in fixed format (Sect. 4.4.1), and return the cards unchanged. The file is read and
 written as it is, so the cards are not reordered or reformatted. The NAXIS value of `mankeys` must be
-valid (see [`verifyarray`](@ref)).
+valid, as `verifyarray` checks.
 """
 function verifyprimary(cards::Cards, mankeys::AbstractDict)
 	#  A header that is being created does not have the keywords yet, and is arranged when it is created.
