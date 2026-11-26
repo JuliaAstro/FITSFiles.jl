@@ -6,8 +6,8 @@ struct ZTable <: AbstractHDU end
 union!(MANDATORYKEYS, ["ZTABLE", "ZNAXIS", "ZPCOUNT", "ZFORM", "ZCTYP", "ZTILELEN"])
 union!(RESERVEDKEYS, ["FZTILELN", "FZALGOR", "FZALG", "ZTHEAP", "ZHECKSUM", "ZDATASUM"])
 
-#  The fill after the data is that of a binary table
-fillrule(::Type{ZTable}) = fillrule(Bintable)
+#  The fill after the data is zeros, as for a binary table (see `verifyfill`)
+fillrule(::Type{ZTable}) = (0x00, "zeros", "Sect. 7.3.3")
 
 using CodecZlib
 #  add Rice, PLIO, Hcompress, and No compression algorithms

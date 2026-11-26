@@ -207,45 +207,6 @@ end
 
 
 
-#  The structure of a table extension, ASCII or binary, which is an array of bytes with NAXIS = 2 axes, the
-#  length of a row and the number of rows (Sects. 7.2.1 and 7.3.1)
-function verifyrows(mankeys::AbstractDict)
-	verifyvalue(mankeys, "BITPIX", 8:8, "the integer 8")
-	verifyvalue(mankeys, "NAXIS", 2:2, "the integer 2")
-	verifyaxes(mankeys)
-end
-
-"""
-	verifyfields!(cards, mankeys; columns = false)
-
-Verify the keywords that describe the fields of a table extension, and return the cards unchanged
-(Sects. 7.2.1 and 7.3.1 of the standard). It is an error, since the fields cannot be read, if TFIELDS
-is negative, if TFORMn is missing for an n from 1 to TFIELDS, or, for an ASCII table (`columns = true`),
-if TBCOLn is missing or less than 1, since the first column of a row is numbered 1. It is a warning,
-since the extra keywords are not used, if TFIELDS is more than 999, the maximum, or if TFORMn or TBCOLn
-is present for an n greater than TFIELDS. A header with no TFIELDS is not verified.
-"""
-function verifyfields!(cards::Cards, mankeys::AbstractDict; columns::Bool = false)
-	N = get(mankeys, "TFIELDS", nothing)
-	isnothing(N) && return cards
-	N < 0 && throw(ArgumentError("TFIELDS must be non-negative, but its value is $N."))
-	N > MAXFIELDS && @warn "TFIELDS $N is more than the maximum of $MAXFIELDS."
-	for j = 1:N
-		haskey(mankeys, "TFORM$j") || throw(ArgumentError("TFORM$j is missing, but TFIELDS is $N."))
-		if columns
-			haskey(mankeys, "TBCOL$j") || throw(ArgumentError("TBCOL$j is missing, but TFIELDS is $N."))
-			mankeys["TBCOL$j"] >= 1 || throw(ArgumentError(
-				"TBCOL$j must be at least 1, the first column of a row, but its value is $(mankeys["TBCOL$j"])."))
-		end
-	end
-	for key in sort!(collect(keys(mankeys)))
-		m = match(r"^(TFORM|TBCOL)(\d+)$", key)
-		!isnothing(m) && Base.parse(Int, m[2]) > N && (columns || m[1] == "TFORM") &&
-			@warn "$key is beyond TFIELDS $N, and is not used."
-	end
-	cards
-end
-
 """
 	verifyxtension!(cards)
 

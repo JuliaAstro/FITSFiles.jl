@@ -43,7 +43,7 @@ function verify!(::Type{Conform}, cards::Cards, mankeys::AbstractDict, reskeys::
     if haskey(mankeys, "SIMPLE")
         mankeys["SIMPLE"] === false && @warn "SIMPLE is F, so the file does not conform to the " *
             "Standard (Sect. 4.4.1.1). The primary HDU is read as a Conform HDU, and its data are not scaled."
-        cards = verifyprimary(cards, mankeys)
+        cards = verifyconform(cards, mankeys)
     end
     cards
 end
@@ -68,3 +68,19 @@ function createdata(::Type{Conform}, format::DataFormat, fields::ConformField;
     zerosarray(format)
 end
 
+"""
+	verifyconform(cards, mankeys)
+
+Warn if the header of the primary HDU of a Conform HDU does not begin with SIMPLE, BITPIX, NAXIS, and the NAXISn keywords, in
+that order and with no other keyword between them (Sect. 4.4.1.1 of the standard), or if the values of
+these keywords are not in fixed format (Sect. 4.4.1), and return the cards unchanged. The file is read and
+written as it is, so the cards are not reordered or reformatted. The NAXIS value of `mankeys` must be
+valid, as `verifyarray` checks.
+"""
+function verifyconform(cards::Cards, mankeys::AbstractDict)
+	#  A header that is being created does not have the keywords yet, and is arranged when it is created.
+	haskey(mankeys, "SIMPLE") || return cards
+	required = vcat(["SIMPLE", "BITPIX", "NAXIS"], ["NAXIS$j" for j = 1:get(mankeys, "NAXIS", 0)])
+	verifyorder(cards, required)
+	verifyfixed(cards, required)
+end

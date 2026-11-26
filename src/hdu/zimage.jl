@@ -7,8 +7,8 @@ union!(MANDATORYKEYS, ["ZIMAGE", "ZBITPIX", "ZNAXIS", "ZCMPTYPE"])
 union!(RESERVEDKEYS, ["ZTILE", "ZNAME", "ZVAL", "ZMASKCMP", "ZQUANTIZ", "ZDITHER0", "ZSIMPLE", "ZEXTEND", "ZBLOCKED",
     "ZTENSION", "ZPCOUNT", "ZGCOUNT", "ZBLANK", "ZHECKSUM", "ZDATASUM"])
 
-#  The fill after the data is that of a binary table
-fillrule(::Type{ZImage}) = fillrule(Bintable)
+#  The fill after the data is zeros, as for a binary table (see `verifyfill`)
+fillrule(::Type{ZImage}) = (0x00, "zeros", "Sect. 7.3.3")
 
 using CodecZlib
 #  add Rice, PLIO, Hcompress, and No compression algorithms

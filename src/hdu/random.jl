@@ -311,7 +311,7 @@ function verify!(::Type{Random}, cards::Cards, mankeys::AbstractDict, reskeys::A
     #  The keywords that describe the array of a group (Sect. 4.4.2.5), and the keywords of the primary header, which is the
     #  header of random groups
     verifyarraykeys(mankeys, reskeys)
-    verifyprimarykeys(reskeys)
+    verifyrandomkeys(reskeys)
     verifylogical(mankeys, r"^GROUPS$")
     #  BITPIX, NAXIS, PCOUNT, and GCOUNT give the size of the data (Eq. 4 of the standard), which cannot be read
     #  without them, and they are mandatory (Sect. 6.1.1). A header that is being created does not have the keywords
@@ -574,4 +574,11 @@ function scalecards!(::Type{Random}, cards::Cards, data::NamedTuple)
         setscalecard!(cards, "BZERO", zeroof(values[end]), 0)
     end
     cards
+end
+
+#  The keywords that are in the primary header only (Sects. 4.4.2.1 and 4.4.2.6, and App. K), which the header of random groups is:
+#  EXTEND and BLOCKED are logicals, and INHERIT must not appear.
+function verifyrandomkeys(reskeys::AbstractDict)
+    verifylogical(reskeys, r"^(EXTEND|BLOCKED)$")
+    haskey(reskeys, "INHERIT") && @warn "INHERIT must not appear in the primary header (Appendix K). It is read as it is."
 end
