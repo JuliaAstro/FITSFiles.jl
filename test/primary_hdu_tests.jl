@@ -502,6 +502,14 @@
             [simple, bitpix, kw("NAXIS", 1), kw("NAXIS1", 0), kw("GROUPS", "F")])
             @test ismissing(@test_logs(reading(filebytes(cards, data))).data)
         end
+        #  GROUPS must be a logical, and a value that is not is not the signature, even if it is equal to T
+        for groups in ("1", "'T'", "1.0")
+            value = groups == "'T'" ? "T" : groups == "1" ? 1 : 1.0f0
+            hdu = @test_logs (:warn, "GROUPS must be a logical, T or F, but its value is $(repr(value)). It is read as it is.") reading(
+                filebytes([simple, bitpix, kw("NAXIS", 2), kw("NAXIS1", 0), kw("NAXIS2", 3), kw("GROUPS", groups), counts...],
+                data))
+            @test hdu isa HDU{Primary} && ismissing(hdu.data)
+        end
         #  GROUPS of F is not the signature, whatever NAXIS1 is
         hdu = @test_logs reading(filebytes([simple, bitpix, kw("NAXIS", 2), kw("NAXIS1", 3), kw("NAXIS2", 2),
             kw("GROUPS", "F")], data))

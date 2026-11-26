@@ -222,6 +222,7 @@ function verify!(::Type{Random}, cards::Cards, mankeys::AbstractDict, reskeys::A
     #  header of random groups
     verifyarraykeys(mankeys, reskeys)
     verifyprimarykeys(reskeys)
+    verifylogical(mankeys, r"^GROUPS$")
     #  BITPIX, NAXIS, PCOUNT, and GCOUNT give the size of the data (Eq. 4 of the standard), which cannot be read
     #  without them, and they are mandatory (Sect. 6.1.1). A header that is being created does not have the keywords
     #  yet, and is arranged when it is created.
@@ -256,9 +257,9 @@ end
 function verify!(::Type{Random}, cards::Cards, format::DataFormat,
     mankeys::AbstractDict)
 
-    !get(mankeys, "SIMPLE", true) && @warn "Random HDU is nonconformant, since SIMPLE is F."
+    get(mankeys, "SIMPLE", true) === false && @warn "Random HDU is nonconformant, since SIMPLE is F."
     verifyshape!(cards, mankeys, format; first = 2)
-    if !get(mankeys, "GROUPS", true)
+    if get(mankeys, "GROUPS", true) !== true
         setindex!(cards, true, "GROUPS")
         @warn "GROUPS set to true"
     end

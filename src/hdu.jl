@@ -1058,7 +1058,7 @@ function typeofhdu(mankeys::Dict{S, V}) where {S <: AbstractString, V <: ValueTy
 			throw(ArgumentError("SIMPLE must be a logical, T or F, but its value is $(repr(simple))."))
 		if !simple
 			type = Conform
-		elseif get(mankeys, "GROUPS", false) == true &&
+		elseif get(mankeys, "GROUPS", false) === true &&
 		   haskey(mankeys, "NAXIS1") && mankeys["NAXIS1"] == 0
 			type = Random
 		else

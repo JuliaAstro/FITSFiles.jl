@@ -13,6 +13,7 @@ end
 #  is not random groups, and is read as a primary array, whose data are the NAXISn, and not the groups of PCOUNT parameters
 #  and an array, so PCOUNT and GCOUNT are not used.
 function verifygroups(mankeys::AbstractDict)
+    verifylogical(mankeys, r"^GROUPS$")
     naxis1 = get(mankeys, "NAXIS1", nothing)
     if get(mankeys, "GROUPS", nothing) === true && naxis1 != 0
         @warn "GROUPS is T, which says that the HDU has random groups, but NAXIS1 is $(isnothing(naxis1) ? "absent" : naxis1), " *
