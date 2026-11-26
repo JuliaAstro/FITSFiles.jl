@@ -66,6 +66,21 @@
         @test_logs (:warn, r"SIMPLE is F") fits(IOBuffer([bytes; extension]))
         #  a file does not have to have HDUs
         @test isempty(@test_logs fits(IOBuffer(UInt8[])))
+
+        #  the HDUs are written to a file by its name, and are the HDUs that are read from it
+        mktemp() do path, io
+            close(io)
+            @test_logs write(path, [primary, image, table])
+            file = @test_logs fits(path)
+            @test typeof.(file) == [typeof(primary), typeof(image), typeof(table)]
+            @test file[1].data == [1 2 3; 4 5 6] && file[2].data == [1.5 2.5; -1 7] && file[3].data.a == [1, 2, 3]
+            #  the keywords are the keywords of the write of the HDUs
+            @test_logs write(path, [empty, image]; checksum = true)
+            @test_logs fits(path; checksum = true)
+            #  and the file is verified like a vector
+            @test_logs (:warn, first_) write(path, [image, table])
+            @test length(@test_logs((:warn, first_), fits(path))) == 2
+        end
     end
 
 end
