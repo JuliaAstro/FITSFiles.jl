@@ -314,9 +314,12 @@
         end
         #  the other keywords can be in free format
         @test_logs reading(filebytes([header; ["BZERO   = 1.0", "BUNIT   = 'adu'"]], data))
-        #  an HDU that is created has the fixed format and the order
+        #  an HDU that is created has the fixed format and the order, and its header is not verified when it is
+        #  created without the mandatory keywords
         hdu = HDU(Primary, rand(Float32, 2, 3))
         @test_logs written(hdu)
+        @test_logs HDU(Primary)
+        @test_logs HDU(Primary, missing, Card{<:Any}[Card("COMMENT", "a comment")])
 
         ####    The size of the data (Eq. 1)
 

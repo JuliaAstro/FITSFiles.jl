@@ -626,6 +626,8 @@ written as it is, so the cards are not reordered or reformatted. The NAXIS value
 valid (see [`verifyarray`](@ref)).
 """
 function verifyprimary(cards::Cards, mankeys::AbstractDict)
+	#  A header that is being created does not have the keywords yet, and is arranged when it is created.
+	haskey(mankeys, "SIMPLE") || return cards
 	required = vcat(["SIMPLE", "BITPIX", "NAXIS"], ["NAXIS$j" for j = 1:get(mankeys, "NAXIS", 0)])
 	verifyorder(cards, required)
 	verifyfixed(cards, required)
