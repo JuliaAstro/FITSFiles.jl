@@ -791,6 +791,71 @@
         floats = filebytes(grouphdr(bitpix = -32), bytesof(Float32[1, NaN, 10, 11, 12, 3, 4, 20, Inf, 22]))
         @test written(reading(floats)) == floats
 
+        ####    The array has the last name, and the names of the parameters are the keys of the data
+
+        #  a parameter that is named data does not hide the array, and is named param<n>, with a warning that explains it
+        dataname = filebytes(grouphdr(extra = [kw("PTYPE1", "'data'")]), bytesof(stored))
+        renamed = r"PTYPE1 of the random groups is 'data', which is the name of the array of a group, so the parameter " *
+            r"is named param1. The header is not changed."
+        named = @test_logs (:warn, renamed) reading(dataname)
+        @test keys(named.data) == (:param1, :param2, :data) && named.data.param1 == Float32[1, 3]
+        @test named.data.data == Float32[10 11 12; 20 21 22]
+        @test_logs (:warn, renamed) @test written(named) == dataname
+        @test keys((@test_logs (:warn, renamed) reading(dataname; record = true)).data[1]) == (:param1, :param2, :data)
+        @test_logs (:warn, renamed) (:warn, renamed) @test written(reading(dataname; record = true)) == dataname
+        #  the header keeps the name, and the rename is a name for the parameter
+        @test getfield(named, :cards)["PTYPE1"] == "data"
+        #  the number of the parameter is the number in the name, and a name that is taken is made unique
+        third = filebytes(grouphdr(pcount = 3, extra = [kw("PTYPE3", "'data'")]), bytesof(Int16[1:3; 10:12; 4:6; 20:22]))
+        @test keys((@test_logs (:warn, r"is named param3") reading(third)).data) == (:param1, :param2, :param3, :data)
+        taken = filebytes(grouphdr(extra = [kw("PTYPE1", "'data'"), kw("PTYPE2", "'param1'")]), bytesof(stored))
+        @test keys((@test_logs (:warn, r"is named param_1") reading(taken)).data) == (:param_1, :param1, :data)
+        taken = filebytes(grouphdr(extra = [kw("PTYPE1", "'data'"), kw("PTYPE2", "'param_1'")]), bytesof(stored))
+        @test keys((@test_logs (:warn, r"is named param1\.") reading(taken)).data) == (:param1, :param_1, :data)
+        taken = filebytes(grouphdr(pcount = 3, extra = [kw("PTYPE1", "'data'"), kw("PTYPE2", "'param1'"),
+            kw("PTYPE3", "'param_1'")]), bytesof(Int16[1:3; 10:12; 4:6; 20:22]))
+        @test keys((@test_logs (:warn, r"is named param__1") reading(taken)).data) == (:param__1, :param1, :param_1, :data)
+        @test_logs (:warn, r"param__1") (:warn, r"param__1") @test written(reading(taken)) == taken
+        #  parameters that are named data are one parameter of the first number, which is the sum of them
+        twice = filebytes(grouphdr(extra = [kw("PTYPE1", "'data'"), kw("PTYPE2", "'data'")]), bytesof(stored))
+        twicehdu = @test_logs (:warn, r"PTYPE1 and PTYPE2 of the random groups are 'data'.*is named param1") reading(twice)
+        @test keys(twicehdu.data) == (:param1, :data) && twicehdu.data.param1 == Float32[1 2; 3 4]
+        @test_logs (:warn, r"param1") @test written(twicehdu) == twice
+        #  a name that is not data does not warn, and the case of the name is its own
+        @test_logs reading(filebytes(grouphdr(extra = [kw("PTYPE1", "'DATA'")]), bytesof(stored)))
+        @test keys(reading(filebytes(grouphdr(extra = [kw("PTYPE1", "'DATA'")]), bytesof(stored))).data) ==
+            (:DATA, :param2, :data)
+        #  the data that are created have the names of the data, whatever the name of the array is
+        for array in (:data, :b, :values)
+            columns = NamedTuple{(:a, :c, array)}((Int16[1, 3], Int16[2, 4], Int16[10 11 12; 20 21 22]))
+            created = HDU(Random, columns)
+            #  the data are the data of the file, and the header has the PTYPEn keywords
+            @test written(created)[2881:end] == groups[2881:end]
+            again = reading(written(created); scale = false)
+            @test again.data == (a = Int16[1, 3], c = Int16[2, 4], data = Int16[10 11 12; 20 21 22])
+            @test written(again) == written(created)
+            records = [NamedTuple{(:a, :c, array)}((Int16(1), Int16(2), Int16[10, 11, 12])),
+                NamedTuple{(:a, :c, array)}((Int16(3), Int16(4), Int16[20, 21, 22]))]
+            @test written(HDU(Random, records)) == written(created)
+        end
+        #  a parameter named data, and an array with another name, which is written by position
+        created = HDU(Random, (data = Int16[1, 3], b = Int16[10 11 12; 20 21 22]))
+        createdbytes = @test_logs (:warn, r"PTYPE1 of the random groups is 'data'") written(created)
+        @test createdbytes[2881:end] == filebytes(grouphdr(pcount = 1), bytesof(Int16[1, 10, 11, 12, 3, 20, 21, 22]))[2881:end]
+        again = @test_logs (:warn, r"is named param1") reading(createdbytes; scale = false)
+        @test again.data == (param1 = Int16[1, 3], data = Int16[10 11 12; 20 21 22])
+        @test_logs (:warn, r"is named param1") @test written(again) == createdbytes
+        #  the data are written by position, so the names of the data need not be the names of the header
+        mismatched = HDU(Random, (x = Int16[1, 3], y = Int16[2, 4], z = Int16[10 11 12; 20 21 22]),
+            Card{<:Any}[Card("PTYPE1", "A"), Card("PTYPE2", "B")])
+        @test written(mismatched)[2881:end] == groups[2881:end]
+        @test keys(reading(written(mismatched)).data) == (:A, :B, :data)
+        @test written(HDU(Random, [(x = Int16(1), y = Int16(2), z = Int16[10, 11, 12]),
+            (x = Int16(3), y = Int16(4), z = Int16[20, 21, 22])], Card{<:Any}[Card("PTYPE1", "A"), Card("PTYPE2", "B")]))[
+            2881:end] == groups[2881:end]
+        #  data of a tuple are named param1, param2, ... and data
+        @test reading(written(HDU(Random, (Int16[1, 3], Int16[10 11 12; 20 21 22]))); scale = false).data ==
+            (param1 = Int16[1, 3], data = Int16[10 11 12; 20 21 22])
     end
 
 end

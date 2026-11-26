@@ -24,6 +24,32 @@ struct RandomField <: AbstractField
     scale::Union{AbstractFloat, Missing}
 end
 
+#  The names of the parameters, which are the PTYPEn keywords, or param1, param2, ... for those that are absent. The
+#  array of a group is named data, so a parameter whose name is data is named param<n>, where n is the number of the first
+#  such parameter, or param_<n>, param__<n>, ... if that is the name of another parameter. The header is not changed.
+ptypenames(reskeys::AbstractDict, P::Integer) = [rstrip(get(reskeys, "PTYPE$j", "param$j")) for j = 1:P]
+function paramnames(reskeys::AbstractDict, P::Integer)
+    names = ptypenames(reskeys, P)
+    n = findfirst(==("data"), names)
+    isnothing(n) && return names
+    k = 0
+    while "param" * "_"^k * string(n) in names
+        k += 1
+    end
+    replace(names, "data" => "param" * "_"^k * string(n))
+end
+
+#  Warn of a PTYPEn of data, which is the name of the array, so the parameter is renamed.
+function verifyparams(reskeys::AbstractDict, P::Integer)
+    names = ptypenames(reskeys, P)
+    data = findall(==("data"), names)
+    if !isempty(data)
+        keys = join(["PTYPE$j" for j in data], ", ", " and ")
+        @warn "$keys of the random groups $(length(data) > 1 ? "are" : "is") 'data', which is the name of the array of " *
+            "a group, so the parameter is named $(paramnames(reskeys, P)[first(data)]). The header is not changed."
+    end
+end
+
 function Base.read(io::IO, ::Type{Random}, format::DataFormat,
     fields::Vector{RandomField}; record::Bool = false, kwds...)
 
@@ -66,9 +92,12 @@ function Base.write(io::IO, ::Type{Random}, data::Union{AbstractArray, NamedTupl
     if N > 0
         #  The stored values of the physical values (Eqs. 3 and 5), which are the values that are of the type of BITPIX
         images = [ImageField(field.type, field.zero, field.scale, nothing, nothing, nothing) for field in fields]
+        #  The parameters of a name are one value of the data, which is found by its position, whatever its name is
+        names = unique(field.name for field in fields[1:format.param])
+        positions = [findfirst(==(field.name), names) for field in fields[1:format.param]]
         for j=1:N
             for (k, field) in enumerate(fields[1:format.param])
-                write(io, hton(storedparam(getparam(data, field, j), field, images[k], k, j; check)))
+                write(io, hton(storedparam(getparam(data, field, j, positions[k]), field, images[k], k, j; check)))
             end
             write(io, hton.(storedgroup(getgroup(data, fields[end], j, format), fields[end], images[end], j; check)))
         end
@@ -105,22 +134,23 @@ function storedgroup(values::AbstractArray, field::RandomField, image::ImageFiel
     end
 end
 
-#  The value of a parameter of group `j`, where a value of two or more dimensions has the parameters of the
-#  name at the index of the field.
-function getparam(data::AbstractArray, field, j::Integer)
-    value = data[j][Symbol(field.name)]
+#  The value of a parameter of group `j`, which is the `u`th value of the data of the group, where a value of two or
+#  more dimensions has the parameters of the name at the index of the field.
+function getparam(data::AbstractArray, field, j::Integer, u::Integer)
+    value = data[j][u]
     ndims(value) > 1 ? value[field.index] : value
 end
-function getparam(data::NamedTuple, field, j::Integer)
-    value = data[Symbol(field.name)]
+function getparam(data::NamedTuple, field, j::Integer, u::Integer)
+    value = data[u]
     ndims(value) > 1 ? value[j, field.index] : value[j]
 end
 
-#  The values of the array of group `j`, as a vector.
+#  The values of the array of group `j`, as a vector. The array is the last of the values of a group, whatever its
+#  name is.
 getgroup(data::AbstractArray, field, j::Integer, format::DataFormat) =
-    reshape(data[j][Symbol(field.name)], :)
+    reshape(data[j][end], :)
 getgroup(data::NamedTuple, field, j::Integer, format::DataFormat) =
-    reshape(data[Symbol(field.name)], (format.group, :))[j, :]
+    reshape(data[end], (format.group, :))[j, :]
 
 function verify!(::Type{Random}, cards::Cards, mankeys::AbstractDict, reskeys::AbstractDict)
     cards = invoke(verify!, Tuple{Type{<:AbstractHDU}, Cards, AbstractDict, AbstractDict}, Random, cards,
@@ -133,6 +163,7 @@ function verify!(::Type{Random}, cards::Cards, mankeys::AbstractDict, reskeys::A
     verifyaxes(mankeys; first = 2)
     verifyvalue(mankeys, "PCOUNT", 0:typemax(Int), "non-negative")
     verifyvalue(mankeys, "GCOUNT", 0:typemax(Int), "non-negative")
+    verifyparams(reskeys, get(mankeys, "PCOUNT", 0))
     cards
 end
 
@@ -182,9 +213,6 @@ function randomfields(format::DataFormat, reskeys::AbstractDict, names, array::A
     fields[end] = RandomField(array, 1, type, k+1:k+leng*bytes, leng, format.shape, bzero, scale)
     fields
 end
-
-#  The names of the parameters: the PTYPEn keywords, or param1, param2, ... for those that are absent
-paramnames(reskeys::AbstractDict, P::Integer) = [rstrip(get(reskeys, "PTYPE$j", "param$j")) for j = 1:P]
 
 #  The names of the values of a group, which are the keys of a named tuple
 groupnames(group::NamedTuple) = String.(keys(group))
