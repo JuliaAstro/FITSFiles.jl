@@ -805,8 +805,16 @@ function typeofhdu(mankeys::Dict{S, V}) where {S <: AbstractString, V <: ValueTy
 				type = ZTable
 			end
 		end
-	elseif get(mankeys, "SIMPLE", false) == true
-		if get(mankeys, "GROUPS", false) == true &&
+	elseif haskey(mankeys, "SIMPLE")
+		#  SIMPLE is T if the file conforms to the Standard, and F if it does not (Sect. 4.4.1.1). The primary
+		#  HDU of a file that does not conform is a Conform HDU, if its other mandatory keywords conform, which
+		#  its verify! method checks.
+		simple = mankeys["SIMPLE"]
+		simple isa Bool ||
+			throw(ArgumentError("SIMPLE must be a logical, T or F, but its value is $(repr(simple))."))
+		if !simple
+			type = Conform
+		elseif get(mankeys, "GROUPS", false) == true &&
 		   haskey(mankeys, "NAXIS1") && mankeys["NAXIS1"] == 0
 			type = Random
 		else

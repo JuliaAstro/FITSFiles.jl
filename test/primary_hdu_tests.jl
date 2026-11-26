@@ -218,4 +218,63 @@
 
     rm(temppath)
 
+    ####    Test the verification of the header of a primary HDU (Sects. 3.3, 4.4.1, and 4.4.1.1)    ####
+
+    @testset "Primary header" begin
+        #  a card of a keyword and a fixed-format value, and the bytes of a file of a header of the cards and the
+        #  data, which is padded to the 2880 bytes of a block, unless pad is false
+        kw(key, value) = rpad(key, 8) * "= " * lpad(value, 20)
+        function filebytes(cards, data = UInt8[]; pad = true)
+            nfill = pad ? 2880*cld(length(data), 2880) - length(data) : 0
+            rpad(join(rpad.(vcat(cards, ["END"]), 80)), 2880) * String(vcat(data, zeros(UInt8, nfill)))
+        end
+        reading(bytes; kwds...) = read(IOBuffer(bytes), HDU; scale = false, kwds...)
+        written(hdu) = (buffer = IOBuffer(); write(buffer, hdu); take!(buffer))
+
+        simple, bitpix, naxis, naxis1 = kw("SIMPLE", "T"), kw("BITPIX", 16), kw("NAXIS", 1), kw("NAXIS1", 3)
+        data = UInt8[0, 1, 0, 2, 0, 3]
+        header = [simple, bitpix, naxis, naxis1]
+
+        #  a header that conforms is read and written without a warning, as it is, with or without the fill
+        for pad in (true, false)
+            bytes = filebytes(header, data; pad)
+            hdu = @test_logs reading(bytes)
+            @test hdu isa HDU{Primary} && hdu.data == [1, 2, 3]
+            @test @test_logs(written(hdu)) == codeunits(filebytes(header, data))
+        end
+
+        ####    SIMPLE (Sect. 4.4.1.1)
+
+        #  the HDU of a file that does not conform is a Conform HDU, with its data as they are, and it is
+        #  written as it is read
+        simplef = kw("SIMPLE", "F")
+        for cards in ([simplef, bitpix, naxis, naxis1], [simplef, bitpix, naxis, naxis1, kw("BSCALE", "2.0")])
+            bytes = filebytes(cards, data)
+            hdu = @test_logs (:warn, r"SIMPLE is F, so the file does not conform") reading(bytes)
+            @test hdu isa HDU{Conform} && hdu.data == Int16[1, 2, 3]
+            @test @test_logs((:warn, r"SIMPLE is F"), written(hdu)) == codeunits(bytes)
+        end
+        hdu = @test_logs (:warn, r"SIMPLE is F") reading(filebytes(
+            [simplef, bitpix, kw("NAXIS", 2), kw("NAXIS1", 2), kw("NAXIS2", 2)], UInt8[0, 1, 0, 2, 0, 3, 0, 4]))
+        @test hdu.data == Int16[1 3; 2 4]
+        hdu = @test_logs (:warn, r"SIMPLE is F") reading(filebytes([simplef, bitpix, kw("NAXIS", 0)]))
+        @test hdu isa HDU{Conform} && ismissing(hdu.data)
+
+        #  but the other mandatory keywords must conform
+        @test_throws ArgumentError("BITPIX must be one of 8, 16, 32, 64, -32, or -64, but its value is 12.") reading(
+            filebytes([simplef, kw("BITPIX", 12), naxis, naxis1], data))
+        @test_throws ArgumentError("NAXIS1 is missing, but NAXIS is 1.") reading(filebytes([simplef, bitpix, naxis], data))
+
+        #  SIMPLE is a logical
+        for (value, shown) in (("'T'", "\"T\""), ("1", "1"), ("1.0", "1.0f0"))
+            @test_throws ArgumentError("SIMPLE must be a logical, T or F, but its value is $shown.") reading(
+                filebytes([kw("SIMPLE", value), bitpix, kw("NAXIS", 0)]))
+        end
+        mankeys(value) = Dict{AbstractString, FITSFiles.ValueType}("SIMPLE" => value)
+        @test FITSFiles.typeofhdu(mankeys(true)) == Primary
+        @test FITSFiles.typeofhdu(mankeys(false)) == Conform
+        @test_throws ArgumentError("SIMPLE must be a logical, T or F, but its value is missing.") FITSFiles.typeofhdu(
+            mankeys(missing))
+    end
+
 end
