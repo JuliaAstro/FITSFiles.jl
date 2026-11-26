@@ -189,8 +189,10 @@ end
 function verify!(::Type{Random}, cards::Cards, mankeys::AbstractDict, reskeys::AbstractDict)
     cards = invoke(verify!, Tuple{Type{<:AbstractHDU}, Cards, AbstractDict, AbstractDict}, Random, cards,
         mankeys, reskeys)
-    #  BLANK is the value of an undefined element of the array of a group (Sect. 4.4.2.5)
-    verifyblank(mankeys, reskeys)
+    #  The keywords that describe the array of a group (Sect. 4.4.2.5), and the keywords of the primary header, which is the
+    #  header of random groups
+    verifyarraykeys(mankeys, reskeys)
+    verifyprimarykeys(reskeys)
     #  BITPIX, NAXIS, PCOUNT, and GCOUNT give the size of the data (Eq. 4 of the standard), which cannot be read
     #  without them, and they are mandatory (Sect. 6.1.1). A header that is being created does not have the keywords
     #  yet, and is arranged when it is created.

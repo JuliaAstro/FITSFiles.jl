@@ -1115,6 +1115,44 @@
             @test isequal(fits(path; scale = false)[1].data.data, Union{Int16, Missing}[10 missing 12; 20 21 22])
         end
 
+        ####    The keywords of the array (Sect. 4.4.2.5) and of the primary header (Sects. 4.4.2.1 and 4.4.2.6)
+
+        withkeys(extra...) = filebytes(grouphdr(extra = collect(extra)), bytesof(stored))
+        #  the scale, zero, and limits of the array are numbers, since the array cannot be read without them
+        for key in ("BSCALE", "BZERO", "DATAMIN", "DATAMAX"), value in ("'two'", "T")
+            @test_throws ArgumentError reading(withkeys(kw(key, value)))
+        end
+        @test_throws ArgumentError("BSCALE must be a number, but its value is \"two\".") reading(withkeys(kw("BSCALE", "'two'")))
+        @test_throws ArgumentError("DATAMAX must be a number, but its value is true.") reading(withkeys(kw("DATAMAX", "T")))
+        #  and DATAMIN and DATAMAX are floating-point numbers, which an integer is read as
+        for key in ("DATAMIN", "DATAMAX")
+            @test_logs (:warn, "$key must be a floating-point number, but its value is the integer 3. It is read as it is.") reading(
+                withkeys(kw(key, "3")))
+        end
+        #  the units of the array are a units string
+        @test_logs (:warn, "BUNIT must be a character string, but its value is 3. It is read as it is.") reading(
+            withkeys(kw("BUNIT", "3")))
+        @test_logs (:warn, "BUNIT must be a units string (Sect. 4.3), but its value is \"furlongs/fortnight^x\". It is " *
+            "read as it is.") reading(withkeys(kw("BUNIT", "'furlongs/fortnight^x'")))
+        @test_logs reading(withkeys(kw("DATAMIN", "0.5"), kw("DATAMAX", "1.5E2"), kw("BSCALE", "2.0"), kw("BZERO", "1"),
+            kw("BUNIT", "'m/s'")))
+        #  the values of the array keywords are read as they were
+        keyed = reading(withkeys(kw("BSCALE", "2.0"), kw("BZERO", "1"), kw("DATAMIN", "3"))).data.data
+        @test keyed == Float32[21 23 25; 41 43 45]
+        #  EXTEND and BLOCKED are logicals, and INHERIT is not in a primary header
+        for key in ("EXTEND", "BLOCKED")
+            @test_logs (:warn, "$key must be a logical, T or F, but its value is 3. It is read as it is.") reading(
+                withkeys(kw(key, "3")))
+            @test_logs reading(withkeys(kw(key, "T")))
+        end
+        @test_logs (:warn, "INHERIT must not appear in the primary header (Appendix K). It is read as it is.") reading(
+            withkeys(kw("INHERIT", "T")))
+        #  the keywords that the HDUs have in common are verified, as they are for the other HDUs
+        @test_logs (:warn, "ORIGIN must be a character string, but its value is 3. It is read as it is.") reading(
+            withkeys(kw("ORIGIN", "3")))
+        @test_logs (:warn, r"DATE must be a date of the form YYYY-MM-DD") reading(withkeys(kw("DATE", "'yesterday'")))
+        @test_logs reading(withkeys(kw("DATE", "'2026-11-26'"), kw("OBJECT", "'NGC 1275'")))
+
         ####    The lazy file of random groups reads the same
 
         mktemp() do path, io
