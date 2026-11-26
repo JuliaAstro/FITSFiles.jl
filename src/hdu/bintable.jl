@@ -23,30 +23,30 @@ Binary array element descriptor
 """
 struct BinaryField <: AbstractField
     "The name of the field"
-    name::AbstractString
+    name::String
     "The type of variable array pointer "
     pntr::Union{Type, Nothing}
     "The tye of the field"
     type::Type
     "The slice of the field from start of record"
-    slice::UnitRange{<:Integer}
+    slice::UnitRange{Int}
     "The number of elements in the field"
-    leng::Integer
+    leng::Int
     "The supplmental information of the field"
-    supp::AbstractString
+    supp::String
     #  optional fields
     "The unit of the field"
-    unit::AbstractString
+    unit::String
     "The display format of the field"
-    disp::AbstractString
+    disp::String
     "The dimension of the field"
-    dims::Union{Tuple, Nothing}
+    dims::Union{Tuple{Vararg{Int}}, Nothing}
     "The offset of the field"
     zero::Union{AbstractFloat, Nothing}
     "The scale of the field"
     scale::Union{AbstractFloat, Nothing}
     "The missing value of the field"
-    null::Union{Integer, Nothing}
+    null::Union{Int, Nothing}
     "The minimum raw value of the field"
     dmin::Union{AbstractFloat, Nothing}
     "The maximum raw value of the field"
