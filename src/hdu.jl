@@ -126,8 +126,12 @@ const BITPIXVALUES = (8, 16, 32, 64, -32, -64)
 const MAXAXES = 999
 
 const MISSTYPE = (UInt8, Int16, Int32, Int64)
-const TEMPTYPE = Dict(-2^7 => Int16, 2^15 => UInt32, UInt32(2)^31 => UInt64,
-	UInt64(2)^63 => UInt128)
+#  The unsigned integers and the signed bytes are stored as the integers of the same size with an offset in
+#  BZERO (Table 11 of the standard): the type of the array => the type of the physical values and BZERO.
+const OFFSETTYPE = Dict(Int16 => (UInt16, 2^15), Int32 => (UInt32, 2^31), Int64 => (UInt64, UInt64(2)^63),
+	UInt8 => (Int8, -2^7))
+#  The type of the array of the physical type, which is the key of OFFSETTYPE
+const RAWTYPE = Dict(physical => raw for (raw, (physical, _)) in OFFSETTYPE)
 const OUTTYPE  = Dict(
     UInt8 => Float32, Int16 => Float32, Int32 => Float64, Int64 => Float64,
     Float32 => Float32, Float64 => Float64)
@@ -473,6 +477,9 @@ function verify!(::Type{<:AbstractHDU}, cards::Cards, mankeys::AbstractDict, res
 	#  type of HDU, e.g., TFIELDS or BLANK, are verified by the verify! method of that type.
 	verifyinteger(mankeys, r"^(BITPIX|NAXIS\d*|PCOUNT|GCOUNT)$")
 	verifyinteger(reskeys, r"^(EXTVER|EXTLEVEL|WCSAXES[A-Z]?|MJDREFI|JDREFI)$")
+	#  The descriptive keywords of Sects. 4.4.2.1 to 4.4.2.3 are character strings, and the dates are dates.
+	verifystring(reskeys, r"^(ORIGIN|TELESCOP|INSTRUME|OBSERVER|OBJECT|AUTHOR|REFERENC|EXTNAME)$")
+	verifydate(reskeys, r"^DATE")
 	verifyxtension!(cards)
 end
 
@@ -491,6 +498,117 @@ function verifyinteger(keys::AbstractDict, pattern::Regex)
 		occursin(pattern, key) || continue
 		value isa Integer && !(value isa Bool) && continue
 		throw(ArgumentError("$key must be an integer, but its value is $(repr(value))."))
+	end
+	nothing
+end
+
+"""
+	verifynumber(keys, pattern)
+
+Raise an `ArgumentError` that names the keyword and its value if the value of a keyword of the dictionary
+`keys` that matches `pattern` is not a real number, e.g., BSCALE = 'two'. A value of an integer type is a
+number, since a keyword of a floating-point number can be written without a decimal point. The array cannot
+be scaled by a value that is not a number, so the HDU cannot be read.
+"""
+function verifynumber(keys::AbstractDict, pattern::Regex)
+	for (key, value) in keys
+		occursin(pattern, key) || continue
+		value isa Real && !(value isa Bool) && continue
+		throw(ArgumentError("$key must be a number, but its value is $(repr(value))."))
+	end
+	nothing
+end
+
+"""
+	verifyfloat(keys, pattern)
+
+Warn if the value of a keyword of the dictionary `keys` that matches `pattern` is an integer, when the
+standard requires a floating-point number, e.g., DATAMIN = 0. A value that is not a number is not checked
+(see [`verifynumber`](@ref)). The value is read as it is.
+"""
+function verifyfloat(keys::AbstractDict, pattern::Regex)
+	for (key, value) in keys
+		occursin(pattern, key) && value isa Integer && !(value isa Bool) &&
+			@warn "$key must be a floating-point number, but its value is the integer $value. It is read as it is."
+	end
+	nothing
+end
+
+"""
+	verifystring(keys, pattern)
+
+Warn if the value of a keyword of the dictionary `keys` that matches `pattern` is not a character string.
+The value is read and written as it is.
+"""
+function verifystring(keys::AbstractDict, pattern::Regex)
+	for (key, value) in keys
+		occursin(pattern, key) && !(value isa AbstractString) &&
+			@warn "$key must be a character string, but its value is $(repr(value)). It is read as it is."
+	end
+	nothing
+end
+
+"""
+	verifylogical(keys, pattern)
+
+Warn if the value of a keyword of the dictionary `keys` that matches `pattern` is not a logical, T or F.
+The value is read and written as it is.
+"""
+function verifylogical(keys::AbstractDict, pattern::Regex)
+	for (key, value) in keys
+		occursin(pattern, key) && !(value isa Bool) &&
+			@warn "$key must be a logical, T or F, but its value is $(repr(value)). It is read as it is."
+	end
+	nothing
+end
+
+#  Is `text` a date of the form YYYY-MM-DD, YYYY-MM-DDThh:mm:ss[.sss...], or, before 2000, DD/MM/YY (Sect. 4.4.2.1)?
+function isdatestring(text::AbstractString)
+	m = match(r"^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?)?$", text)
+	if !isnothing(m)
+		year, month, day = parse.(Int, m.captures[1:3])
+		time = isnothing(m[4]) ? (0, 0, 0) : parse.(Int, m.captures[4:6])
+		return isdate(year, month, day) && time[1] < 24 && time[2] < 60 && time[3] < 61
+	end
+	m = match(r"^(\d{2})/(\d{2})/(\d{2})$", text)
+	isnothing(m) ? false : isdate(1900 + parse(Int, m[3]), parse(Int, m[2]), parse(Int, m[1]))
+end
+
+function isdate(year::Integer, month::Integer, day::Integer)
+	leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)
+	ndays = (31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)
+	1 <= month <= 12 && 1 <= day <= ndays[month]
+end
+
+"""
+	verifydate(keys, pattern)
+
+Warn if the value of a keyword of the dictionary `keys` that matches `pattern` is not a date of the form
+`YYYY-MM-DD` or `YYYY-MM-DDThh:mm:ss[.sss...]`, or `DD/MM/YY` for a date before 2000 (Sect. 4.4.2.1 of the
+standard). The value is read and written as it is.
+"""
+function verifydate(keys::AbstractDict, pattern::Regex)
+	for (key, value) in keys
+		occursin(pattern, key) || continue
+		value isa AbstractString && isdatestring(strip(value)) && continue
+		@warn "$key must be a date of the form YYYY-MM-DD[Thh:mm:ss[.sss]] (Sect. 4.4.2.1), but its value is " *
+			"$(repr(value)). It is read as it is."
+	end
+	nothing
+end
+
+"""
+	verifyunit(keys, pattern)
+
+Warn if the value of a keyword of the dictionary `keys` that matches `pattern` is a character string that is
+not a units string (Sect. 4.3 of the standard). An empty string is not checked. The value is read and written
+as it is.
+"""
+function verifyunit(keys::AbstractDict, pattern::Regex)
+	for (key, value) in keys
+		occursin(pattern, key) && value isa AbstractString && !isempty(strip(value)) &&
+			isnothing(parseunit(Unitful, value)) &&
+			@warn "$key must be a units string (Sect. 4.3), but its value is $(repr(value)). It is read as it is."
 	end
 	nothing
 end
@@ -623,7 +741,7 @@ Warn if the header of a primary HDU does not begin with SIMPLE, BITPIX, NAXIS, a
 that order and with no other keyword between them (Sect. 4.4.1.1 of the standard), or if the values of
 these keywords are not in fixed format (Sect. 4.4.1), and return the cards unchanged. The file is read and
 written as it is, so the cards are not reordered or reformatted. The NAXIS value of `mankeys` must be
-valid (see [`verifyarray`](@ref)).
+valid, as `verifyarray` checks.
 """
 function verifyprimary(cards::Cards, mankeys::AbstractDict)
 	#  A header that is being created does not have the keywords yet, and is arranged when it is created.

@@ -218,19 +218,19 @@
 
     rm(temppath)
 
+    #  a card of a keyword and a fixed-format value, and the bytes of a file of a header of the cards and the
+    #  data, which is padded to the 2880 bytes of a block, unless pad is false
+    kw(key, value) = rpad(key, 8) * "= " * lpad(value, 20)
+    function filebytes(cards, data = UInt8[]; pad = true)
+        nfill = pad ? 2880*cld(length(data), 2880) - length(data) : 0
+        rpad(join(rpad.(vcat(cards, ["END"]), 80)), 2880) * String(vcat(data, zeros(UInt8, nfill)))
+    end
+    reading(bytes; kwds...) = read(IOBuffer(bytes), HDU; scale = false, kwds...)
+    written(hdu) = (buffer = IOBuffer(); write(buffer, hdu); take!(buffer))
+
     ####    Test the verification of the header of a primary HDU (Sects. 3.3, 4.4.1, and 4.4.1.1)    ####
 
     @testset "Primary header" begin
-        #  a card of a keyword and a fixed-format value, and the bytes of a file of a header of the cards and the
-        #  data, which is padded to the 2880 bytes of a block, unless pad is false
-        kw(key, value) = rpad(key, 8) * "= " * lpad(value, 20)
-        function filebytes(cards, data = UInt8[]; pad = true)
-            nfill = pad ? 2880*cld(length(data), 2880) - length(data) : 0
-            rpad(join(rpad.(vcat(cards, ["END"]), 80)), 2880) * String(vcat(data, zeros(UInt8, nfill)))
-        end
-        reading(bytes; kwds...) = read(IOBuffer(bytes), HDU; scale = false, kwds...)
-        written(hdu) = (buffer = IOBuffer(); write(buffer, hdu); take!(buffer))
-
         simple, bitpix, naxis, naxis1 = kw("SIMPLE", "T"), kw("BITPIX", 16), kw("NAXIS", 1), kw("NAXIS1", 3)
         data = UInt8[0, 1, 0, 2, 0, 3]
         header = [simple, bitpix, naxis, naxis1]
@@ -343,6 +343,135 @@
             filebytes([simple, bitpix, naxis, kw("NAXIS1", 2^61)], data; pad = false))
         @test_throws r"as its header says, but the file has only 2880 of them" reading(
             filebytes([simple, bitpix, naxis, kw("NAXIS1", 2^61)], data))
+    end
+
+    ####    Test the keywords of the array and of the primary header (Sects. 4.4.2 and 4.4.2.5)    ####
+
+    @testset "Primary keywords" begin
+        simple, bitpix, naxis, naxis1 = kw("SIMPLE", "T"), kw("BITPIX", 16), kw("NAXIS", 1), kw("NAXIS1", 3)
+        header = [simple, bitpix, naxis, naxis1]
+        data = UInt8[0, 1, 0, 2, 0, 3]
+        #  an HDU that is read, with the data scaled
+        scaledreading(bytes; kwds...) = read(IOBuffer(bytes), HDU; kwds...)
+        #  the bytes of the values of an integer type, which are big-endian
+        bytesof(values) = collect(reinterpret(UInt8, hton.(values)))
+        #  the cards that are added to the header
+        warned(cards, message, bytes = data) = @test_logs (:warn, message) reading(filebytes([header; cards], bytes))
+        silent(cards, bytes = data) = @test_logs reading(filebytes([header; cards], bytes))
+
+        ####    BLANK is for integer data (Sect. 4.4.2.5)
+
+        floats = [simple, kw("BITPIX", -32), naxis, naxis1]
+        bytes = bytesof(Float32[1, 2, 3])
+        hdu = @test_logs (:warn, r"BLANK is for integer data") reading(filebytes([floats; kw("BLANK", -1)], bytes))
+        @test hdu.data == Float32[1, 2, 3]
+        @test_logs reading(filebytes(floats, bytes))
+
+        ####    BSCALE, BZERO, DATAMIN, and DATAMAX are numbers, and DATAMIN and DATAMAX are floating-point
+
+        for key in ("BSCALE", "BZERO", "DATAMIN", "DATAMAX"), (value, shown) in (("'two'", "\"two\""), ("T", "true"))
+            @test_throws ArgumentError("$key must be a number, but its value is $shown.") reading(
+                filebytes([header; "$(rpad(key, 8))= $value"], data))
+        end
+        silent(["BSCALE  = 2", "BZERO   = 1.5", "DATAMIN =                  0.5", "DATAMAX = 3.0"])
+        for key in ("DATAMIN", "DATAMAX")
+            warned([kw(key, 3)], Regex("$key must be a floating-point number, but its value is the integer 3"))
+        end
+
+        ####    The types of Table 11: an offset in BZERO is the type of the physical values
+
+        offsets = (
+            (16, Int16, UInt16, 2^15, Int16[-2^15, 0, 2^15-1], UInt16[0, 2^15, 2^16-1]),
+            (32, Int32, UInt32, 2^31, Int32[-2^31, 0, 2^31-1], UInt32[0, 2^31, 2^32-1]),
+            (64, Int64, UInt64, UInt64(2)^63, Int64[typemin(Int64), 0, typemax(Int64)],
+                UInt64[0, UInt64(2)^63, typemax(UInt64)]),
+            (8, UInt8, Int8, -128, UInt8[0, 128, 255], Int8[-128, 0, 127]))
+        for (bits, stored, physical, offset, values, expected) in offsets
+            cards = [simple, kw("BITPIX", bits), naxis, naxis1, kw("BZERO", offset)]
+            bytes = bytesof(values)
+            hdu = @test_logs scaledreading(filebytes(cards, bytes))
+            @test eltype(hdu.data) === physical && hdu.data == expected
+            #  the stored values, if they are not scaled
+            hdu = reading(filebytes(cards, bytes); scale = false)
+            @test eltype(hdu.data) === stored && hdu.data == values
+            #  an HDU that is read is written with the same bytes, and the data are read again
+            hdu = @test_logs scaledreading(filebytes(cards, bytes))
+            @test @test_logs(written(hdu)) == codeunits(filebytes(cards, bytes))
+            #  an array of the physical type has the offset, and is stored as the values
+            for type in (Primary, Image)
+                hdu = HDU(type, expected)
+                @test eltype(hdu.data) === physical
+                @test hdu.cards["BITPIX"] == bits && hdu.cards["BZERO"] == offset
+                bytes_ = @test_logs(written(hdu))
+                @test bytes_[end-2879:end-2879+sizeof(values)*1-1] == bytes[1:sizeof(values)]
+            end
+            #  a scale that is not 1 is not the offset convention, and the values are floating-point
+            hdu = scaledreading(filebytes([cards; kw("BSCALE", 2.0)], bytes))
+            @test eltype(hdu.data) <: AbstractFloat && hdu.data == 2 .* BigFloat.(values) .+ BigFloat(offset)
+        end
+        #  a floating-point BZERO of the offset is the convention, and another offset is not
+        cards = [simple, bitpix, naxis, naxis1]
+        @test eltype(scaledreading(filebytes([cards; "BZERO   = 32768.0"], data)).data) === UInt16
+        @test eltype(scaledreading(filebytes([cards; kw("BZERO", 100)], data)).data) <: AbstractFloat
+        @test eltype(scaledreading(filebytes(cards, data)).data) <: AbstractFloat
+        #  the undefined values of the stored values are undefined in the physical values
+        hdu = scaledreading(filebytes([cards; kw("BZERO", 32768); kw("BLANK", -32768)], bytesof(Int16[-32768, 0, 32767])))
+        @test isequal(hdu.data, [missing, 32768, 65535]) && nonmissingtype(eltype(hdu.data)) === UInt16
+        #  an array of integers is not given an offset
+        @test !haskey(HDU(Primary, Int16[1, 2]).cards, "BZERO") && !haskey(HDU(Primary, UInt8[1, 2]).cards, "BZERO")
+        #  an array of the physical type that has a BZERO is written with it
+        hdu = HDU(Primary, UInt16[0, 1], Card{<:Any}[Card("BZERO", 32768, "offset")])
+        @test hdu.cards["BZERO"] == 32768 && count(c -> c.key == "BZERO", hdu.cards) == 1
+
+        ####    EXTEND and BLOCKED are logicals, and INHERIT is not in the primary header (Sects. 4.4.2.1 and 4.4.2.6)
+
+        silent(["EXTEND  =                    T", kw("BLOCKED", "T")])
+        for key in ("EXTEND", "BLOCKED")
+            warned(["$(rpad(key, 8))= 'yes'"], Regex("$key must be a logical, T or F, but its value is \"yes\""))
+            warned([kw(key, 1)], Regex("$key must be a logical, T or F, but its value is 1"))
+        end
+        warned([kw("INHERIT", "T")], r"INHERIT must not appear in the primary header")
+        #  an extension may inherit
+        extension = [kw("XTENSION", "'IMAGE   '"), bitpix, naxis, naxis1, kw("PCOUNT", 0), kw("GCOUNT", 1)]
+        @test_logs reading(filebytes([extension; kw("INHERIT", "T")], data))
+
+        ####    DATE, DATE-OBS, and the other DATExxxx are dates (Sects. 4.4.2.1 and 4.4.2.2)
+
+        for text in ("2020-01-31", "2020-02-29", "2020-01-31T12:30:00", "2020-01-31T12:30:00.123", "2020-12-31T23:59:60",
+            "31/01/99", " 2020-01-31 ")
+            @test FITSFiles.isdatestring(strip(text))
+            silent(["DATE    = '$text'", "DATE-OBS= '$text'", "DATE-END= '$text'"])
+        end
+        for text in ("2021-02-29", "2020-13-01", "2020-00-10", "2020-01-32", "2020-1-1", "20200131", "2020-01-31T24:00:00",
+            "2020-01-31T12:60:00", "2020-01-31 12:30:00", "31/02/99", "31/01/1999", "yesterday", "")
+            @test !FITSFiles.isdatestring(text)
+            for key in ("DATE", "DATE-OBS", "DATE-END")
+                warned(["$(rpad(key, 8))= '$text'"], Regex("$key must be a date of the form YYYY-MM-DD"))
+            end
+        end
+        warned([kw("DATE", 5)], r"DATE must be a date of the form YYYY-MM-DD\[Thh:mm:ss\[.sss\]\] \(Sect. 4.4.2.1\), but its value is 5")
+        #  the keywords of other HDUs are verified too
+        @test_logs (:warn, r"DATE must be a date") reading(filebytes([extension; "DATE    = 'today'"], data))
+
+        ####    The descriptive keywords are character strings (Sects. 4.4.2.1 to 4.4.2.3, and 4.4.2.5)
+
+        keys = ("ORIGIN", "TELESCOP", "INSTRUME", "OBSERVER", "OBJECT", "AUTHOR", "REFERENC", "BUNIT")
+        silent(["$(rpad(key, 8))= '$(key == "BUNIT" ? "adu" : "a name")'" for key in keys])
+        for key in keys
+            warned([kw(key, 7)], Regex("$key must be a character string, but its value is 7"))
+        end
+        warned([kw("EXTNAME", 1)], r"EXTNAME must be a character string, but its value is 1")
+        @test_logs (:warn, r"EXTNAME must be a character string") reading(filebytes([extension; kw("EXTNAME", 1)], data))
+        @test_logs reading(filebytes([extension; "EXTNAME = 'SCI'"], data))
+
+        ####    BUNIT is a units string (Sect. 4.3)
+
+        for unit in ("adu", "km/s", "Jy/beam", "mJy", "erg s-1 cm-2", "m**2", "")
+            silent(["BUNIT   = '$unit'"])
+        end
+        for unit in ("not a unit", "kilometre/second", "m//s")
+            warned(["BUNIT   = '$unit'"], Regex("BUNIT must be a units string \\(Sect. 4.3\\), but its value is \"$unit\""))
+        end
     end
 
 end
