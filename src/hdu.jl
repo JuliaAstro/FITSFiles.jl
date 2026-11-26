@@ -528,6 +528,11 @@ function verify!(::Type{<:AbstractHDU}, cards::Cards, mankeys::AbstractDict, res
 	verifyinteger(mankeys, r"^(BITPIX|NAXIS\d*|PCOUNT|GCOUNT)$")
 	verifyinteger(reskeys, r"^(EXTVER|EXTLEVEL|WCSAXES[A-Z]?|MJDREFI|JDREFI)$")
 	#  The descriptive keywords of Sects. 4.4.2.1 to 4.4.2.3 are character strings, and the dates are dates.
+	#  The level of an extension is 1 for the highest level, and the levels of the extensions below it have higher values
+	#  (Sect. 4.4.2.6)
+	level = get(reskeys, "EXTLEVEL", 1)
+	level isa Integer && level < 1 && @warn "EXTLEVEL must be 1 or more, with 1 the highest level (Sect. 4.4.2.6), " *
+		"but its value is $level. It is read as it is."
 	verifystring(reskeys, r"^(ORIGIN|TELESCOP|INSTRUME|OBSERVER|OBJECT|AUTHOR|REFERENC|EXTNAME|CHECKSUM|DATASUM)$")
 	verifydate(reskeys, r"^DATE")
 	verifyxtension!(cards)
