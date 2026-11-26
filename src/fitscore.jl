@@ -21,6 +21,37 @@ function verifyposition(hdu::HDU, j::Integer)
 end
 
 """
+    verifyname(hdus)
+
+Warn if the last HDU of the vector `hdus` has the same type, EXTNAME, EXTVER, and EXTLEVEL as an HDU before it. It is
+recommended that the combination of these keywords is unique in each HDU of a FITS file that has them (Sect. 4.4.2.6 of
+the standard). The type of an HDU is the value of its XTENSION, and the primary array is equivalent to an IMAGE extension.
+An absent EXTVER or EXTLEVEL is 1, and the HDUs that have none of the three keywords are not compared. The HDUs are read
+and written as they are. Return the HDUs.
+"""
+function verifyname(hdus::AbstractVector)
+	isempty(hdus) && return hdus
+	hdu = last(hdus)
+	named(hdu) = any(haskey(getfield(hdu, :cards), key) for key in ("EXTNAME", "EXTVER", "EXTLEVEL"))
+	named(hdu) || return hdus
+	function signature(hdu)
+		cards = getfield(hdu, :cards)
+		type = haskey(cards, "XTENSION") ? rstrip(string(cards["XTENSION"])) : "IMAGE"
+		(type, extname(hdu), extver(hdu), extlevel(hdu))
+	end
+	for j = 1:(length(hdus)-1)
+		if named(hdus[j]) && signature(hdus[j]) == signature(hdu)
+			type, name, version, level = signature(hdu)
+			@warn "HDU $(length(hdus)) of a FITS file has the same type $type, EXTNAME $(repr(name)), EXTVER $version, " *
+				"and EXTLEVEL $level as HDU $j (Sect. 4.4.2.6): it is recommended that the combination is unique. " *
+				"It is read as it is."
+			break
+		end
+	end
+	hdus
+end
+
+"""
 	fits(io::IO; <keywords>)
 	fits(filename::AbstractString; <keywords>)
 
@@ -46,6 +77,7 @@ function fits(io::IO; kwds...)
 	hdus = HDU{<:AbstractHDU}[]
 	while !eof(io)
 		push!(hdus, verifyposition(read(io, HDU; kwds...), length(hdus) + 1))
+		verifyname(hdus)
 	end
 	hdus
 end
@@ -67,6 +99,7 @@ CHECKSUM keywords of each HDU (see [`Base.write(io::IO, hdu::HDU)`](@ref)).
 """
 function Base.write(io::IO, hdus::Vector{<:HDU}; kwds...)
     for (j, hdu) in enumerate(hdus)
+        verifyname(view(hdus, 1:j))
         write(io, verifyposition(hdu, j); kwds...)
     end
 end
@@ -109,8 +142,8 @@ function Base.show(io::IO, ::MIME"text/plain", hdus::AbstractVector{HDU})
 		cards = getfield(hdu, :cards)
 		N = cards["NAXIS"]
 		typ = rpad(typeofhdu(hdu), INFOTYPELEN)
-		nam = rpad(haskey(cards, "EXTNAME") ? cards["EXTNAME"] : "", INFONAMELEN)
-		ver = lpad(haskey(cards, "EXTVERS") ? cards["EXTVER"] : "1", INFOVERSLEN)
+		nam = rpad(extname(hdu), INFONAMELEN)
+		ver = lpad(extver(hdu), INFOVERSLEN)
 		crd = lpad(length(cards), INFOCARDLEN)
 		siz = join([string(cards["NAXIS$j"])
 				for j ∈ (typeofhdu(hdu)==Random ? 2 : 1):N], " × ")
@@ -153,6 +186,25 @@ function Base.getindex(hdus::Vector{HDU}, name::U)::HDU where
 		end
 	end
 	throw(KeyError(name))
+end
+
+"""
+    hdus[name]
+    hdus[name, version]
+
+Return the HDU of the vector `hdus` whose EXTNAME is `name`, without regard to the case, which is the first HDU of that name
+if the name is not unique. With a `version`, return the HDU whose EXTVER is `version`, where an absent EXTVER is 1
+(Sect. 4.4.2.6 of the standard). A `KeyError` is raised if there is no such HDU.
+"""
+function Base.getindex(hdus::Vector{HDU}, name::U, version::Integer)::HDU where
+	U<:Union{AbstractString, Symbol}
+
+	for hdu in hdus
+		if uppercase(extname(hdu)) == uppercase(string(name)) && extver(hdu) == version
+			return hdu
+		end
+	end
+	throw(KeyError((name, version)))
 end
 
 function Base.get(hdus::Vector{HDU}, name::U, default::V = "")::Union{HDU, Nothing}  where

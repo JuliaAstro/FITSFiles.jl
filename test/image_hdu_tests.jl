@@ -390,6 +390,12 @@
             filebytes([xtension, bitpix, naxis, naxis1, kw("INHERIT", "T"), pcount, gcount], data))
         warned([header; kw("INHERIT", 1)], r"INHERIT must be a logical, T or F, but its value is 1")
         warned([header; kw("INHERIT", "'T'")], r"INHERIT must be a logical, T or F")
+        ####    The level of an extension is 1 or more (Sect. 4.4.2.6)
+
+        silent([header; kw("EXTLEVEL", 2); kw("EXTVER", 5); "EXTNAME = 'SCI'"])
+        for level in (0, -1)
+            warned([header; kw("EXTLEVEL", level)], Regex("EXTLEVEL must be 1 or more, with 1 the highest level \\(Sect. 4.4.2.6\\), but its value is $level"))
+        end
         #  without PCOUNT and GCOUNT, it is after the keywords that are there
         @test_logs (:warn, r"PCOUNT is missing") (:warn, r"GCOUNT is missing") reading(
             filebytes([xtension, bitpix, naxis, naxis1, kw("INHERIT", "T")], data))
