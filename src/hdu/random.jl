@@ -256,7 +256,7 @@ end
 function verify!(::Type{Random}, cards::Cards, format::DataFormat,
     mankeys::AbstractDict)
 
-    !get(mankeys, "SIMPLE", true) && @warn "Primary HDU is nonconformant."
+    !get(mankeys, "SIMPLE", true) && @warn "Random HDU is nonconformant, since SIMPLE is F."
     verifyshape!(cards, mankeys, format; first = 2)
     if !get(mankeys, "GROUPS", true)
         setindex!(cards, true, "GROUPS")

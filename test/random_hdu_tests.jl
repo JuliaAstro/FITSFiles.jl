@@ -1219,6 +1219,23 @@
         #  a header that is being created is not verified, and is arranged when it is created
         @test_logs HDU(Random, missing, Card{<:Any}[Card("OBJECT", "x"), Card("GROUPS", true)])
 
+        ####    SIMPLE of F is not random groups, and nor is GROUPS that is not T, unless the type is given (Sect. 6.1.1)
+
+        simplef = asfile([kw("SIMPLE", "F"); firstcards[2:5]; groupcards])
+        @test (@test_logs match_mode = :any (:warn, r"SIMPLE is F") reading(simplef)) isa HDU{Conform}
+        typed = @test_logs (:warn, "Random HDU is nonconformant, since SIMPLE is F.") reading(simplef; type = Random)
+        @test typed isa HDU{Random} && typed.data.data == Float32[10 11 12; 20 21 22]
+        groupsf = asfile([firstcards; kw("GROUPS", "F"); groupcards[2:3]])
+        @test (@test_logs match_mode = :any (:warn, r"read as a primary array") reading(groupsf)) isa HDU{Primary}
+        typed = @test_logs (:warn, "GROUPS set to true") reading(groupsf; type = Random)
+        @test typed isa HDU{Random} && getfield(typed, :cards)["GROUPS"] == true
+        @test typed.data.data == Float32[10 11 12; 20 21 22]
+        #  the header of data that are made from cards that have GROUPS of F has GROUPS of T
+        madef = @test_logs (:warn, "GROUPS set to true") HDU(Random, (a = Int16[1, 3], b = Int16[2, 4],
+            data = Int16[10 11 12; 20 21 22]), Card{<:Any}[Card("GROUPS", false)])
+        @test getfield(madef, :cards)["GROUPS"] == true
+        @test reading(written(madef); scale = false).data == (a = Int16[1, 3], b = Int16[2, 4], data = Int16[10 11 12; 20 21 22])
+
         ####    The lazy file of random groups reads the same
 
         mktemp() do path, io
