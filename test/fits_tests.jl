@@ -22,6 +22,12 @@
         first_ = r"The first HDU of a FITS file must be the primary HDU, which has SIMPLE \(Sect. 3.1\)"
         later(j) = Regex("HDU $j of a FITS file has SIMPLE, but only the first HDU is a primary HDU")
 
+        #  a primary HDU, with or without data, is followed by extensions, in any order
+        for hdus in ([primary], [empty], [primary, image], [empty, image, table], [primary, table, image, table])
+            bytes = @test_logs written(hdus)
+            file = @test_logs fits(IOBuffer(bytes))
+            @test length(file) == length(hdus) && typeof.(file) == typeof.(hdus)
+        end
         #  the data of the HDUs are read from a buffer, where an HDU is read from the beginning of the next
         file = fits(IOBuffer(written([primary, image, table])))
         @test file[1].data == [1 2 3; 4 5 6] && file[2].data == [1.5 2.5; -1 7]
