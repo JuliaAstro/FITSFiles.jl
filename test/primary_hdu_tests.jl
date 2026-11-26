@@ -474,4 +474,106 @@
         end
     end
 
+    ####    Test that the scaled data are written as the stored values (Eq. 3 of the standard)    ####
+
+    @testset "Scaled data" begin
+        bytesof(values) = collect(reinterpret(UInt8, hton.(values)))
+        #  an HDU that is read with the data scaled
+        scaledreading(bytes; kwds...) = read(IOBuffer(bytes), HDU; kwds...)
+        primary = [kw("SIMPLE", "T"), kw("BITPIX", 16), kw("NAXIS", 1), kw("NAXIS1", 3)]
+        simple(bitpix) = [kw("SIMPLE", "T"), kw("BITPIX", bitpix), kw("NAXIS", 1), kw("NAXIS1", 3)]
+        stored = bytesof(Int16[-5, 0, 300])
+        withcards(cards...) = filebytes([primary; collect(cards)], stored)
+
+        #  the data that are read scaled are written as they were read, whether or not the data are scaled by BSCALE and BZERO
+        cases = (
+            "default" => (filebytes(primary, stored), Float32),
+            "BSCALE and BZERO" => (withcards(kw("BSCALE", 2.5), kw("BZERO", 10)), Float32),
+            "BSCALE" => (withcards(kw("BSCALE", 0.5)), Float32),
+            "BZERO" => (withcards(kw("BZERO", -7)), Float32),
+            "BLANK" => (filebytes([primary; kw("BSCALE", 2.5); kw("BLANK", -32768)], bytesof(Int16[-5, -32768, 300])),
+                Float32),
+            "offset of Table 11" => (withcards(kw("BZERO", 32768)), UInt16),
+            "32 bits" => (filebytes([simple(32); kw("BSCALE", 0.5); kw("BZERO", 10)], bytesof(Int32[-5, 0, 3000])), Float32),
+            "bytes" => (filebytes([simple(8); kw("BSCALE", 2.0); kw("BZERO", -3)], UInt8[0, 7, 255]), Float32),
+            "floating-point" => (filebytes(simple(-32), bytesof(Float32[1.5, NaN, -3])), Float32),
+            "double precision" => (filebytes(simple(-64), bytesof(Float64[1.5, Inf, -3])), Float64))
+        for (name, (bytes, type)) in cases
+            hdu = scaledreading(bytes)
+            @test nonmissingtype(eltype(hdu.data)) === type
+            @test @test_logs(written(hdu)) == codeunits(bytes)
+        end
+        #  the same for an IMAGE extension
+        extension = [kw("XTENSION", "'IMAGE   '"), kw("BITPIX", 16), kw("NAXIS", 1), kw("NAXIS1", 3), kw("PCOUNT", 0),
+            kw("GCOUNT", 1), kw("BSCALE", 2.5), kw("BZERO", 10)]
+        bytes = filebytes(extension, stored)
+        hdu = scaledreading(bytes)
+        @test hdu isa HDU{Image} && eltype(hdu.data) === Float32
+        @test written(hdu) == codeunits(bytes)
+        #  the data that are not scaled are the stored values, which are written as they are
+        for bytes in (withcards(kw("BSCALE", 2.5), kw("BZERO", 10)), withcards(kw("BZERO", 32768)))
+            hdu = scaledreading(bytes; scale = false)
+            @test eltype(hdu.data) === Int16 && written(hdu) == codeunits(bytes)
+        end
+        #  the data of the type of the HDU are the stored values, since they cannot be told from the scaled values, which
+        #  is for floating-point data that BSCALE and BZERO scale: they are written as they are
+        bytes = filebytes([simple(-64); kw("BSCALE", 2.0)], bytesof(Float64[1.5, 4, -3]))
+        hdu = scaledreading(bytes; scale = false)
+        @test hdu.data == [1.5, 4, -3] && written(hdu) == codeunits(bytes)
+        @test scaledreading(bytes).data == [3.0, 8, -6]
+
+        #  the data that are changed are written as the stored values, if they are the stored values of the data, which
+        #  is checked by applying BSCALE and BZERO to them, and an error if they are not
+        writtenwith(hdu; kwds...) = (buffer = IOBuffer(); write(buffer, hdu; kwds...); take!(buffer))
+        bytes = withcards(kw("BSCALE", 2.5), kw("BZERO", 10))
+        hdu = scaledreading(bytes)
+        hdu.data .= Float32[10, 12.5, -10]
+        @test scaledreading(written(hdu); scale = false).data == Int16[0, 1, -8]
+        hdu.data .= Float32[11.2, 11.3, -10.0]
+        @test_throws ArgumentError("The value 11.2 cannot be stored as Int16 data with BSCALE 2.5 and BZERO 10.0: the " *
+            "nearest stored value, 0, is the value 10.0. Use check = false to write the stored value.") written(hdu)
+        @test_throws ArgumentError writtenwith(hdu; check = true)
+        #  the nearest stored values are written if the check is bypassed
+        @test scaledreading(writtenwith(hdu; check = false)).data == Float32[10, 12.5, -10]
+        @test scaledreading(writtenwith(hdu; check = false); scale = false).data == Int16[0, 1, -8]
+        #  the check does not change the data that are read, or the undefined values
+        for (name, (bytes, type)) in cases
+            @test writtenwith(scaledreading(bytes); check = false) == writtenwith(scaledreading(bytes))
+        end
+        #  floating-point data of another type are checked to the precision of the type of the HDU
+        header = scaledreading(filebytes(simple(-32), bytesof(Float32[1.5, 2, 3])))
+        cards = getfield(header, :cards)
+        values = HDU{Primary}(cards, Float64[1.1, 2.0, 3.5])
+        @test scaledreading(written(values); scale = false).data == Float32[1.1, 2.0, 3.5]
+        values = HDU{Primary}(cards, Float64[1.1, 1e300, 3.5])
+        @test_throws r"The value 1.0e300 cannot be stored as Float32 data with BSCALE 1.0 and BZERO 0.0" written(values)
+        @test scaledreading(writtenwith(values; check = false); scale = false).data == Float32[1.1, Inf, 3.5]
+
+        #  the undefined values are the BLANK, and are written as it
+        bytes = filebytes([primary; kw("BSCALE", 2.5); kw("BLANK", -32768)], bytesof(Int16[-5, -32768, 300]))
+        hdu = scaledreading(bytes)
+        @test isequal(hdu.data, Union{Float32, Missing}[-12.5, missing, 750])
+        hdu.data[1], hdu.data[3] = NaN32, missing
+        @test isequal(scaledreading(written(hdu); scale = false).data, Union{Int16, Missing}[missing, missing, missing])
+        @test written(hdu)[2881:2886] == bytesof(Int16[-32768, -32768, -32768])
+        #  NaN is undefined only if the integer data have a BLANK
+        hdu = scaledreading(withcards(kw("BSCALE", 2.5)))
+        hdu.data[2] = NaN32
+        @test_throws ArgumentError("NaN cannot be written as integer data that does not have a BLANK keyword.") written(hdu)
+
+        #  a value that does not have a stored value is an error
+        hdu = scaledreading(withcards(kw("BSCALE", 2.5), kw("BZERO", 10)))
+        hdu.data[2] = 1.0f9
+        @test_throws ArgumentError written(hdu)
+        @test_throws r"The value 1.0e9 is not in the range of the Int16 data that BSCALE 2.5 and BZERO 10.0 describe" written(hdu)
+        hdu = scaledreading(withcards(kw("BSCALE", 0)))
+        @test_throws ArgumentError("The values cannot be written as stored values, since BSCALE is 0.") written(hdu)
+
+        #  an HDU that is created from data has the type of the data, and is not changed
+        for data in (Int16[1 2; 3 4], Float32[1.5 2.5; -1 7], UInt16[0 40000; 5 65535], UInt8[1 2; 3 4])
+            hdu = HDU(Primary, data)
+            @test @test_logs(scaledreading(written(hdu))).data == data
+        end
+    end
+
 end
