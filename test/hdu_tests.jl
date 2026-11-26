@@ -78,11 +78,18 @@
         invalidstructure(type, "NAXIS1 is missing, but NAXIS is 2.", "NAXIS1" => nothing, "NAXIS2" => nothing)
         #  the axes of an array of no axes, and a header with no NAXIS, are not used
         cards = structureheader(type, "NAXIS" => 0)
-        @test_logs (:warn, r"NAXIS1 is beyond NAXIS 0") (:warn, r"NAXIS2 is beyond NAXIS 0") verified(type, cards)
-        #  except that the cards of a primary header are not the mandatory keywords in order
+        if type === Image
+            #  and they are keywords between NAXIS and PCOUNT, which the mandatory keywords of an IMAGE header do not have
+            @test_logs (:warn, r"NAXIS1 is beyond NAXIS 0") (:warn, r"NAXIS2 is beyond NAXIS 0") (:warn,
+                r"Keyword 4 of the header is NAXIS1, but the Standard requires PCOUNT") verified(type, cards)
+        else
+            @test_logs (:warn, r"NAXIS1 is beyond NAXIS 0") (:warn, r"NAXIS2 is beyond NAXIS 0") verified(type, cards)
+        end
+        #  except that the cards of a primary header are not the mandatory keywords in order, and an IMAGE header must
+        #  have NAXIS
         cards = structureheader(type, "NAXIS" => nothing)
         if type === Image
-            @test_logs verified(type, cards)
+            @test_throws ArgumentError("NAXIS is missing, but it is a mandatory keyword of an IMAGE extension (Sect. 7.1.1).") verified(type, cards)
         else
             @test_logs (:warn, r"Keyword 3 of the header is NAXIS1, but the Standard requires NAXIS") verified(type, cards)
         end
@@ -276,7 +283,8 @@
             (Image, FITSFiles.ImageField(Int16, 0f0, 1f0, nothing, nothing, nothing), "XTENSION"),
             (FITSFiles.Conform, FITSFiles.ConformField(), "SIMPLE"))
             kards = FITSFiles.createcards!(type, fmt, field, Card{<:Any}[])
-            @test [c.key for c in kards] == [first, "BITPIX", "NAXIS", "NAXIS1", "NAXIS2"]
+            #  an IMAGE header has PCOUNT of 0 and GCOUNT of 1 (Sect. 7.1.1)
+            @test [c.key for c in kards] == [first, "BITPIX", "NAXIS", "NAXIS1", "NAXIS2", (type === Image ? ["PCOUNT", "GCOUNT"] : [])...]
         end
     end
 

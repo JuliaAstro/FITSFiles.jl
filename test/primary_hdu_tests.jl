@@ -330,7 +330,7 @@
         @test_throws r"The data array is too large: 8 bytes × 2 × 4611686018427387904 values" reading(
             filebytes([simple, kw("BITPIX", -64), kw("NAXIS", 2), kw("NAXIS1", 2), kw("NAXIS2", big)], data))
         @test_throws r"too large" reading(filebytes([simplef, bitpix, naxis, kw("NAXIS1", big)], data))
-        @test_throws r"too large" reading(filebytes([kw("XTENSION", "'IMAGE   '"), bitpix, naxis, kw("NAXIS1", big),
+        @test_throws r"too large" reading(filebytes(["XTENSION= 'IMAGE   '", bitpix, naxis, kw("NAXIS1", big),
             kw("PCOUNT", 0), kw("GCOUNT", 1)], data))
         @test @test_logs(reading(filebytes([simple, bitpix, kw("NAXIS", 2), kw("NAXIS1", 0), kw("NAXIS2", big)]))) isa HDU
 
@@ -432,7 +432,7 @@
         end
         warned([kw("INHERIT", "T")], r"INHERIT must not appear in the primary header")
         #  an extension may inherit
-        extension = [kw("XTENSION", "'IMAGE   '"), bitpix, naxis, naxis1, kw("PCOUNT", 0), kw("GCOUNT", 1)]
+        extension = ["XTENSION= 'IMAGE   '", bitpix, naxis, naxis1, kw("PCOUNT", 0), kw("GCOUNT", 1)]
         @test_logs reading(filebytes([extension; kw("INHERIT", "T")], data))
 
         ####    DATE, DATE-OBS, and the other DATExxxx are dates (Sects. 4.4.2.1 and 4.4.2.2)
@@ -504,7 +504,7 @@
             @test @test_logs(written(hdu)) == codeunits(bytes)
         end
         #  the same for an IMAGE extension
-        extension = [kw("XTENSION", "'IMAGE   '"), kw("BITPIX", 16), kw("NAXIS", 1), kw("NAXIS1", 3), kw("PCOUNT", 0),
+        extension = ["XTENSION= 'IMAGE   '", kw("BITPIX", 16), kw("NAXIS", 1), kw("NAXIS1", 3), kw("PCOUNT", 0),
             kw("GCOUNT", 1), kw("BSCALE", 2.5), kw("BZERO", 10)]
         bytes = filebytes(extension, stored)
         hdu = scaledreading(bytes)
