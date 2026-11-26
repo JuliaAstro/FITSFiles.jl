@@ -242,6 +242,21 @@
         #  the header is written with spaces after END, so a file that is read and written does not have the bytes
         written_ = (io = IOBuffer(); write(io, (@test_logs (:warn, warning) read(IOBuffer(junk), HDU))); take!(io))
         @test written_[1:2880] == codeunits(rpad(join([simple, bitpix, naxis, card("END")]), 2880))
+        #  a header block is 2880 bytes, so a file that ends in the block that has END is cut short, and the header is read
+        short = (n, size) -> "Header block $n, which has the END keyword, has only $size of the 2880 bytes of a block " *
+            "(Sect. 3.3.1), so the file ends in the header. The header is read as it is."
+        @test length((@test_logs (:warn, short(1, 2000)) read(IOBuffer(codeunits(block)[1:2000]), Card))[1]) == 3
+        @test length((@test_logs (:warn, short(2, 1500)) read(IOBuffer([codeunits(noend); codeunits(rpad(join([card("HISTORY a"),
+            card("END")]), 2880))[1:1500]]), Card))[1]) == 3 + 33 + 1
+        @test_logs (:warn, short(1, 500)) read(IOBuffer(codeunits(block)[1:500]), HDU)
+        #  and the data that it says it has are an error, as they are for a file that is cut short
+        data = codeunits(rpad(join([simple, card("BITPIX  =                   16"), card("NAXIS   =                    1"),
+            card("NAXIS1  =                    3"), card("END")]), 2880))
+        logs, error_ = Test.collect_test_logs() do
+            try read(IOBuffer(data[1:2000]), HDU) catch e e end
+        end
+        @test error_ == ArgumentError("The data of the HDU is 6 bytes, as its header says, but the file has only 0 of them.")
+        @test length(logs) == 1 && logs[1].message == short(1, 2000)
         #  a file with the blocks of zeros after the last HDU does not have another header
         @test_throws ArgumentError(message(1, "")) read(IOBuffer(zeros(UInt8, 2880)), HDU)
     end

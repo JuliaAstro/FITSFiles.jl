@@ -495,6 +495,9 @@ function Base.read(io::IO, ::Type{Card}; strict::Bool = true, units::Union{Bool,
         #  A block that ends before END is the end of the file
         lastblok || length(block) < BLOCKLEN && throw(ArgumentError("The header has no END keyword: the file ends after " *
             "$(length(block)) bytes of header block $nblocks, and the last header block must have it (Sect. 3.3.1)."))
+        #  A header block has 2880 bytes, so the header is cut short if the file ends in the block that has END
+        length(block) < BLOCKLEN && @warn "Header block $nblocks, which has the END keyword, has only $(length(block)) of the " *
+            "$BLOCKLEN bytes of a block (Sect. 3.3.1), so the file ends in the header. The header is read as it is."
     end
     #  Create dictionaries of mandatory and reserved keywords, which include the END keyword.
     mankeys, reskeys = getreservedkeys(cards)
