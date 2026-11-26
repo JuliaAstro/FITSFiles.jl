@@ -34,6 +34,10 @@ are written by position, so the names of the data do not have to be the names of
 The parameters and the array have the same type, which is the type of BITPIX (Sect. 6.3). The data are read with
 PSCALn and PZEROn applied to the parameters and BSCALE and BZERO to the array, unless `scale = false` is given, and the
 values that are not of the type of BITPIX are written as the stored values (see [`Base.write(io::IO, hdu::HDU)`](@ref)).
+A parameter with the PSCALn of 1 and the PZEROn of the offsets of Table 11 (Sect. 5.2.5, which Sect. 6.3 gives to
+the parameters), and the array with the BSCALE of 1 and the BZERO of the offsets, are the unsigned integers or the signed
+bytes: `UInt16`, `UInt32`, `UInt64`, or `Int8`, for the values of 16-, 32-, or 64-bit integers, or bytes. Data of those
+types have the PZEROn and BZERO keywords of the offsets when the HDU is made.
 """
 struct Random <: AbstractHDU end
 
