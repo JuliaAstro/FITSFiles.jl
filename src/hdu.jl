@@ -357,15 +357,17 @@ function Base.read(io::IO, ::Type{HDU}; type = nothing, strict::Bool = true, uni
 	cards  = verify!(type_, cards, format, mankeys)
 	fields = FieldFormat(type_, format, reskeys, missing)
 	if format.leng > 0
+		#  The data begin at the position, and the next HDU begins after the blocks of the data
+		pos = position(io)
 		if io isa IOStream
 			# create a lazy array for the HDU data field and move to next HDU
-			name, mtime, pos = io.name[7:end-1], stat(io).mtime, position(io)
+			name, mtime = io.name[7:end-1], stat(io).mtime
 			data = LazyArray(name, mtime, pos, format, fields, (;kwds...))
 		else
 			data = read(io, type_, format, fields; kwds...)
 		end
 		N = sizeof(format.type)*format.leng
-		seek(io, position(io) + BLOCKLEN*div(N, BLOCKLEN, RoundUp))
+		seek(io, pos + BLOCKLEN*div(N, BLOCKLEN, RoundUp))
 	else
 		# indicate data is missing
 		data = missing
