@@ -449,5 +449,59 @@
         records = [(a = Int32(1), b = 1.5, c = "x"), (a = Int32(2), b = 2.5, c = "yy"), (a = Int32(3), b = 3.5, c = "zzz")]
         @test bytes(HDU(Bintable, columns)) == bytes(HDU(Bintable, records))
     end
-end
 
+    ####    Test the fill of the last data block (Sects. 3.3.2, 6.2, 7.2.3, and 7.3.3)    ####
+
+    @testset "verifyfill" begin
+        written(hdu) = (io = IOBuffer(); write(io, hdu); take!(io))
+        reading(bytes) = read(IOBuffer(bytes), HDU)
+        table = HDU(Table, [(a = 1, b = 2.0), (a = 2, b = 3.0)], Card{<:Any}[Card("TFIELDS", 2), Card("TTYPE1", "a"),
+            Card("TFORM1", "I4"), Card("TBCOL1", 1), Card("TTYPE2", "b"), Card("TFORM2", "F6.1"), Card("TBCOL2", 5)])
+        hdus = [HDU(Primary, Int16[1 2 3; 4 5 6]) => ("zeros", "Sect. 3.3.2"),
+            HDU(Image, Int16[1 2 3; 4 5 6]) => ("zeros", "Sect. 3.3.2"),
+            HDU(Random, (a = Int16[1, 3], data = Int16[10 11 12; 20 21 22])) => ("zeros", "Sect. 6.2"),
+            HDU(Bintable, (a = Int32[1, 2, 3], b = [1.5, 2.5, 3.5])) => ("zeros", "Sect. 7.3.3"),
+            table => ("ASCII spaces", "Sect. 7.2.3")]
+        for (hdu, (name, section)) in hdus
+            bytes = written(hdu)
+            warning = "The fill of the last data block of the HDU is not all $name ($section). The data are read as they " *
+                "are, and the fill is written as $name."
+            #  the fill is zeros, or spaces for an ASCII table, and the HDU is read without a warning
+            original = @test_logs reading(bytes)
+            #  a byte of the fill that is another is a warning, whichever it is, and the fill is written as it should be
+            for j in (length(bytes), length(bytes) - 100, 2880 + 2880 - 2000)
+                changed = copy(bytes)
+                changed[j] = changed[j] ⊻ 0x55
+                again = @test_logs (:warn, warning) reading(changed)
+                @test isequal(again.data, original.data) && getfield(again, :cards) == getfield(original, :cards)
+                @test written(again) == bytes
+            end
+        end
+        #  the fill of an ASCII table is not zeros, and the fill of the other HDUs is not spaces
+        tablebytes = written(table)
+        @test_logs (:warn, r"not all ASCII spaces \(Sect. 7.2.3\)") reading([tablebytes[1:end-1]; 0x00])
+        primarybytes = written(HDU(Primary, Int16[1 2 3; 4 5 6]))
+        @test_logs (:warn, r"not all zeros \(Sect. 3.3.2\)") reading([primarybytes[1:end-1]; 0x20])
+        #  the fill is written as it should be, so a file that is read and written has the fill of the standard
+        changed = copy(primarybytes)
+        changed[end] = 0x01
+        @test @test_logs((:warn, r"not all zeros"), written(reading(changed))) == primarybytes
+        #  data that fill the last block have no fill, and a file that ends after the data does not have it
+        @test_logs reading(written(HDU(Primary, zeros(Int16, 1440))))
+        @test_logs reading(written(HDU(Primary, zeros(Int16, 1441))))
+        @test_logs reading(primarybytes[1:2880+12])
+        @test_logs reading(primarybytes[1:2880+12+5])
+        @test_logs (:warn, r"not all zeros") reading([primarybytes[1:2880+12+5]; 0x01])
+        #  an HDU without data has no fill, and the fill of a file of HDUs is verified for each
+        @test_logs reading(written(HDU(Primary)))
+        mktemp() do path, io
+            write(io, [HDU(Primary), hdus[2][1], hdus[4][1]]); close(io)
+            @test_logs fits(path)
+            bytes = read(path)
+            bytes[2880 + 2880 + 2880 - 1] ⊻= 0x01
+            write(path, bytes)
+            file = @test_logs (:warn, r"The fill of the last data block of the HDU is not all zeros \(Sect. 3.3.2\)") fits(path)
+            @test length(file) == 3
+        end
+    end
+end

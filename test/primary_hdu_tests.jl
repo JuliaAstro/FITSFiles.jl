@@ -477,7 +477,9 @@
     ####    Test that the scaled data are written as the stored values (Eq. 3 of the standard)    ####    Test the signature of random groups, which a primary array does not have (Sect. 6.1.1)    ####
 
     @testset "Primary and random groups" begin
-        data = collect(reinterpret(UInt8, hton.(Int16[1, 2, 10, 11, 12, 3, 4, 20, 21, 22])))
+        #  the data of the arrays of 6 and 4 values, which fill the last block with zeros
+        data = collect(reinterpret(UInt8, hton.(Int16[1, 2, 10, 11, 12, 3])))
+        data4 = data[1:8]
         simple, bitpix = kw("SIMPLE", "T"), kw("BITPIX", 16)
         counts = [kw("PCOUNT", 2), kw("GCOUNT", 2)]
         #  GROUPS of T and an NAXIS1 that is not 0 are not random groups, so the header is read as a primary array, whose
@@ -510,7 +512,7 @@
         hdu = @test_logs reading(filebytes([simple, bitpix, kw("NAXIS", 2), kw("NAXIS1", 3), kw("NAXIS2", 2), counts...], data))
         @test hdu.data == Int16[1 11; 2 12; 10 3]
         hdu = @test_logs reading(filebytes([simple, bitpix, kw("NAXIS", 1), kw("NAXIS1", 4), kw("PCOUNT", 7),
-            kw("GCOUNT", 3)], data))
+            kw("GCOUNT", 3)], data4))
         @test hdu.data == Int16[1, 2, 10, 11]
         #  the data of a header that is written have the size of the axes
         written_ = @test_logs (:warn, warning) (:warn, warning) written(reading(filebytes(notgroups, data)))
