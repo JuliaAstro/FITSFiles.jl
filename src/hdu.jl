@@ -473,9 +473,14 @@ function Base.read(io::IO, ::Type{Card}; strict::Bool = true, units::Union{Bool,
     N, M = BLOCKLEN÷CARDLENGTH, CARDLENGTH
 
     lastblok = false
-    block = read(io, BLOCKLEN)
+    nblocks = 0
     while !lastblok
-        for j=1:N
+        block = read(io, BLOCKLEN)
+        nblocks += 1
+        #  The last header block has the END keyword (Sect. 3.3.1), so the file ends before it if there are no more bytes
+        isempty(block) && throw(ArgumentError("The header has no END keyword: the file ends after $(nblocks - 1) header " *
+            "block$(nblocks == 2 ? "" : "s"), and the last header block must have it (Sect. 3.3.1)."))
+        for j=1:min(N, length(block)÷M)
             card = parse(Card, String(block[M*(j-1)+1:M*j]),
                          isempty(cards) ? nothing : cards[end]; strict, units)
             if typename(card) == End
@@ -484,10 +489,9 @@ function Base.read(io::IO, ::Type{Card}; strict::Bool = true, units::Union{Bool,
             end
             push!(cards, card)
         end
-        if lastblok
-            break
-        end
-        block = read(io, BLOCKLEN)
+        #  A block that ends before END is the end of the file
+        lastblok || length(block) < BLOCKLEN && throw(ArgumentError("The header has no END keyword: the file ends after " *
+            "$(length(block)) bytes of header block $nblocks, and the last header block must have it (Sect. 3.3.1)."))
     end
     #  Create dictionaries of mandatory and reserved keywords, which include the END keyword.
     mankeys, reskeys = getreservedkeys(cards)

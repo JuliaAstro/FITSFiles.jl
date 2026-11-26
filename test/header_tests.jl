@@ -197,4 +197,34 @@
         @test first(FITSFiles.getall(cards, "OBJECT")) == get(cards, "OBJECT") == cards["OBJECT"]
     end
 
+    ####    Test the end of the header (Sect. 3.3.1)    ####
+
+    @testset "End of the header" begin
+        card(text) = rpad(text, 80)
+        simple, bitpix, naxis = card("SIMPLE  =                    T"), card("BITPIX  =                    8"), card("NAXIS   =                    0")
+        #  the header ends with the END keyword in its last block, which is read without more bytes after it
+        block = rpad(join([simple, bitpix, naxis, card("END")]), 2880)
+        cards, _ = read(IOBuffer(block), Card)
+        @test length(cards) == 3
+        @test length(read(IOBuffer(block * "more bytes"), Card)[1]) == 3
+        #  a header that has no END keyword is an error, which says how far the file goes, and the HDU read is the same
+        message(n, plural) = "The header has no END keyword: the file ends after $n header block$plural, and the last header " *
+            "block must have it (Sect. 3.3.1)."
+        noend = rpad(join([simple, bitpix, naxis]), 2880)
+        @test_throws ArgumentError(message(1, "")) read(IOBuffer(noend), Card)
+        @test_throws ArgumentError(message(1, "")) read(IOBuffer(noend), HDU)
+        @test_throws ArgumentError(message(2, "s")) read(IOBuffer(noend * rpad(card("HISTORY a"), 2880)), Card)
+        @test_throws ArgumentError(message(0, "s")) read(IOBuffer(UInt8[]), Card)
+        #  an END keyword that is in a later block ends it
+        later = noend * rpad(join([card("HISTORY a"), card("END")]), 2880)
+        @test length(read(IOBuffer(later), Card)[1]) == 3 + 33 + 1  # the blank cards that fill the first block, and HISTORY
+        #  and a block that is cut before it has it is not the end of a header
+        @test_throws ArgumentError("The header has no END keyword: the file ends after 100 bytes of header block 1, and the " *
+            "last header block must have it (Sect. 3.3.1).") read(IOBuffer(codeunits(noend)[1:100]), Card)
+        @test_throws ArgumentError("The header has no END keyword: the file ends after 1000 bytes of header block 2, and " *
+            "the last header block must have it (Sect. 3.3.1).") read(IOBuffer([codeunits(noend); codeunits(noend)[1:1000]]), Card)
+        #  a file with the blocks of zeros after the last HDU does not have another header
+        @test_throws ArgumentError(message(1, "")) read(IOBuffer(zeros(UInt8, 2880)), HDU)
+    end
+
 end
