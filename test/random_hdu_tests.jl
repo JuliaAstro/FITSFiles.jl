@@ -871,6 +871,14 @@
         @test reading(written(noparam); scale = false).data == (data = Int16[10 11 12; 20 21 22],)
         @test reading(written(HDU(Random, [(b = Int16[10 11 12],), (b = Int16[20 21 22],)])); scale = false).data.data ==
             reshape(Int16[10 11 12; 20 21 22], (2, 1, 3))
+        #  the data that are created from the header have the shape of the groups, whatever the number of axes is
+        for axes in ([3], [3, 2], [1], Int[])
+            hdr = reading(filebytes(grouphdr(; axes, extra = String[]), bytesof(zeros(Int16, 2 * (2 + prod(axes))))))
+            created = HDU(Random, missing, getfield(hdr, :cards))
+            @test size(created.data.data) == (2, axes...) && size(created.data.param1) == (2,)
+            @test size(HDU(Random, missing, getfield(hdr, :cards); record = true).data[1].data) == (axes...,)
+        end
+
         ####    Parameters that have the same name are summed (Sect. 6.1.2)
 
         dates = [kw("PTYPE1", "'DATE'"), kw("PTYPE2", "'DATE'"), kw("PSCAL2", "0.5")]
@@ -941,6 +949,8 @@
         end
         #  the header of an HDU that is created has the keywords
         @test HDU(Random, missing, Card{<:Any}[Card("GROUPS", true)]).cards["GCOUNT"] == 0
+        #  random groups without a group are a header
+        @test length(written(HDU(Random))) == 2880 && length(written(HDU(Random); checksum = true)) == 2880
 
         ####    The lazy file of random groups reads the same
 

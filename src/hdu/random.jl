@@ -89,6 +89,10 @@ function Base.read(io::IO, ::Type{Random}, format::DataFormat,
     data
 end
 
+#  Random groups without any group have no data
+function Base.write(io::IO, ::Type{Random}, data::Missing, format::DataFormat, fields::Vector{RandomField}; kwds...)
+end
+
 function Base.write(io::IO, ::Type{Random}, data::Union{AbstractArray, NamedTuple},
     format::DataFormat, fields::Vector{RandomField}; check::Bool = true, kwds...)
 
@@ -340,16 +344,16 @@ end
 
 function createdata(::Type{Random}, format::DataFormat,
     fields::Vector{RandomField}; record::Bool = false, kwds...)
-    #  Create N-dimensional array of zeros of type BITPIX.
+    #  Create arrays of zeros of type BITPIX: a value for each parameter of a group, and the array of a group, which is
+    #  the last field and has the groups along its first axis.
     if format.group > 0
+        names = [Symbol(f.name) for f in fields]
         if record
-            data = [(; [Symbol(f.name) => length(f.shape) > 1 ?
-                zeros(f.type, f.shape) : zero(f.type) for f in fields]...)
-                for k=1:format.group]
+            data = [(; [name => (f === fields[end] ? (isempty(f.shape) ? zero(f.type) : zeros(f.type, f.shape)) :
+                zero(f.type)) for (name, f) in zip(names, fields)]...) for k=1:format.group]
         else
-            data = (; [Symbol(f.name) => length(f.shape) > 1 ?
-                zeros(f.type, (format.group, f.shape...)) :
-                zeros(f.type, format.group) for f in fields]...)
+            data = (; [name => (f === fields[end] ? zeros(f.type, (format.group, f.shape...)) :
+                zeros(f.type, format.group)) for (name, f) in zip(names, fields)]...)
         end
     else
         data = missing
