@@ -500,6 +500,54 @@ function verifyinteger(keys::AbstractDict, pattern::Regex)
 end
 
 """
+	verifynumber(keys, pattern)
+
+Raise an `ArgumentError` that names the keyword and its value if the value of a keyword of the dictionary
+`keys` that matches `pattern` is not a real number, e.g., BSCALE = 'two'. A value of an integer type is a
+number, since a keyword of a floating-point number can be written without a decimal point. The array cannot
+be scaled by a value that is not a number, so the HDU cannot be read.
+"""
+function verifynumber(keys::AbstractDict, pattern::Regex)
+	for (key, value) in keys
+		occursin(pattern, key) || continue
+		value isa Real && !(value isa Bool) && continue
+		throw(ArgumentError("$key must be a number, but its value is $(repr(value))."))
+	end
+	nothing
+end
+
+"""
+	verifyfloat(keys, pattern)
+
+Warn if the value of a keyword of the dictionary `keys` that matches `pattern` is an integer, when the
+standard requires a floating-point number, e.g., DATAMIN = 0. A value that is not a number is not checked
+(see [`verifynumber`](@ref)). The value is read as it is.
+"""
+function verifyfloat(keys::AbstractDict, pattern::Regex)
+	for (key, value) in keys
+		occursin(pattern, key) && value isa Integer && !(value isa Bool) &&
+			@warn "$key must be a floating-point number, but its value is the integer $value. It is read as it is."
+	end
+	nothing
+end
+
+"""
+	verifyunit(keys, pattern)
+
+Warn if the value of a keyword of the dictionary `keys` that matches `pattern` is a character string that is
+not a units string (Sect. 4.3 of the standard). An empty string is not checked. The value is read and written
+as it is.
+"""
+function verifyunit(keys::AbstractDict, pattern::Regex)
+	for (key, value) in keys
+		occursin(pattern, key) && value isa AbstractString && !isempty(strip(value)) &&
+			isnothing(parseunit(Unitful, value)) &&
+			@warn "$key must be a units string (Sect. 4.3), but its value is $(repr(value)). It is read as it is."
+	end
+	nothing
+end
+
+"""
 	verifyvalue(keys, key, allowed, requirement)
 
 Raise an `ArgumentError` that names the keyword and its value if the keyword `key` is in the dictionary

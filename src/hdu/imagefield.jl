@@ -27,13 +27,19 @@ const ImageHDU = Union{Primary, Image}
 
 #  The keywords of an image array, which Primary, Image, and Conform verify: BITPIX is one of the values of
 #  Table 8, NAXIS is from 0 to 999 and each NAXISn is a non-negative integer (Sects. 4.4.1.1 and 7.1.1), and
-#  BLANK is an integer (Sect. 4.4.2.5).
+#  the keywords that describe the array (Sect. 4.4.2.5): BLANK is an integer and only for integer data, BSCALE
+#  and BZERO are numbers, DATAMIN and DATAMAX are floating-point numbers, and BUNIT is a units string.
 function verifyarray(mankeys::AbstractDict, reskeys::AbstractDict)
     verifybitpix(mankeys)
     verifyvalue(mankeys, "NAXIS", 0:MAXAXES, "an integer from 0 to $MAXAXES")
     verifyaxes(mankeys)
     verifysize(mankeys)
     verifyinteger(reskeys, r"^BLANK$")
+    haskey(reskeys, "BLANK") && get(mankeys, "BITPIX", 8) < 0 && @warn "BLANK is for integer data " *
+        "(a positive BITPIX) only (Sect. 4.4.2.5), so it is not used."
+    verifynumber(reskeys, r"^(BSCALE|BZERO|DATAMIN|DATAMAX)$")
+    verifyfloat(reskeys, r"^(DATAMIN|DATAMAX)$")
+    verifyunit(reskeys, r"^BUNIT$")
 end
 
 #  The size of the data array, |BITPIX|/8 × NAXIS1 × ... × NAXISm bytes, is at most the largest integer, so

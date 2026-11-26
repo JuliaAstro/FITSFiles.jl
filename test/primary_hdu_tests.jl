@@ -359,6 +359,25 @@
         warned(cards, message, bytes = data) = @test_logs (:warn, message) reading(filebytes([header; cards], bytes))
         silent(cards, bytes = data) = @test_logs reading(filebytes([header; cards], bytes))
 
+        ####    BLANK is for integer data (Sect. 4.4.2.5)
+
+        floats = [simple, kw("BITPIX", -32), naxis, naxis1]
+        bytes = bytesof(Float32[1, 2, 3])
+        hdu = @test_logs (:warn, r"BLANK is for integer data") reading(filebytes([floats; kw("BLANK", -1)], bytes))
+        @test hdu.data == Float32[1, 2, 3]
+        @test_logs reading(filebytes(floats, bytes))
+
+        ####    BSCALE, BZERO, DATAMIN, and DATAMAX are numbers, and DATAMIN and DATAMAX are floating-point
+
+        for key in ("BSCALE", "BZERO", "DATAMIN", "DATAMAX"), (value, shown) in (("'two'", "\"two\""), ("T", "true"))
+            @test_throws ArgumentError("$key must be a number, but its value is $shown.") reading(
+                filebytes([header; "$(rpad(key, 8))= $value"], data))
+        end
+        silent(["BSCALE  = 2", "BZERO   = 1.5", "DATAMIN =                  0.5", "DATAMAX = 3.0"])
+        for key in ("DATAMIN", "DATAMAX")
+            warned([kw(key, 3)], Regex("$key must be a floating-point number, but its value is the integer 3"))
+        end
+
         ####    The types of Table 11: an offset in BZERO is the type of the physical values
 
         offsets = (
@@ -404,6 +423,14 @@
         hdu = HDU(Primary, UInt16[0, 1], Card{<:Any}[Card("BZERO", 32768, "offset")])
         @test hdu.cards["BZERO"] == 32768 && count(c -> c.key == "BZERO", hdu.cards) == 1
 
+        ####    BUNIT is a units string (Sect. 4.3)
+
+        for unit in ("adu", "km/s", "Jy/beam", "mJy", "erg s-1 cm-2", "m**2", "")
+            silent(["BUNIT   = '$unit'"])
+        end
+        for unit in ("not a unit", "kilometre/second", "m//s")
+            warned(["BUNIT   = '$unit'"], Regex("BUNIT must be a units string \\(Sect. 4.3\\), but its value is \"$unit\""))
+        end
     end
 
 end
