@@ -137,6 +137,10 @@
         #  the primary array is equivalent to an IMAGE extension, and a table of the same name is not
         primary = HDU(Primary, data, Card{<:Any}[Card("EXTNAME", "SCI")])
         @test_logs (:warn, r"HDU 2 of a FITS file has the same type IMAGE, EXTNAME \"SCI\", EXTVER 1, and EXTLEVEL 1 as HDU 1") written(HDU[primary, sci])
+        #  random groups are not an IMAGE, so an IMAGE extension and a table of the same name are not repeats of them
+        groups = HDU(Random, (a = Int16[1, 3], data = Int16[10 11 12; 20 21 22]), Card{<:Any}[Card("EXTNAME", "SCI")])
+        @test_logs written(HDU[groups, sci])
+        @test_logs written(HDU[groups, HDU(Bintable, (a = Int32[1],), Card{<:Any}[Card("EXTNAME", "SCI")])])
         #  and only the keywords that are there are compared
         named = extension(Card("EXTVER", 2))
         @test_logs written(HDU[HDU(Primary, data), named, extension(Card("EXTVER", 3))])

@@ -25,8 +25,8 @@ end
 
 Warn if the last HDU of the vector `hdus` has the same type, EXTNAME, EXTVER, and EXTLEVEL as an HDU before it. It is
 recommended that the combination of these keywords is unique in each HDU of a FITS file that has them (Sect. 4.4.2.6 of
-the standard). The type of an HDU is the value of its XTENSION, and the primary array is equivalent to an IMAGE extension.
-An absent EXTVER or EXTLEVEL is 1, and the HDUs that have none of the three keywords are not compared. The HDUs are read
+the standard). The type of an HDU is the value of its XTENSION, and the primary array is equivalent to an IMAGE extension,
+but random groups are not: their type is GROUPS. An absent EXTVER or EXTLEVEL is 1, and the HDUs that have none of the three keywords are not compared. The HDUs are read
 and written as they are. Return the HDUs.
 """
 function verifyname(hdus::AbstractVector)
@@ -36,7 +36,8 @@ function verifyname(hdus::AbstractVector)
 	named(hdu) || return hdus
 	function signature(hdu)
 		cards = getfield(hdu, :cards)
-		type = haskey(cards, "XTENSION") ? rstrip(string(cards["XTENSION"])) : "IMAGE"
+		type = haskey(cards, "XTENSION") ? rstrip(string(cards["XTENSION"])) :
+			typeofhdu(hdu) == Random ? "GROUPS" : "IMAGE"
 		(type, extname(hdu), extver(hdu), extlevel(hdu))
 	end
 	for j = 1:(length(hdus)-1)
