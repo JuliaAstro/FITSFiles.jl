@@ -1043,4 +1043,45 @@
         @test isequal(flags[1], [true, false, missing]) && flags[2] == [false, true]
     end
 
+    ####    Test the TDIMn keyword (Sect. 7.3.2)    ####
+
+    @testset "TDIMn" begin
+        #  the value is a string of the form (l,m,n...), which is read as a tuple of integers
+        @test FITSFiles.parsedims("(5,4,3)", 1) === (5, 4, 3)
+        @test FITSFiles.parsedims("( 4, 5 ,6 )", 1) === (4, 5, 6)
+        #  a single dimension is a tuple, not an integer
+        @test FITSFiles.parsedims("(3)", 1) === (3,)
+        #  there is no keyword, or no value
+        @test FITSFiles.parsedims(nothing, 1) === nothing
+        @test FITSFiles.parsedims("", 1) === nothing
+        #  a value that is not of the form is ignored, with a warning
+        for value in ("3", "(3,)", "()", "(a,2)", "(-1,2)", "(3,2)x", "(1.5,2)", 5)
+            @test_logs (:warn, r"TDIM2 is not") @test FITSFiles.parsedims(value, 2) === nothing
+        end
+
+        #  the value is not evaluated as code
+        value = "(global tdimran = true; 3)"
+        @test_logs (:warn, r"TDIM1 is not") FITSFiles.parsedims(value, 1)
+        @test !isdefined(FITSFiles, :tdimran)
+
+        #  a Bintable HDU with a TDIMn keyword is read, and written with the same bytes
+        card(s) = rpad(s, 80)
+        header = ["SIMPLE  =                    T", "BITPIX  =                    8", "NAXIS   =                    0", "END"]
+        hdr(tdim) = ["XTENSION= 'BINTABLE'", "BITPIX  =                    8", "NAXIS   =                    2",
+            "NAXIS1  =                    6", "NAXIS2  =                    1", "PCOUNT  =                    0",
+            "GCOUNT  =                    1", "TFIELDS =                    1", "TFORM1  = '3I      '",
+            "TTYPE1  = 'a       '", tdim, "END"]
+        bytes(tdim) = rpad(join(card.(header)), 2880) * rpad(join(card.(hdr(tdim))), 2880) *
+            String(zeros(UInt8, 2880))
+        for tdim in ("TDIM1   = '(3)     '", "TDIM1   = '(3,1)   '")
+            buffer = IOBuffer(bytes(tdim)); read(buffer, HDU)
+            hdu = read(buffer, HDU)
+            @test hdu.data.a == zeros(Int16, 1, 3)
+            io = IOBuffer(); write(io, hdu)
+            @test take!(io) == codeunits(bytes(tdim))[2881:end]
+        end
+        buffer = IOBuffer(bytes("TDIM1   = 'evil    '")); read(buffer, HDU)
+        @test_logs (:warn, r"TDIM1 is not") read(buffer, HDU)
+    end
+
 end

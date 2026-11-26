@@ -57,6 +57,27 @@ struct BinaryField <: AbstractField
     lmax::Union{AbstractFloat, Nothing}
 end
 
+"""
+    parsedims(value, j)
+
+Return the dimensions of the TDIM`j` keyword as a tuple of integers, or `nothing` if there is no
+keyword. The value is a character string of the form `(l,m,n...)` (Sect. 7.3.2 of the standard), where
+`l`, `m`, `n`, ... are the dimensions, and a single dimension, `(l)`, is the tuple `(l,)`. A value that is
+not of this form is not read: it gives a warning and `nothing`, and the keyword stays in the header
+unchanged.
+"""
+function parsedims(value::Union{AbstractString, Nothing}, j::Integer)
+    isnothing(value) && return nothing
+    isempty(strip(value)) && return nothing
+    m = match(r"^\s*\(\s*(\d+(?:\s*,\s*\d+)*)\s*\)\s*$", value)
+    if isnothing(m)
+        @warn "TDIM$j is not of the form (l,m,n...), so it is ignored: $(repr(value))"
+        return nothing
+    end
+    Tuple(parse.(Int, split(m[1], ",")))
+end
+parsedims(value, j::Integer) = (@warn "TDIM$j is not a string, so it is ignored: $(repr(value))"; nothing)
+
 function Base.read(io::IO, ::Type{Bintable}, format::DataFormat,
     fields::Vector{BinaryField}; record::Bool = false, kwds...)
 
@@ -172,7 +193,7 @@ function FieldFormat(::Type{Bintable}, mankeys::DataFormat, reskeys::Dict{S, V},
         supp  = form[:a]
         unit_ = get(reskeys, "TUNIT$j", "")
         disp  = get(reskeys, "TDISP$j", "")
-        dims  = eval(Meta.parse(get(reskeys, "TDIM$j", "")))
+        dims  = parsedims(get(reskeys, "TDIM$j", nothing), j)
         zero_ = leastfloat(get(reskeys, "TZERO$j",
             type <: Union{Bool, BitVector, String} ? nothing : 0.0f0))
         scale = leastfloat(get(reskeys, "TSCAL$j",
@@ -219,7 +240,7 @@ function FieldFormat(::Type{Bintable}, mankey::DataFormat, reskeys::Dict{S, V},
         #     get(reskeys, "TUNIT$j", "")
         unit_ = get(reskeys, "TUNIT$j", "")
         disp  = get(reskeys, "TDISP$j", "")
-        dims  = eval(Meta.parse(get(reskeys, "TDIM$j", "")))
+        dims  = parsedims(get(reskeys, "TDIM$j", nothing), j)
         zero_ = leastfloat(get(reskeys, "TZERO$j",
             type <: Union{Bool, BitVector, String} ? nothing : 0.0f0))
         scale = leastfloat(get(reskeys, "TSCAL$j",
@@ -268,7 +289,7 @@ function FieldFormat(::Type{Bintable}, mankey::DataFormat, reskeys::Dict{S, V},
         #     get(reskeys, "TUNIT$j", "")
         unit_ = get(reskeys, "TUNIT$j", "")
         disp  = get(reskeys, "TDISP$j", "")
-        dims  = eval(Meta.parse(get(reskeys, "TDIM$j", "")))
+        dims  = parsedims(get(reskeys, "TDIM$j", nothing), j)
         zero_ = leastfloat(get(reskeys, "TZERO$j",
             type <: Union{Bool, BitVector, String} ? nothing : 0.0f0))
         scale = leastfloat(get(reskeys, "TSCAL$j",
