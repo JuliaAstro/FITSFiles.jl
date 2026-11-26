@@ -39,6 +39,7 @@ function verifyarray(mankeys::AbstractDict, reskeys::AbstractDict)
         "(a positive BITPIX) only (Sect. 4.4.2.5), so it is not used."
     verifynumber(reskeys, r"^(BSCALE|BZERO|DATAMIN|DATAMAX)$")
     verifyfloat(reskeys, r"^(DATAMIN|DATAMAX)$")
+    verifystring(reskeys, r"^BUNIT$")
     verifyunit(reskeys, r"^BUNIT$")
 end
 

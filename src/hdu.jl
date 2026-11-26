@@ -477,6 +477,9 @@ function verify!(::Type{<:AbstractHDU}, cards::Cards, mankeys::AbstractDict, res
 	#  type of HDU, e.g., TFIELDS or BLANK, are verified by the verify! method of that type.
 	verifyinteger(mankeys, r"^(BITPIX|NAXIS\d*|PCOUNT|GCOUNT)$")
 	verifyinteger(reskeys, r"^(EXTVER|EXTLEVEL|WCSAXES[A-Z]?|MJDREFI|JDREFI)$")
+	#  The descriptive keywords of Sects. 4.4.2.1 to 4.4.2.3 are character strings, and the dates are dates.
+	verifystring(reskeys, r"^(ORIGIN|TELESCOP|INSTRUME|OBSERVER|OBJECT|AUTHOR|REFERENC|EXTNAME)$")
+	verifydate(reskeys, r"^DATE")
 	verifyxtension!(cards)
 end
 
@@ -532,6 +535,20 @@ function verifyfloat(keys::AbstractDict, pattern::Regex)
 end
 
 """
+	verifystring(keys, pattern)
+
+Warn if the value of a keyword of the dictionary `keys` that matches `pattern` is not a character string.
+The value is read and written as it is.
+"""
+function verifystring(keys::AbstractDict, pattern::Regex)
+	for (key, value) in keys
+		occursin(pattern, key) && !(value isa AbstractString) &&
+			@warn "$key must be a character string, but its value is $(repr(value)). It is read as it is."
+	end
+	nothing
+end
+
+"""
 	verifylogical(keys, pattern)
 
 Warn if the value of a keyword of the dictionary `keys` that matches `pattern` is not a logical, T or F.
@@ -541,6 +558,41 @@ function verifylogical(keys::AbstractDict, pattern::Regex)
 	for (key, value) in keys
 		occursin(pattern, key) && !(value isa Bool) &&
 			@warn "$key must be a logical, T or F, but its value is $(repr(value)). It is read as it is."
+	end
+	nothing
+end
+
+#  Is `text` a date of the form YYYY-MM-DD, YYYY-MM-DDThh:mm:ss[.sss...], or, before 2000, DD/MM/YY (Sect. 4.4.2.1)?
+function isdatestring(text::AbstractString)
+	m = match(r"^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?)?$", text)
+	if !isnothing(m)
+		year, month, day = parse.(Int, m.captures[1:3])
+		time = isnothing(m[4]) ? (0, 0, 0) : parse.(Int, m.captures[4:6])
+		return isdate(year, month, day) && time[1] < 24 && time[2] < 60 && time[3] < 61
+	end
+	m = match(r"^(\d{2})/(\d{2})/(\d{2})$", text)
+	isnothing(m) ? false : isdate(1900 + parse(Int, m[3]), parse(Int, m[2]), parse(Int, m[1]))
+end
+
+function isdate(year::Integer, month::Integer, day::Integer)
+	leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)
+	ndays = (31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)
+	1 <= month <= 12 && 1 <= day <= ndays[month]
+end
+
+"""
+	verifydate(keys, pattern)
+
+Warn if the value of a keyword of the dictionary `keys` that matches `pattern` is not a date of the form
+`YYYY-MM-DD` or `YYYY-MM-DDThh:mm:ss[.sss...]`, or `DD/MM/YY` for a date before 2000 (Sect. 4.4.2.1 of the
+standard). The value is read and written as it is.
+"""
+function verifydate(keys::AbstractDict, pattern::Regex)
+	for (key, value) in keys
+		occursin(pattern, key) || continue
+		value isa AbstractString && isdatestring(strip(value)) && continue
+		@warn "$key must be a date of the form YYYY-MM-DD[Thh:mm:ss[.sss]] (Sect. 4.4.2.1), but its value is " *
+			"$(repr(value)). It is read as it is."
 	end
 	nothing
 end

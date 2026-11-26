@@ -435,6 +435,35 @@
         extension = [kw("XTENSION", "'IMAGE   '"), bitpix, naxis, naxis1, kw("PCOUNT", 0), kw("GCOUNT", 1)]
         @test_logs reading(filebytes([extension; kw("INHERIT", "T")], data))
 
+        ####    DATE, DATE-OBS, and the other DATExxxx are dates (Sects. 4.4.2.1 and 4.4.2.2)
+
+        for text in ("2020-01-31", "2020-02-29", "2020-01-31T12:30:00", "2020-01-31T12:30:00.123", "2020-12-31T23:59:60",
+            "31/01/99", " 2020-01-31 ")
+            @test FITSFiles.isdatestring(strip(text))
+            silent(["DATE    = '$text'", "DATE-OBS= '$text'", "DATE-END= '$text'"])
+        end
+        for text in ("2021-02-29", "2020-13-01", "2020-00-10", "2020-01-32", "2020-1-1", "20200131", "2020-01-31T24:00:00",
+            "2020-01-31T12:60:00", "2020-01-31 12:30:00", "31/02/99", "31/01/1999", "yesterday", "")
+            @test !FITSFiles.isdatestring(text)
+            for key in ("DATE", "DATE-OBS", "DATE-END")
+                warned(["$(rpad(key, 8))= '$text'"], Regex("$key must be a date of the form YYYY-MM-DD"))
+            end
+        end
+        warned([kw("DATE", 5)], r"DATE must be a date of the form YYYY-MM-DD\[Thh:mm:ss\[.sss\]\] \(Sect. 4.4.2.1\), but its value is 5")
+        #  the keywords of other HDUs are verified too
+        @test_logs (:warn, r"DATE must be a date") reading(filebytes([extension; "DATE    = 'today'"], data))
+
+        ####    The descriptive keywords are character strings (Sects. 4.4.2.1 to 4.4.2.3, and 4.4.2.5)
+
+        keys = ("ORIGIN", "TELESCOP", "INSTRUME", "OBSERVER", "OBJECT", "AUTHOR", "REFERENC", "BUNIT")
+        silent(["$(rpad(key, 8))= '$(key == "BUNIT" ? "adu" : "a name")'" for key in keys])
+        for key in keys
+            warned([kw(key, 7)], Regex("$key must be a character string, but its value is 7"))
+        end
+        warned([kw("EXTNAME", 1)], r"EXTNAME must be a character string, but its value is 1")
+        @test_logs (:warn, r"EXTNAME must be a character string") reading(filebytes([extension; kw("EXTNAME", 1)], data))
+        @test_logs reading(filebytes([extension; "EXTNAME = 'SCI'"], data))
+
         ####    BUNIT is a units string (Sect. 4.3)
 
         for unit in ("adu", "km/s", "Jy/beam", "mJy", "erg s-1 cm-2", "m**2", "")
