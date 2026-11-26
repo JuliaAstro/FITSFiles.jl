@@ -16,6 +16,11 @@ of ASCII data structured as vector of records.
 struct Table <: AbstractHDU end
 XTENSIONTYPE["TABLE"] = Table
 
+#  The mandatory and reserved keywords of the HDU (see `getreservedkeys`)
+union!(MANDATORYKEYS, ["XTENSION", "PCOUNT", "GCOUNT", "TFIELDS", "TFORM", "TBCOL"])
+union!(RESERVEDKEYS, ["INHERIT", "TFIELDS", "TFORM", "TBCOL", "TSCAL", "TZERO", "TNULL", "TTYPE", "TUNIT", "TDISP",
+    "TDMAX", "TDMIN", "TLMAX", "TLMIN"])
+
 #  The fill after the data is ASCII spaces (see `verifyfill`)
 fillrule(::Type{Table}) = (0x20, "ASCII spaces", "Sect. 7.2.3")
 

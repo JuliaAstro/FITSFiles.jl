@@ -546,4 +546,30 @@
         table = HDU(Bintable, (a = Int32[1, 2, 3],), Card{<:Any}[Card("TTYPE1", "a")])
         @test table isa HDU{Bintable}
     end
+
+    ####    Test the mandatory and reserved keywords of the HDUs    ####
+
+    @testset "MANDATORYKEYS and RESERVEDKEYS" begin
+        mandatory = [
+        "BITPIX", "END", "GCOUNT", "GROUPS", "NAXIS", "PCOUNT", "SIMPLE", "TBCOL", "TFIELDS", "TFORM", "THEAP",
+        "XTENSION", "ZBITPIX", "ZCMPTYPE", "ZCTYP", "ZFORM", "ZIMAGE", "ZNAXIS", "ZPCOUNT", "ZTABLE", "ZTILELEN"]
+        reserved = [
+        "AUTHOR", "BLANK", "BLOCKED", "BSCALE", "BUNIT", "BZERO", "CHECKSUM", "DATAMAX", "DATAMIN", "DATASUM",
+        "DATE", "DATE-OBS", "EPOCH", "EQUINOX", "EXTEND", "EXTLEVEL", "EXTNAME", "EXTVER", "FZALG", "FZALGOR",
+        "FZTILELN", "INHERIT", "INSTRUME", "JDREFI", "MJDREFI", "OBJECT", "OBSERVER", "ORIGIN", "PSCAL", "PTYPE",
+        "PZERO", "REFERENC", "TBCOL", "TDIM", "TDISP", "TDMAX", "TDMIN", "TELESCOP", "TFIELDS", "TFORM", "TLMAX",
+        "TLMIN", "TNULL", "TSCAL", "TTYPE", "TUNIT", "TZERO", "WCSAXES", "ZBLANK", "ZBLOCKED", "ZDATASUM",
+        "ZDITHER0", "ZEXTEND", "ZGCOUNT", "ZHECKSUM", "ZMASKCMP", "ZNAME", "ZPCOUNT", "ZQUANTIZ", "ZSIMPLE",
+        "ZTENSION", "ZTHEAP", "ZTILE", "ZVAL"]
+        #  the types of HDUs add the roots of their keywords, in their files, to those of the HDUs, which are each once
+        @test allunique(FITSFiles.MANDATORYKEYS) && allunique(FITSFiles.RESERVEDKEYS)
+        @test sort(FITSFiles.MANDATORYKEYS) == sort(mandatory) && sort(FITSFiles.RESERVEDKEYS) == sort(reserved)
+        #  the keywords of each type of HDU are sorted into the mandatory and the reserved
+        cards = Card{<:Any}[Card("SIMPLE", true), Card("BITPIX", 16), Card("GROUPS", true), Card("PCOUNT", 2), Card("PTYPE1", "A"),
+            Card("BSCALE", 2.0), Card("INHERIT", true), Card("TFORM3", "A4"), Card("TDIM2", "(2,3)"), Card("ZTILE1", 4),
+            Card("FZALGOR", "RICE_1"), Card("OBJECT", "x"), Card("NOTAKEY", 1)]
+        mankeys, reskeys = FITSFiles.getreservedkeys(cards)
+        @test sort(collect(keys(mankeys))) == ["BITPIX", "GROUPS", "PCOUNT", "SIMPLE", "TFORM3"]
+        @test sort(collect(keys(reskeys))) == ["BSCALE", "FZALGOR", "INHERIT", "OBJECT", "PTYPE1", "TDIM2", "TFORM3", "ZTILE1"]
+    end
 end

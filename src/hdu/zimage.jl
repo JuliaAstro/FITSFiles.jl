@@ -2,6 +2,11 @@
 
 struct ZImage <: AbstractHDU end
 
+#  The mandatory and reserved keywords of the HDU (see `getreservedkeys`)
+union!(MANDATORYKEYS, ["ZIMAGE", "ZBITPIX", "ZNAXIS", "ZCMPTYPE"])
+union!(RESERVEDKEYS, ["ZTILE", "ZNAME", "ZVAL", "ZMASKCMP", "ZQUANTIZ", "ZDITHER0", "ZSIMPLE", "ZEXTEND", "ZBLOCKED",
+    "ZTENSION", "ZPCOUNT", "ZGCOUNT", "ZBLANK", "ZHECKSUM", "ZDATASUM"])
+
 #  The fill after the data is that of a binary table
 fillrule(::Type{ZImage}) = fillrule(Bintable)
 

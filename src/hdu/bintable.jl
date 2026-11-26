@@ -9,6 +9,11 @@ array of binary data structured as a vector of records.
 struct Bintable <: AbstractHDU end
 XTENSIONTYPE["BINTABLE"] = Bintable
 
+#  The mandatory and reserved keywords of the HDU (see `getreservedkeys`)
+union!(MANDATORYKEYS, ["XTENSION", "PCOUNT", "GCOUNT", "THEAP", "TFIELDS", "TFORM"])
+union!(RESERVEDKEYS, ["INHERIT", "TFIELDS", "TFORM", "TSCAL", "TZERO", "TNULL", "TTYPE", "TUNIT", "TDISP", "TDIM",
+    "TDMAX", "TDMIN", "TLMAX", "TLMIN"])
+
 #  The fill after the data (see `verifyfill`)
 fillrule(::Type{Bintable}) = (0x00, "zeros", "Sect. 7.3.3")
 

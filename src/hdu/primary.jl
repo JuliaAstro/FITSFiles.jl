@@ -8,6 +8,10 @@ array (<=999 dimensions). The Primary HDU is the first HDU in a vector of HDUs.
 """
 struct Primary <: AbstractHDU end
 
+#  The mandatory and reserved keywords of the HDU (see `getreservedkeys`)
+union!(MANDATORYKEYS, ["SIMPLE"])
+union!(RESERVEDKEYS, ["EXTEND", "BLOCKED", "BSCALE", "BZERO", "BUNIT", "BLANK", "DATAMAX", "DATAMIN"])
+
 #  The keywords of the cards that are given with the data of an HDU that is made are verified (see `verifycardkeys`)
 verifycards!(::Type{Primary}, cards::Cards, mankeys::AbstractDict, reskeys::AbstractDict, format::DataFormat) =
     verifycardkeys(Primary, cards, mankeys, reskeys, format)

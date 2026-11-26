@@ -98,36 +98,13 @@ const MAXFIELDS = 999
 #  The HDU type of the value of XTENSION, which each type of extension adds to when it is defined
 const XTENSIONTYPE = Dict{String, Type}()
 
-const MANDATORYKEYS = (
-	#  Mandatory keys, except THEAP (see Table C.1)
-	"END", "SIMPLE", "XTENSION", "BITPIX", "NAXIS", "GROUPS", "PCOUNT",
-	"GCOUNT", "THEAP", "TFIELDS", "TFORM", "TBCOL", "ZIMAGE", "ZTABLE",
-	"ZBITPIX", "ZNAXIS", "ZPCOUNT", "ZFORM", "ZCTYP", "ZCMPTYPE", "ZTILELEN")
-
-const RESERVEDKEYS = (
-	#  General keys
-	"DATE", "DATE-OBS", "ORIGIN", "AUTHOR", "REFERENC",
-	"OBJECT", "OBSERVER", "INHERIT", "CHECKSUM", "DATASUM", "EXTNAME",
-	"EXTVER", "EXTLEVEL", "EQUINOX", "EPOCH", "BLOCKED", "EXTEND", "TELESCOP",
-	"INSTRUME",
-	#  Random field keys
-	"PTYPE", "PSCAL", "PZERO",
-	#  Image field keys
-	"BSCALE", "BZERO", "BUNIT", "BLANK", "DATAMAX", "DATAMIN",
+#  The roots of the keywords of the mandatory keywords and of the reserved keywords (see `getreservedkeys`), each root once. The
+#  keywords that are common to the HDUs are here, and each type of HDU adds those of its own, which are in its file, when it is defined.
+const MANDATORYKEYS = String["END", "BITPIX", "NAXIS"]
+const RESERVEDKEYS = String["DATE", "DATE-OBS", "ORIGIN", "AUTHOR", "REFERENC", "OBJECT", "OBSERVER", "CHECKSUM", "DATASUM",
+	"EXTNAME", "EXTVER", "EXTLEVEL", "EQUINOX", "EPOCH", "TELESCOP", "INSTRUME",
 	#  World-coordinate and time keys that are integers
-	"WCSAXES", "MJDREFI", "JDREFI",
-	#  Table field keys
-	"TFIELDS", "TFORM", "TBCOL", "TSCAL", "TZERO", "TNULL", "TTYPE", "TUNIT",
-	"TDISP", "TDMAX", "TDMIN", "TLMAX", "TLMIN",
-	#  Bintable field keys, except THEAP
-	"TFIELDS", "TFORM", "TSCAL", "TSCAL", "TZERO", "TNULL", "TTYPE", "TUNIT",
-	"TDISP", "TDIM", "TDMAX", "TDMIN", "TLMAX", "TLMIN",
-	#  ZImage field keys
-	"ZTILE", "ZNAME", "ZVAL", "ZMASKCMP", "ZQUANTIZ", "ZDITHER0", "ZSIMPLE",
-	"ZEXTEND", "ZBLOCKED", "ZTENSION", "ZPCOUNT", "ZGCOUNT", "ZBLANK", "ZHECKSUM",
-	"ZDATASUM",
-	#  ZTable field keys
-	"FZTILELN", "FZALGOR", "FZALG", "ZTHEAP", "ZHECKSUM", "ZDATASUM")
+	"WCSAXES", "MJDREFI", "JDREFI"]
 
 #  Check for header missing END card
 

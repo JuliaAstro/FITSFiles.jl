@@ -2,6 +2,10 @@
 
 struct Conform <: AbstractHDU end
 
+#  The mandatory and reserved keywords of the HDU (see `getreservedkeys`)
+union!(MANDATORYKEYS, ["SIMPLE", "XTENSION", "PCOUNT", "GCOUNT"])
+union!(RESERVEDKEYS, ["INHERIT", "EXTEND", "BLOCKED", "BSCALE", "BZERO", "BUNIT", "BLANK", "DATAMAX", "DATAMIN"])
+
 """
     ConformField()
 

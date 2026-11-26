@@ -2,6 +2,10 @@
 
 struct ZTable <: AbstractHDU end
 
+#  The mandatory and reserved keywords of the HDU (see `getreservedkeys`)
+union!(MANDATORYKEYS, ["ZTABLE", "ZNAXIS", "ZPCOUNT", "ZFORM", "ZCTYP", "ZTILELEN"])
+union!(RESERVEDKEYS, ["FZTILELN", "FZALGOR", "FZALG", "ZTHEAP", "ZHECKSUM", "ZDATASUM"])
+
 #  The fill after the data is that of a binary table
 fillrule(::Type{ZTable}) = fillrule(Bintable)
 

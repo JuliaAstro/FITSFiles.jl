@@ -31,6 +31,11 @@ The elements of the array of integers that are the stored value of BLANK are `mi
 """
 struct Random <: AbstractHDU end
 
+#  The mandatory and reserved keywords of the HDU (see `getreservedkeys`)
+union!(MANDATORYKEYS, ["SIMPLE", "GROUPS", "PCOUNT", "GCOUNT"])
+union!(RESERVEDKEYS, ["PTYPE", "PSCAL", "PZERO", "EXTEND", "BLOCKED", "BSCALE", "BZERO", "BUNIT", "BLANK", "DATAMAX",
+    "DATAMIN"])
+
 """
     RandomField(name, index, type, slice, leng, shape, zero, scale, miss)
 

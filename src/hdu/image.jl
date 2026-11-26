@@ -9,6 +9,10 @@ An Image HDU consists of a vector of cards and optionally a multidimensional arr
 struct Image <: AbstractHDU end
 XTENSIONTYPE["IMAGE"] = Image
 
+#  The mandatory and reserved keywords of the HDU (see `getreservedkeys`)
+union!(MANDATORYKEYS, ["XTENSION", "PCOUNT", "GCOUNT"])
+union!(RESERVEDKEYS, ["INHERIT", "BSCALE", "BZERO", "BUNIT", "BLANK", "DATAMAX", "DATAMIN"])
+
 #  The keywords of the cards that are given with the data of an HDU that is made are verified (see `verifycardkeys`)
 verifycards!(::Type{Image}, cards::Cards, mankeys::AbstractDict, reskeys::AbstractDict, format::DataFormat) =
     verifycardkeys(Image, cards, mankeys, reskeys, format)
