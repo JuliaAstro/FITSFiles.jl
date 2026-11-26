@@ -137,17 +137,19 @@
 
     ####    A file of HDUs
 
+    #  an empty primary HDU, an image, and a table
+    filehdus = [hdus[4], hdus[2], hdus[3]]
     mktemp() do path, io
-        write(io, hdus; checksum = true)
+        write(io, filehdus; checksum = true)
         close(io)
         bytes = read(path)
         #  the sum of a file of HDUs that have the sum -0 is -0
         @test sumof(bytes) === 0xffffffff
         file = @test_logs fits(path; checksum = true)
-        @test length(file) == 4
+        @test length(file) == 3
         #  a change of the data of the second HDU is found in that HDU
         tampered = copy(bytes)
-        hdr = length(written(hdus[1]; checksum = true))
+        hdr = length(written(filehdus[1]; checksum = true))
         tampered[hdr + 2881 + 1] ⊻= 0x40
         write(path, tampered)
         @test_logs (:warn, r"DATASUM is") (:warn, r"checksum of the HDU") fits(path; checksum = true)

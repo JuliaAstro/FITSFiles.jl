@@ -38,6 +38,34 @@
             @test_logs fits(path)
         end
 
+        #  the first HDU is the primary HDU, and the HDUs after it are not
+        for (hdus, message) in (([image], first_), ([image, table], first_), ([table, image], first_),
+            ([primary, primary], later(2)), ([empty, image, primary], later(3)), ([primary, empty], later(2)))
+            bytes = @test_logs (:warn, message) written(hdus)
+            @test length(@test_logs((:warn, message), fits(IOBuffer(bytes)))) == length(hdus)
+        end
+        @test_logs (:warn, first_) (:warn, later(2)) written([image, primary])
+        @test_logs (:warn, later(2)) (:warn, later(3)) written([primary, primary, empty])
+        #  the HDUs are written and read as they are
+        bytes = @test_logs (:warn, first_) written([image, table])
+        file = @test_logs (:warn, first_) fits(IOBuffer(bytes))
+        @test typeof.(file) == [typeof(image), typeof(table)]
+        mktemp() do path, io
+            @test_logs (:warn, later(2)) write(io, [primary, primary])
+            close(io)
+            @test_logs (:warn, later(2)) fits(path)
+        end
+
+        #  an HDU of a file that does not conform is a primary HDU, since its header begins with SIMPLE
+        simplef = rpad("SIMPLE  =                    F", 80)
+        header = join(rpad.([simplef[1:end], "BITPIX  =                    8", "NAXIS   =                    0", "END"], 80))
+        bytes = Vector{UInt8}(codeunits(rpad(header, 2880)))
+        file = @test_logs (:warn, r"SIMPLE is F") fits(IOBuffer(bytes))
+        @test length(file) == 1 && file[1] isa HDU{FITSFiles.Conform}
+        extension = @test_logs (:warn, first_) written([image])
+        @test_logs (:warn, r"SIMPLE is F") fits(IOBuffer([bytes; extension]))
+        #  a file does not have to have HDUs
+        @test isempty(@test_logs fits(IOBuffer(UInt8[])))
     end
 
 end
