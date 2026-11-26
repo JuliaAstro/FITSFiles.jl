@@ -1,13 +1,31 @@
 ####    FITS type    ####
 
-#   Verify that first HDU is Primary or Random
-#   Verify that first HDU has EXTEND keyword set
+"""
+    verifyposition(hdu, j)
+
+Warn if the `j`th HDU of a FITS file is not what the standard requires of its position (Sect. 3.1): the first HDU is the
+primary HDU, whose header begins with SIMPLE, and the HDUs after it are conforming extensions, whose headers begin with
+XTENSION, and so do not have SIMPLE (Sect. 3.4.3). A file that has HDUs that are not in this order is read and written as it
+is. Return the HDU. The EXTEND keyword of the primary header is advisory (Sect. 4.4.2.1), so it is not verified.
+"""
+function verifyposition(hdu::HDU, j::Integer)
+	simple = haskey(getfield(hdu, :cards), "SIMPLE")
+	if j == 1 && !simple
+		@warn "The first HDU of a FITS file must be the primary HDU, which has SIMPLE (Sect. 3.1), but it is an " *
+			"extension, which has XTENSION. It is read as it is."
+	elseif j > 1 && simple
+		@warn "HDU $j of a FITS file has SIMPLE, but only the first HDU is a primary HDU (Sects. 3.1 and 3.4.3): " *
+			"the HDUs after it are conforming extensions, which have XTENSION. It is read as it is."
+	end
+	hdu
+end
 
 """
 	fits(io::IO; <keywords>)
 	fits(filename::AbstractString; <keywords>)
 
-Open and read a FITS file, returning a vector of header-data units (HDUs).
+Open and read a FITS file, returning a vector of header-data units (HDUs). The first HDU is the primary HDU and the
+others are extensions (Sect. 3.1 of the standard), and a file whose HDUs are not in this order is read with a warning.
 
 The default data structure for Random and Bintable HDUs is a named tuple of arrays.
 
@@ -27,7 +45,7 @@ The default data structure for Random and Bintable HDUs is a named tuple of arra
 function fits(io::IO; kwds...)
 	hdus = HDU{<:AbstractHDU}[]
 	while !eof(io)
-		push!(hdus, read(io, HDU; kwds...))
+		push!(hdus, verifyposition(read(io, HDU; kwds...), length(hdus) + 1))
 	end
 	hdus
 end
@@ -43,16 +61,17 @@ end
     Base.write(io::IO, hdus::Vector{HDU})
     Base.write(filename::AbstractString, hdus::Vector{HDU})
 
-Write a vector of header-data units (HDUs) to a file. The keyword `checksum::Bool=false` sets the DATASUM and
+Write a vector of header-data units (HDUs) to a file, with a warning if the first HDU is not a primary HDU or a later one
+is (Sect. 3.1 of the standard). The keyword `checksum::Bool=false` sets the DATASUM and
 CHECKSUM keywords of each HDU (see [`Base.write(io::IO, hdu::HDU)`](@ref)).
 """
-function Base.write(io::IO, hdus::Vector{HDU}; kwds...)
-    for hdu in hdus
-        write(io, hdu; kwds...)
+function Base.write(io::IO, hdus::Vector{<:HDU}; kwds...)
+    for (j, hdu) in enumerate(hdus)
+        write(io, verifyposition(hdu, j); kwds...)
     end
 end
 
-function Base.write(file::AbstractString, hdus::Vector{HDU}; kwds...)
+function Base.write(file::AbstractString, hdus::Vector{<:HDU}; kwds...)
     io = open(file, write=true)
     write(io, hdus; kwds...)
     close(io)
