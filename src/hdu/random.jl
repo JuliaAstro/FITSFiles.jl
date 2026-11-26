@@ -222,9 +222,6 @@ function randomfields(format::DataFormat, reskeys::AbstractDict, names, array::A
     fields
 end
 
-#  The names of the values of a group, which are the keys of a named tuple
-groupnames(group::NamedTuple) = String.(keys(group))
-
 function FieldFormat(::Type{Random}, format::DataFormat, reskeys::Dict{S, V},
     data::Missing; record::Bool = false, kwds...) where
     {S<:AbstractString, V<:ValueType}
@@ -232,13 +229,44 @@ function FieldFormat(::Type{Random}, format::DataFormat, reskeys::Dict{S, V},
     randomfields(format, reskeys, paramnames(reskeys, format.param), "data")
 end
 
+#  The type of the values of the groups, which is the type of the array of the groups, and is the type that BITPIX
+#  gives: the parameters and the elements of the array have the same representation (Sect. 6.3 of the standard), so it is
+#  an error if a parameter has another type. `values` are the parameters and the array, and `names` their names.
+function randomtype(values, names)
+    type = nonmissingtype(eltype(values[end]))
+    haskey(TYPE2BITS, type) || throw(ArgumentError("The array $(names[end]) has the type $type, but random groups " *
+        "have the types of BITPIX (Table 8): $(join(sort!(string.(collect(keys(TYPE2BITS)))), ", "))."))
+    for (j, value) in enumerate(values[1:end-1])
+        nonmissingtype(eltype(value)) == type || throw(ArgumentError("The parameter $(names[j]) has the type " *
+            "$(nonmissingtype(eltype(value))), but the array $(names[end]) has the type $type: the parameters and " *
+            "the array of random groups have the same type, which is BITPIX (Sect. 6.3). Convert them to one type."))
+    end
+    type
+end
+
+#  The names of the values of a group, which are the keys of a named tuple, and param1, param2, ... and data otherwise
+function groupnames(group::NamedTuple)
+    String.(keys(group))
+end
+function groupnames(group::Tuple)
+    [["param$j" for j = 1:length(group)-1]; "data"]
+end
+
 function DataFormat(::Type{Random}, data::AbstractArray,
     mankeys::Dict{S, V}) where {S<:AbstractString, V<:ValueType}
 
-    #  Determine format from data
-    type  = typeof(data[1][1])
+    #  Determine format from data: every group has the parameters and an array of the same size and the same type
+    names = groupnames(data[1])
     shape = size(data[1][end])
-    param = length(data[1])-1
+    for (g, group) in enumerate(data)
+        length(group) == length(names) || throw(ArgumentError("Group $g has $(length(group)) values, but group 1 " *
+            "has $(length(names)): the parameters and the array of each group are the same."))
+        size(group[end]) == shape || throw(ArgumentError("The array of group $g has the size $(size(group[end])), " *
+            "but that of group 1 has the size $shape."))
+        randomtype(collect(group), names)
+    end
+    type  = randomtype(collect(data[1]), names)
+    param = length(names)-1
     group = length(data)
     heap  = 0
     leng  = group*(param + prod(shape))
@@ -256,11 +284,19 @@ end
 function DataFormat(::Type{Random}, data::U, mankeys::Dict{S, V}) where
     {U<:Union{Tuple, NamedTuple}, S<:AbstractString, V<:ValueType}
 
-    #  Determine format from data
-    type  = eltype(data[end])
-    shape = size(data[end])[2:end]
+    #  Determine format from data: the first axis of the array, and each parameter, is the groups
+    names = groupnames(data)
+    array = data[end]
+    array isa AbstractArray && ndims(array) >= 1 || throw(ArgumentError(
+        "The last value of random groups, $(names[end]), must be an array, with the groups along its first axis."))
+    group = size(array, 1)
+    for j = 1:length(data)-1
+        data[j] isa AbstractArray && size(data[j], 1) == group || throw(ArgumentError(
+            "The parameter $(names[j]) must have a value for each of the $group groups of the array $(names[end])."))
+    end
+    type  = randomtype(collect(data), names)
+    shape = size(array)[2:end]
     param = length(data)-1
-    group = length(data[1])
     heap  = 0
     leng  = group*(param + prod(shape))
     DataFormat(type, leng, shape, param, group, heap)

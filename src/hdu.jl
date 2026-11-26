@@ -31,7 +31,7 @@ axis of the array. Parameters that have the same name are the columns of one arr
 value of the parameter (Sect. 6.1.2 of the standard), so that the parameters are written as they were read. The data
 are written by position, so the names of the data do not have to be the names of the header.
 
-The data are read with
+The parameters and the array have the same type, which is the type of BITPIX (Sect. 6.3). The data are read with
 PSCALn and PZEROn applied to the parameters and BSCALE and BZERO to the array, unless `scale = false` is given, and the
 values that are not of the type of BITPIX are written as the stored values (see [`Base.write(io::IO, hdu::HDU)`](@ref)).
 """

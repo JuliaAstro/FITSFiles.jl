@@ -865,6 +865,12 @@
         #  data of a tuple are named param1, param2, ... and data
         @test reading(written(HDU(Random, (Int16[1, 3], Int16[10 11 12; 20 21 22]))); scale = false).data ==
             (param1 = Int16[1, 3], data = Int16[10 11 12; 20 21 22])
+        #  data without parameters have the groups of the first axis, and not the length of the array
+        noparam = HDU(Random, (b = Int16[10 11 12; 20 21 22],))
+        @test noparam.cards["PCOUNT"] == 0 && noparam.cards["GCOUNT"] == 2 && noparam.cards["NAXIS2"] == 3
+        @test reading(written(noparam); scale = false).data == (data = Int16[10 11 12; 20 21 22],)
+        @test reading(written(HDU(Random, [(b = Int16[10 11 12],), (b = Int16[20 21 22],)])); scale = false).data.data ==
+            reshape(Int16[10 11 12; 20 21 22], (2, 1, 3))
         ####    Parameters that have the same name are summed (Sect. 6.1.2)
 
         dates = [kw("PTYPE1", "'DATE'"), kw("PTYPE2", "'DATE'"), kw("PSCAL2", "0.5")]
@@ -875,6 +881,31 @@
         @test written(dated) == datebytes && written(reading(datebytes; record = true)) == datebytes
         @test reading(datebytes; record = true).data[2].DATE == Float32[3 2]
         @test reading(datebytes; scale = false).data.DATE == Int16[1 2; 3 4]
+
+        ####    The parameters and the array have one type (Sect. 6.3)
+
+        mixed = r"the parameters and the array of random groups have the same type, which is BITPIX \(Sect. 6.3\)"
+        @test_throws mixed HDU(Random, (a = Float64[1, 2], data = Float32[1 2 3; 4 5 6]))
+        @test_throws mixed HDU(Random, (a = Int32[1, 2], data = Int16[1 2 3; 4 5 6]))
+        @test_throws mixed HDU(Random, [(a = 1.0, b = Float32[1 2 3]), (a = 2.0, b = Float32[4 5 6])])
+        @test_throws mixed HDU(Random, [(a = Int16(1), b = Int16[1 2 3]), (a = 2.0, b = Int16[4 5 6])])
+        @test_throws ArgumentError("The parameter a has the type Float64, but the array data has the type Float32: " *
+            "the parameters and the array of random groups have the same type, which is BITPIX (Sect. 6.3). " *
+            "Convert them to one type.") HDU(Random, (a = Float64[1, 2], data = Float32[1 2 3; 4 5 6]))
+        #  a type that BITPIX does not have is an error
+        @test_throws ArgumentError HDU(Random, (a = Float16[1, 2], data = Float16[1 2 3; 4 5 6]))
+        #  the parameters have a value for each group, and the groups of records have the same size
+        @test_throws ArgumentError("The parameter a must have a value for each of the 2 groups of the array data.") HDU(
+            Random, (a = Int16[1, 2, 3], data = Int16[1 2 3; 4 5 6]))
+        @test_throws ArgumentError HDU(Random, (a = Int16(1), data = Int16[1 2 3; 4 5 6]))
+        @test_throws ArgumentError HDU(Random, (a = Int16[1, 2], data = Int16(5)))
+        @test_throws ArgumentError("The array of group 2 has the size (2,), but that of group 1 has the size (3,).") HDU(
+            Random, [(a = Int16(1), b = Int16[1, 2, 3]), (a = Int16(2), b = Int16[4, 5])])
+        @test_throws ArgumentError("Group 2 has 3 values, but group 1 has 2: the parameters and the array of each " *
+            "group are the same.") HDU(Random, [(a = Int16(1), b = Int16[1, 2, 3]),
+            (a = Int16(2), c = Int16(3), b = Int16[4, 5, 6])])
+        #  missing values are not of another type
+        @test HDU(Random, (a = Union{Int16, Missing}[1, 2], data = Int16[1 2 3; 4 5 6])) isa HDU{Random}
 
     end
 
