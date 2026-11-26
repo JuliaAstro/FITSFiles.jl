@@ -161,9 +161,11 @@ end
 
 #  The stored value of a physical value, which is (value - BZERO)/BSCALE (Eq. 3 of the standard), rounded to the
 #  nearest integer for integer data. An undefined value, which is missing, or NaN for integer data that has a BLANK,
-#  is missing.
-storedvalue(::Missing, fields::ImageField) = missing
-function storedvalue(x::Real, fields::ImageField)
+#  is missing. The stored value is checked, if `check` is true, by applying BSCALE and BZERO to it, with muladd, which
+#  must give the physical value again: exactly for integer data, whose stored value is rounded, and to the precision
+#  of the type for floating-point data. A value that cannot be stored without a change is an error.
+storedvalue(::Missing, fields::ImageField, check::Bool = true) = missing
+function storedvalue(x::Real, fields::ImageField, check::Bool = true)
     type = fields.type
     if isnan(x)
         type <: AbstractFloat && return type(x)
@@ -175,32 +177,45 @@ function storedvalue(x::Real, fields::ImageField)
         "The values cannot be written as stored values, since BSCALE is 0."))
     W = promote_type(typeof(fields.scale), typeof(fields.zero), Float64)
     value = (W(x) - W(fields.zero)) / W(fields.scale)
-    type <: AbstractFloat && return type(value)
-    stored = round(value)
-    typemin(type) <= stored <= typemax(type) || throw(ArgumentError(
-        "The value $x is not in the range of the $type data that BSCALE $(fields.scale) and BZERO " *
-        "$(fields.zero) describe: its stored value $stored is not from $(typemin(type)) to $(typemax(type))."))
-    type(stored)
+    if type <: AbstractFloat
+        stored = type(value)
+    else
+        rounded = round(value)
+        typemin(type) <= rounded <= typemax(type) || throw(ArgumentError(
+            "The value $x is not in the range of the $type data that BSCALE $(fields.scale) and BZERO " *
+            "$(fields.zero) describe: its stored value $rounded is not from $(typemin(type)) to $(typemax(type))."))
+        stored = type(rounded)
+    end
+    if check && isfinite(x)
+        #  The physical value of the stored value, in the type of the value, as the data are read
+        again = muladd(W(fields.scale), W(stored), W(fields.zero))
+        again = x isa AbstractFloat ? typeof(x)(again) : again
+        same = type <: AbstractFloat ? isapprox(again, x; rtol = eps(type)) : again == x
+        same || throw(ArgumentError(
+            "The value $x cannot be stored as $type data with BSCALE $(fields.scale) and BZERO $(fields.zero): " *
+            "the nearest stored value, $stored, is the value $again. Use check = false to write the stored value."))
+    end
+    stored
 end
 
 #  The stored values of the data, which are the values of the type of the HDU (BITPIX): the data that are the
 #  physical values of the offset convention of Table 11 are the stored values with the offset, and the data of
 #  another type are the physical values that are read with BSCALE and BZERO, so they are inverted. The data of the
 #  type of the HDU are the stored values, even when BSCALE and BZERO are not 1 and 0, i.e., they were read unscaled.
-function storedvalues(data::AbstractArray, fields::ImageField)
+function storedvalues(data::AbstractArray, fields::ImageField; check::Bool = true)
     type = nonmissingtype(eltype(data))
     offset = offsettype(fields.type, fields.scale, fields.zero)
     if !isnothing(offset) && type == offset
         offsetvalue.(data, fields.type)
     elseif type != fields.type
-        storedvalue.(data, Ref(fields))
+        map(x -> storedvalue(x, fields, check), data)
     else
         data
     end
 end
 
-function Base.write(io::IO, data::AbstractArray, fields::ImageField)
-    data = storedvalues(data, fields)
+function Base.write(io::IO, data::AbstractArray, fields::ImageField; check::Bool = true, kwds...)
+    data = storedvalues(data, fields; check)
     #  The undefined values are written as BLANK, or NaN for floating-point data
     data = unsetmissing(data, fields.miss, fields.type)
     n = Base.write(io, hton.(reshape(data, :)))

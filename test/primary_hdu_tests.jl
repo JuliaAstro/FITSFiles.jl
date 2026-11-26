@@ -522,12 +522,32 @@
         @test hdu.data == [1.5, 4, -3] && written(hdu) == codeunits(bytes)
         @test scaledreading(bytes).data == [3.0, 8, -6]
 
-        #  the data that are changed are written as the nearest stored values
+        #  the data that are changed are written as the stored values, if they are the stored values of the data, which
+        #  is checked by applying BSCALE and BZERO to them, and an error if they are not
+        writtenwith(hdu; kwds...) = (buffer = IOBuffer(); write(buffer, hdu; kwds...); take!(buffer))
         bytes = withcards(kw("BSCALE", 2.5), kw("BZERO", 10))
         hdu = scaledreading(bytes)
-        hdu.data .= Float32[11.2, 11.3, -10.0]
-        @test scaledreading(written(hdu)).data == Float32[10, 12.5, -10]
+        hdu.data .= Float32[10, 12.5, -10]
         @test scaledreading(written(hdu); scale = false).data == Int16[0, 1, -8]
+        hdu.data .= Float32[11.2, 11.3, -10.0]
+        @test_throws ArgumentError("The value 11.2 cannot be stored as Int16 data with BSCALE 2.5 and BZERO 10.0: the " *
+            "nearest stored value, 0, is the value 10.0. Use check = false to write the stored value.") written(hdu)
+        @test_throws ArgumentError writtenwith(hdu; check = true)
+        #  the nearest stored values are written if the check is bypassed
+        @test scaledreading(writtenwith(hdu; check = false)).data == Float32[10, 12.5, -10]
+        @test scaledreading(writtenwith(hdu; check = false); scale = false).data == Int16[0, 1, -8]
+        #  the check does not change the data that are read, or the undefined values
+        for (name, (bytes, type)) in cases
+            @test writtenwith(scaledreading(bytes); check = false) == writtenwith(scaledreading(bytes))
+        end
+        #  floating-point data of another type are checked to the precision of the type of the HDU
+        header = scaledreading(filebytes(simple(-32), bytesof(Float32[1.5, 2, 3])))
+        cards = getfield(header, :cards)
+        values = HDU{Primary}(cards, Float64[1.1, 2.0, 3.5])
+        @test scaledreading(written(values); scale = false).data == Float32[1.1, 2.0, 3.5]
+        values = HDU{Primary}(cards, Float64[1.1, 1e300, 3.5])
+        @test_throws r"The value 1.0e300 cannot be stored as Float32 data with BSCALE 1.0 and BZERO 0.0" written(values)
+        @test scaledreading(writtenwith(values; check = false); scale = false).data == Float32[1.1, Inf, 3.5]
 
         #  the undefined values are the BLANK, and are written as it
         bytes = filebytes([primary; kw("BSCALE", 2.5); kw("BLANK", -32768)], bytesof(Int16[-5, -32768, 300]))
