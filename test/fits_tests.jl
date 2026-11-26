@@ -83,4 +83,35 @@
         end
     end
 
+    ####    Test the names of the extensions (Sect. 4.4.2.6)    ####
+
+    @testset "extension names" begin
+        data = Int16[1 2]
+        extension(cards...) = HDU(Image, data, Card{<:Any}[cards...])
+        sci, sci2 = extension(Card("EXTNAME", "SCI")), extension(Card("EXTNAME", "SCI"), Card("EXTVER", 2))
+        written(hdus) = (buffer = IOBuffer(); write(buffer, hdus); take!(buffer))
+        captured(f) = mktemp() do path, io
+            redirect_stdout(f, io)
+            close(io)
+            read(path, String)
+        end
+
+        #  the name, the version, and the level, with the values of the standard if the keywords are absent
+        plain = HDU(Image, data)
+        @test (FITSFiles.extname(plain), FITSFiles.extver(plain), FITSFiles.extlevel(plain)) == ("", 1, 1)
+        @test (FITSFiles.extname(sci), FITSFiles.extver(sci), FITSFiles.extlevel(sci)) == ("SCI", 1, 1)
+        hdu = extension(Card("EXTNAME", "ERR   "), Card("EXTVER", 3), Card("EXTLEVEL", 2))
+        @test (FITSFiles.extname(hdu), FITSFiles.extver(hdu), FITSFiles.extlevel(hdu)) == ("ERR", 3, 2)
+
+        #  the version is the version of the HDU that is displayed, and is 1 if it is absent
+        for (hdu, version) in ((plain, 1), (sci, 1), (sci2, 2), (hdu, 3))
+            shown = sprint(show, MIME("text/plain"), hdu)
+            @test occursin(Regex("Image\\s+[A-Z]*\\s+$version\\s+\\d+\\s+Int16"), shown)
+            @test occursin(Regex("Image\\s+[A-Z]*\\s+$version\\s+\\d+\\s+Int16"), captured(() -> FITSFiles.info(hdu, 2)))
+        end
+        shown = sprint(show, MIME("text/plain"), HDU[HDU(Primary, data), sci, sci2])
+        @test occursin(r"2\s+Image\s+SCI\s+1\s", shown) && occursin(r"3\s+Image\s+SCI\s+2\s", shown)
+        @test occursin(r"3\s+Image\s+SCI\s+2\s", captured(() -> FITSFiles.info(HDU[HDU(Primary, data), sci, sci2])))
+    end
+
 end

@@ -281,6 +281,29 @@ function HDU(type::Type, data::U, cards::C = missing; kwds...) where
 end
 
 """
+	extname(hdu)
+	extver(hdu)
+	extlevel(hdu)
+
+Return the value of the EXTNAME, EXTVER, or EXTLEVEL keyword of the header-data unit `hdu` (Sect. 4.4.2.6 of the
+standard), which distinguish the extensions of a file. The name is an empty string if the keyword is absent, and the
+version and the level are 1, as the standard says, if the keyword is absent. The trailing spaces of the name, which are
+not significant, are removed.
+"""
+function extname(hdu::HDU)
+	cards = getfield(hdu, :cards)
+	haskey(cards, "EXTNAME") ? rstrip(string(cards["EXTNAME"])) : ""
+end
+function extver(hdu::HDU)
+	cards = getfield(hdu, :cards)
+	haskey(cards, "EXTVER") ? cards["EXTVER"] : 1
+end
+function extlevel(hdu::HDU)
+	cards = getfield(hdu, :cards)
+	haskey(cards, "EXTLEVEL") ? cards["EXTLEVEL"] : 1
+end
+
+"""
 	info(hdu::HDU)
 
 Briefly describe the header-data unit.
@@ -289,8 +312,8 @@ function info(hdu::HDU, n::Integer = 0)
 	cards = getfield(hdu, :cards)
 	N = cards["NAXIS"]
 	typ = rpad(typeofhdu(hdu), INFOTYPELEN)
-	nam = rpad(haskey(cards, "EXTNAME") ? cards["EXTNAME"] : "", INFONAMELEN)
-	ver = lpad(haskey(cards, "EXTVERS") ? cards["EXTVER"] : "1", INFOVERSLEN)
+	nam = rpad(extname(hdu), INFONAMELEN)
+	ver = lpad(extver(hdu), INFOVERSLEN)
 	crd = lpad(length(cards), INFOCARDLEN)
 	siz = join([string(cards["NAXIS$j"])
 				for j ∈ (typeofhdu(hdu)==Random ? 2 : 1):N], " × ")
@@ -302,8 +325,8 @@ function Base.show(io::IO, ::MIME"text/plain", hdu::HDU)
 	cards = getfield(hdu, :cards)
 	N = cards["NAXIS"]
 	typ = rpad(typeofhdu(hdu), INFOTYPELEN)
-	nam = rpad(haskey(cards, "EXTNAME") ? cards["EXTNAME"] : "", INFONAMELEN)
-	ver = lpad(haskey(cards, "EXTVERS") ? cards["EXTVER"] : "1", INFOVERSLEN)
+	nam = rpad(extname(hdu), INFONAMELEN)
+	ver = lpad(extver(hdu), INFOVERSLEN)
 	crd = lpad(length(cards), INFOCARDLEN)
 	siz = join([string(cards["NAXIS$j"])
 				for j ∈ (typeofhdu(hdu)==Random ? 2 : 1):N], " × ")
