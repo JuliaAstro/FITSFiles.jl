@@ -45,6 +45,35 @@ function paramnames(reskeys::AbstractDict, P::Integer)
     replace(names, "data" => "param" * "_"^k * string(n))
 end
 
+#  The keywords of the parameters, PTYPEn, PSCALn, and PZEROn (Sect. 6.1.2): the name of a parameter is a character string, and
+#  its scale and zero are numbers, since the parameters cannot be read otherwise, so it is an error if they are not. A keyword
+#  of a number n that is not of a parameter, which is from 1 to PCOUNT, is not used, so it is a warning, and so is a
+#  PSCALn of 0, which makes every physical value of the parameter its PZEROn.
+function verifyparamkeys(reskeys::AbstractDict, P::Integer)
+    for key in sort!(collect(keys(reskeys)))
+        m = match(r"^(PTYPE|PSCAL|PZERO)(\d+)$", key)
+        isnothing(m) && continue
+        n = Base.parse(Int, m[2])
+        if n > P
+            @warn "$key is beyond PCOUNT $P, and is not used."
+            continue
+        elseif n < 1
+            @warn "$key is not the keyword of a parameter, which is numbered from 1, and is not used."
+            continue
+        end
+        value = reskeys[key]
+        if m[1] == "PTYPE"
+            value isa AbstractString || throw(ArgumentError(
+                "$key must be a character string, but its value is $(repr(value))."))
+        else
+            value isa Real && !(value isa Bool) || throw(ArgumentError(
+                "$key must be a number, but its value is $(repr(value))."))
+            m[1] == "PSCAL" && value == 0 && @warn "$key is 0, so every physical value of the parameter is its " *
+                "PZERO$n, and its stored values cannot be written from them. It is read as it is."
+        end
+    end
+end
+
 #  Warn of the names of the parameters that are not what the header says: a PTYPEn of data, which is renamed, and an
 #  absent PTYPEn whose default name param<n> is the name of another parameter, so the parameters are one parameter
 #  that is the sum of them (Sect. 6.1.2 of the standard).
@@ -189,8 +218,10 @@ end
 function verify!(::Type{Random}, cards::Cards, mankeys::AbstractDict, reskeys::AbstractDict)
     cards = invoke(verify!, Tuple{Type{<:AbstractHDU}, Cards, AbstractDict, AbstractDict}, Random, cards,
         mankeys, reskeys)
-    #  BLANK is the value of an undefined element of the array of a group (Sect. 4.4.2.5)
-    verifyblank(mankeys, reskeys)
+    #  The keywords that describe the array of a group (Sect. 4.4.2.5), and the keywords of the primary header, which is the
+    #  header of random groups
+    verifyarraykeys(mankeys, reskeys)
+    verifyprimarykeys(reskeys)
     #  BITPIX, NAXIS, PCOUNT, and GCOUNT give the size of the data (Eq. 4 of the standard), which cannot be read
     #  without them, and they are mandatory (Sect. 6.1.1). A header that is being created does not have the keywords
     #  yet, and is arranged when it is created.
@@ -208,6 +239,7 @@ function verify!(::Type{Random}, cards::Cards, mankeys::AbstractDict, reskeys::A
     verifyvalue(mankeys, "PCOUNT", 0:typemax(Int), "non-negative")
     verifyvalue(mankeys, "GCOUNT", 0:typemax(Int), "non-negative")
     created || verifygroupsize(mankeys)
+    verifyparamkeys(reskeys, get(mankeys, "PCOUNT", 0))
     verifyparams(reskeys, get(mankeys, "PCOUNT", 0))
     cards
 end

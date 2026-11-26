@@ -1115,6 +1115,74 @@
             @test isequal(fits(path; scale = false)[1].data.data, Union{Int16, Missing}[10 missing 12; 20 21 22])
         end
 
+        ####    The keywords of the array (Sect. 4.4.2.5) and of the primary header (Sects. 4.4.2.1 and 4.4.2.6)
+
+        withkeys(extra...) = filebytes(grouphdr(extra = collect(extra)), bytesof(stored))
+        #  the scale, zero, and limits of the array are numbers, since the array cannot be read without them
+        for key in ("BSCALE", "BZERO", "DATAMIN", "DATAMAX"), value in ("'two'", "T")
+            @test_throws ArgumentError reading(withkeys(kw(key, value)))
+        end
+        @test_throws ArgumentError("BSCALE must be a number, but its value is \"two\".") reading(withkeys(kw("BSCALE", "'two'")))
+        @test_throws ArgumentError("DATAMAX must be a number, but its value is true.") reading(withkeys(kw("DATAMAX", "T")))
+        #  and DATAMIN and DATAMAX are floating-point numbers, which an integer is read as
+        for key in ("DATAMIN", "DATAMAX")
+            @test_logs (:warn, "$key must be a floating-point number, but its value is the integer 3. It is read as it is.") reading(
+                withkeys(kw(key, "3")))
+        end
+        #  the units of the array are a units string
+        @test_logs (:warn, "BUNIT must be a character string, but its value is 3. It is read as it is.") reading(
+            withkeys(kw("BUNIT", "3")))
+        @test_logs (:warn, "BUNIT must be a units string (Sect. 4.3), but its value is \"furlongs/fortnight^x\". It is " *
+            "read as it is.") reading(withkeys(kw("BUNIT", "'furlongs/fortnight^x'")))
+        @test_logs reading(withkeys(kw("DATAMIN", "0.5"), kw("DATAMAX", "1.5E2"), kw("BSCALE", "2.0"), kw("BZERO", "1"),
+            kw("BUNIT", "'m/s'")))
+        #  the values of the array keywords are read as they were
+        keyed = reading(withkeys(kw("BSCALE", "2.0"), kw("BZERO", "1"), kw("DATAMIN", "3"))).data.data
+        @test keyed == Float32[21 23 25; 41 43 45]
+        #  EXTEND and BLOCKED are logicals, and INHERIT is not in a primary header
+        for key in ("EXTEND", "BLOCKED")
+            @test_logs (:warn, "$key must be a logical, T or F, but its value is 3. It is read as it is.") reading(
+                withkeys(kw(key, "3")))
+            @test_logs reading(withkeys(kw(key, "T")))
+        end
+        @test_logs (:warn, "INHERIT must not appear in the primary header (Appendix K). It is read as it is.") reading(
+            withkeys(kw("INHERIT", "T")))
+        #  the keywords that the HDUs have in common are verified, as they are for the other HDUs
+        @test_logs (:warn, "ORIGIN must be a character string, but its value is 3. It is read as it is.") reading(
+            withkeys(kw("ORIGIN", "3")))
+        @test_logs (:warn, r"DATE must be a date of the form YYYY-MM-DD") reading(withkeys(kw("DATE", "'yesterday'")))
+        @test_logs reading(withkeys(kw("DATE", "'2026-11-26'"), kw("OBJECT", "'NGC 1275'")))
+
+        ####    The keywords of the parameters (Sect. 6.1.2)
+
+        #  the name of a parameter is a character string, and the scale and zero are numbers, since the parameters cannot
+        #  be read otherwise
+        @test_throws ArgumentError("PTYPE1 must be a character string, but its value is 3.") reading(
+            withkeys(kw("PTYPE1", "3")))
+        @test_throws ArgumentError("PTYPE2 must be a character string, but its value is true.") reading(
+            withkeys(kw("PTYPE2", "T")))
+        for key in ("PSCAL1", "PZERO1", "PSCAL2", "PZERO2")
+            @test_throws ArgumentError("$key must be a number, but its value is \"x\".") reading(withkeys(kw(key, "'x'")))
+            @test_throws ArgumentError("$key must be a number, but its value is true.") reading(withkeys(kw(key, "T")))
+        end
+        #  and the values are read as they were: an integer is a number
+        parameters = reading(withkeys(kw("PTYPE1", "'UU'"), kw("PSCAL1", "2.0"), kw("PZERO1", "100"), kw("PSCAL2", "3")))
+        @test parameters.data == (UU = Float32[102, 106], param2 = Float32[6, 12], data = Float32[10 11 12; 20 21 22])
+        @test_logs reading(withkeys(kw("PTYPE1", "'UU'"), kw("PSCAL1", "2.0"), kw("PZERO1", "100"), kw("PSCAL2", "3")))
+        #  a keyword of a parameter that is not one, which is from 1 to PCOUNT, is not used, whatever its value is
+        @test_logs (:warn, "PSCAL9 is beyond PCOUNT 2, and is not used.") (:warn, "PTYPE3 is beyond PCOUNT 2, and is " *
+            "not used.") reading(withkeys(kw("PTYPE3", "'X'"), kw("PSCAL9", "2.0")))
+        @test_logs (:warn, "PZERO4 is beyond PCOUNT 2, and is not used.") reading(withkeys(kw("PZERO4", "'x'")))
+        @test_logs (:warn, "PTYPE0 is not the keyword of a parameter, which is numbered from 1, and is not used.") reading(
+            withkeys(kw("PTYPE0", "'X'")))
+        #  a PSCALn of 0 makes every physical value of the parameter its PZEROn, and the file is read as it is
+        zeroscale = withkeys(kw("PSCAL2", "0.0"), kw("PZERO2", "5.0"))
+        zerohdu = @test_logs (:warn, "PSCAL2 is 0, so every physical value of the parameter is its PZERO2, and its stored " *
+            "values cannot be written from them. It is read as it is.") reading(zeroscale)
+        @test zerohdu.data.param2 == Float32[5, 5]
+        @test_logs (:warn, r"PSCAL2 is 0") (:warn, r"PSCAL2 is 0") @test written(reading(zeroscale; scale = false)) == zeroscale
+        @test_logs reading(withkeys(kw("PSCAL2", "0.5"), kw("PZERO2", "0.0")))
+
         ####    The lazy file of random groups reads the same
 
         mktemp() do path, io
