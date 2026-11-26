@@ -435,10 +435,10 @@
         @test FITSFiles.getcell(Table, (m = ["a", "bb"],), field, 2) == "bb"
         @test FITSFiles.getcell(Table, (m = [1 2; 3 4],), field, 2) == 3
         param = (; name = "m", index = 2)
-        @test FITSFiles.getparam([(m = 1.5,), (m = 2.5,)], param, 2) == 2.5
-        @test FITSFiles.getparam([(m = [1 2; 3 4],)], param, 1) == 3
-        @test FITSFiles.getparam((m = [1.5, 2.5],), param, 2) == 2.5
-        @test FITSFiles.getparam((m = [1 2; 3 4],), param, 2) == 4
+        @test FITSFiles.getparam([(m = 1.5,), (m = 2.5,)], param, 2, 1) == 2.5
+        @test FITSFiles.getparam([(m = [1 2; 3 4],)], param, 1, 1) == 3
+        @test FITSFiles.getparam((m = [1.5, 2.5],), param, 2, 1) == 2.5
+        @test FITSFiles.getparam((m = [1 2; 3 4],), param, 2, 1) == 4
         format = FITSFiles.DataFormat(Float32, 6, (2, 3), 0, 2, 0)
         @test FITSFiles.getgroup([(m = [1 2 3; 4 5 6],)], param, 1, format) == [1, 4, 2, 5, 3, 6]
         @test FITSFiles.getgroup((m = [1 2 3; 4 5 6],), param, 2, format) == [4, 5, 6]

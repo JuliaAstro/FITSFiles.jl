@@ -164,8 +164,9 @@ end
 #  is missing. The stored value is checked, if `check` is true, by applying BSCALE and BZERO to it, with muladd, which
 #  must give the physical value again: exactly for integer data, whose stored value is rounded, and to the precision
 #  of the type for floating-point data. A value that cannot be stored without a change is an error.
-storedvalue(::Missing, fields::ImageField, check::Bool = true) = missing
-function storedvalue(x::Real, fields::ImageField, check::Bool = true)
+#  The keywords of the scale and the zero, which are named in an error, are BSCALE and BZERO unless `keys` are given.
+storedvalue(::Missing, fields::ImageField, check::Bool = true; keys = ("BSCALE", "BZERO")) = missing
+function storedvalue(x::Real, fields::ImageField, check::Bool = true; keys = ("BSCALE", "BZERO"))
     type = fields.type
     if isnan(x)
         type <: AbstractFloat && return type(x)
@@ -174,7 +175,7 @@ function storedvalue(x::Real, fields::ImageField, check::Bool = true)
         return missing
     end
     fields.scale == 0 && throw(ArgumentError(
-        "The values cannot be written as stored values, since BSCALE is 0."))
+        "The values cannot be written as stored values, since $(keys[1]) is 0."))
     W = promote_type(typeof(fields.scale), typeof(fields.zero), Float64)
     value = (W(x) - W(fields.zero)) / W(fields.scale)
     if type <: AbstractFloat
@@ -182,7 +183,7 @@ function storedvalue(x::Real, fields::ImageField, check::Bool = true)
     else
         rounded = round(value)
         typemin(type) <= rounded <= typemax(type) || throw(ArgumentError(
-            "The value $x is not in the range of the $type data that BSCALE $(fields.scale) and BZERO " *
+            "The value $x is not in the range of the $type data that $(keys[1]) $(fields.scale) and $(keys[2]) " *
             "$(fields.zero) describe: its stored value $rounded is not from $(typemin(type)) to $(typemax(type))."))
         stored = type(rounded)
     end
@@ -192,7 +193,7 @@ function storedvalue(x::Real, fields::ImageField, check::Bool = true)
         again = x isa AbstractFloat ? typeof(x)(again) : again
         same = type <: AbstractFloat ? isapprox(again, x; rtol = eps(type)) : again == x
         same || throw(ArgumentError(
-            "The value $x cannot be stored as $type data with BSCALE $(fields.scale) and BZERO $(fields.zero): " *
+            "The value $x cannot be stored as $type data with $(keys[1]) $(fields.scale) and $(keys[2]) $(fields.zero): " *
             "the nearest stored value, $stored, is the value $again. Use check = false to write the stored value."))
     end
     stored
