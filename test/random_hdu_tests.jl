@@ -1311,6 +1311,68 @@
         @test sums == Float32[3, 7]
         @test dated.data.DATE == Int16[1 2; 3 4]
 
+        ####    The floating-point data with a scale are the physical values, which are a ScaledArray or ScaledRecords
+
+        for (bitpix, T) in ((-32, Float32), (-64, Float64))
+            numbers = T[1, 2, 10, 11, 12, 3, 4, 20, 21, 22]
+            scalekeys = [kw("PSCAL1", "2.0"), kw("PZERO1", "100.0"), kw("BSCALE", "0.5"), kw("BZERO", "1.0")]
+            floats = filebytes(grouphdr(; bitpix, extra = scalekeys), bytesof(numbers))
+            hdu = reading(floats)
+            @test hdu.data == (param1 = T[102, 106], param2 = T[2, 4], data = T[6 6.5 7; 11 11.5 12])
+            @test all(column -> column isa FITSFiles.ScaledArray, values(hdu.data)) && eltype(hdu.data.data) == T
+            @test (hdu.data.param1.scale, hdu.data.param1.zero) == (2, 100) && (hdu.data.param2.scale, hdu.data.param2.zero) == (1, 0)
+            @test (hdu.data.data.scale, hdu.data.data.zero) == (0.5, 1)
+            @test written(hdu) == floats
+            #  the records, which have the scale and the zero of each parameter, and the array, in order
+            records = reading(floats; record = true)
+            @test records.data isa FITSFiles.ScaledRecords && records.data.scales == T[2, 1, 0.5] && records.data.zeros == T[100, 0, 1]
+            @test records.data[2] == (param1 = T(106), param2 = T(4), data = T[11, 11.5, 12])
+            @test written(records) == floats
+            #  the values that are changed are inverted
+            hdu.data.param1[2] = 110
+            hdu.data.data[1, 3] = 7.5
+            changed = reading(written(hdu); scale = false).data
+            @test changed.param1 == T[1, 5] && changed.data[1, 3] == 13 && changed.param2 == T[2, 4]
+            raw = reading(floats; scale = false)
+            @test raw.data.param1 isa Vector{T} && raw.data.param1 == T[1, 3] && written(raw) == floats
+            #  the data tell it, so the data are the physical values in another HDU, with or without the cards
+            fresh = reading(floats)
+            @test written(HDU(Random, fresh.data, getfield(fresh, :cards)))[2881:end] == floats[2881:end]
+            fromdata = HDU(Random, fresh.data)
+            @test [fromdata.cards[key] for key in ("PSCAL1", "PZERO1", "BSCALE", "BZERO")] == [2, 100, 0.5, 1]
+            @test !haskey(fromdata.cards, "PSCAL2") && !haskey(fromdata.cards, "PZERO2")
+            @test written(fromdata)[2881:end] == floats[2881:end]
+            fromrecords = HDU(Random, reading(floats; record = true).data)
+            @test [fromrecords.cards[key] for key in ("PSCAL1", "PZERO1", "BSCALE", "BZERO")] == [2, 100, 0.5, 1]
+            @test written(fromrecords)[2881:end] == floats[2881:end]
+            #  data that are made from the scale and the zero have the header of them
+            made = HDU(Random, (a = FITSFiles.ScaledArray(T[102, 106], T(2), T(100)), data = FITSFiles.ScaledArray(
+                T[6 6.5 7; 11 11.5 12], T(0.5), T(1))))
+            @test [made.cards[key] for key in ("PSCAL1", "PZERO1", "BSCALE", "BZERO")] == [2, 100, 0.5, 1]
+            @test reading(written(made); scale = false).data == (a = T[1, 3], data = T[10 11 12; 20 21 22])
+            #  a scale that is not the scale of the header is an error
+            mismatched = reading(floats)
+            getfield(mismatched, :cards)["PSCAL1"] = 3.0
+            @test_throws ArgumentError("The scale and the zero of the parameter param1, 2.0 and 100.0, are not the PSCAL1 and the " *
+                "PZERO1 of the header, 3.0 and 100.0.") written(mismatched)
+            #  an array that is made from the values is plain, and is the stored values
+            @test !(fresh.data.param1 .+ 0 isa FITSFiles.ScaledArray) && copy(fresh.data.param1) isa FITSFiles.ScaledArray
+            #  without a scale the values are the stored values, and so are the data that are made
+            plain = filebytes(grouphdr(; bitpix), bytesof(numbers))
+            @test !any(column -> column isa FITSFiles.ScaledArray, values(reading(plain).data)) && written(reading(plain)) == plain
+            @test !any(column -> column isa FITSFiles.ScaledArray, values(HDU(Random, (a = T[1, 3], data = T[10 11 12; 20 21 22]),
+                Card{<:Any}[Card("PSCAL1", 2.0)]).data))
+        end
+        #  the parameters of one name have a scale and a zero for each column
+        dateparams = [kw("PTYPE1", "'D'"), kw("PTYPE2", "'D'"), kw("PSCAL1", "2.0"), kw("PSCAL2", "4.0"), kw("PZERO2", "1.0")]
+        datefloats = filebytes(grouphdr(bitpix = -32, extra = dateparams), bytesof(Float32[1, 2, 10, 11, 12, 3, 4, 20, 21, 22]))
+        dated = reading(datefloats)
+        @test dated.data.D == Float32[2 9; 6 17] && dated.data.D.scale == Float32[2, 4] && dated.data.D.zero == Float32[0, 1]
+        @test written(dated) == datefloats
+        @test written(HDU(Random, dated.data))[2881:end] == datefloats[2881:end]
+        redated = HDU(Random, dated.data)
+        @test [redated.cards[key] for key in ("PSCAL1", "PSCAL2", "PZERO2")] == [2, 4, 1] && !haskey(redated.cards, "PZERO1")
+
         ####    The lazy file of random groups reads the same
 
         mktemp() do path, io

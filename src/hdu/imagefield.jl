@@ -145,8 +145,15 @@ function Base.read(io::IO, ::Type{<:ImageHDU}, format::DataFormat,
     fields::ImageField; scale::Bool = true, kwds...)
 
     data = read(io, format, fields)
-    scale ? physical(data, fields) : data
+    scale || return data
+    #  The physical values of floating-point stored values have the type of the stored values, so the array says that they are
+    values = physical(data, fields)
+    physicalfloat(fields) ? ScaledArray(values, fields.scale, fields.zero) : values
 end
+
+#  Are the physical values of the data the same type as the stored values, which are floating-point? They are if the data are not scaled
+#  by a BSCALE of 1 and a BZERO of 0.
+physicalfloat(fields::ImageField) = fields.type <: AbstractFloat && !(fields.scale == 1 && fields.zero == 0)
 
 function Base.write(io::IO, ::Type{<:ImageHDU}, data::Missing, format::DataFormat,
     fields::ImageField; kwds...)
@@ -214,12 +221,18 @@ end
 #  The stored values of the data, which are the values of the type of the HDU (BITPIX): the data that are the
 #  physical values of the offset convention of Table 11 are the stored values with the offset, and the data of
 #  another type are the physical values that are read with BSCALE and BZERO, so they are inverted. The data of the
-#  type of the HDU are the stored values, even when BSCALE and BZERO are not 1 and 0, i.e., they were read unscaled.
+#  type of the HDU are the stored values, even when BSCALE and BZERO are not 1 and 0, i.e., they were read unscaled, unless the
+#  array is a `ScaledArray`, which is the physical values of floating-point stored values.
 function storedvalues(data::AbstractArray, fields::ImageField; check::Bool = true)
     type = nonmissingtype(eltype(data))
     offset = offsettype(fields.type, fields.scale, fields.zero)
     if !isnothing(offset) && type == offset
         offsetvalue.(data, fields.type)
+    elseif data isa ScaledArray
+        #  The data are the physical values of the scale and the zero that they have, which are those of the header
+        (data.scale, data.zero) == (fields.scale, fields.zero) || throw(ArgumentError("The scale and the zero of the data, " *
+            "$(data.scale) and $(data.zero), are not the BSCALE and the BZERO of the header, $(fields.scale) and $(fields.zero)."))
+        map(x -> storedvalue(x, fields, check), data)
     elseif type != fields.type
         map(x -> storedvalue(x, fields, check), data)
     else
@@ -232,4 +245,23 @@ function Base.write(io::IO, data::AbstractArray, fields::ImageField; check::Bool
     #  The undefined values are written as BLANK, or NaN for floating-point data
     data = unsetmissing(data, fields.miss, fields.type)
     n = Base.write(io, hton.(reshape(data, :)))
+end
+
+
+#  Set the card of the key to the value of the scale or the zero of the data, which the header has, if it is not the default value
+#  and the header does not have it. A value that the header has and is not the value of the data is set, with a warning.
+function setscalecard!(cards::Cards, key::AbstractString, value::Number, default::Number)
+    if haskey(cards, key)
+        cards[key] == value || (cards[key] = value; @warn "$key set to $value, the value of the scale of the data.")
+    elseif value != default
+        push!(cards, Card(key, value))
+    end
+    cards
+end
+
+#  The BSCALE and BZERO cards of data that are a ScaledArray, which have the scale and the zero of the data
+scalecards!(::Type, cards::Cards, data) = cards
+function scalecards!(::Type{<:ImageHDU}, cards::Cards, data::ScaledArray)
+    setscalecard!(cards, "BSCALE", data.scale, 1)
+    setscalecard!(cards, "BZERO", data.zero, 0)
 end

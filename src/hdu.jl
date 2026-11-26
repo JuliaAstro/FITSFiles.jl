@@ -110,7 +110,8 @@ HDU types are: Primary, Random, Image, Table, Bintable, and Conform.
 # Keywords
 
 - `record::Bool=false`: structure the data as a list of records
-- `scale::Bool=true`: apply the scale and zero keywords to the data
+- `scale::Bool=true`: apply the scale and zero keywords to the data; floating-point data that have a scale and a zero that are not 1
+  and 0 are a `FITSFiles.ScaledArray`, which has them, and is written as the stored values
 
 The following keywords format the cards that are created, and are those of [`Card`](@ref), which
 describes them.
@@ -282,6 +283,7 @@ function HDU(type::Type, data::AbstractArray, cards::C = missing; kwds...) where
 	kards  = verify!(type, kards, format, mankeys)
 	fields = FieldFormat(type, format, reskeys, data)
 	kards  = createcards!(type, format, fields, kards; kwds...)
+	kards  = scalecards!(type, kards, data)
 	if eltype(data) <: Tuple
 		data = [(; [Symbol(fields[j].name) => data[k][j]
 					for j ∈ 1:format.param]..., data = data[k][end]) for k ∈ 1:format.group]
@@ -310,6 +312,7 @@ function HDU(type::Type, data::U, cards::C = missing; kwds...) where
 	kards  = verify!(type, kards, format, mankeys)
 	fields = FieldFormat(type, format, reskeys, data; kwds...)
 	kards  = createcards!(type, format, fields, kards; kwds...)
+	kards  = scalecards!(type, kards, data)
 	if typeof(data) <: Tuple
 		data = (; [Symbol(fields[j].name) => data[j] for j ∈ 1:format.param]...,
 			data = data[end])
@@ -448,7 +451,10 @@ the header to a multiple of 2880 bytes, followed by the data.
 The data of an image array that was read with the BSCALE and BZERO applied, or was changed, is written as the stored
 values, which are `(value - BZERO)/BSCALE` rounded to the type of BITPIX (Eq. 3 of the standard). A value that is not in
 the range of the type, or NaN when the data do not have a BLANK, is an error. Data that is of the type of BITPIX is the
-stored values, and is written as it is.
+stored values, and is written as it is, except a [`FITSFiles.ScaledArray`](@ref) (and `ScaledRecords` of random groups), which is the
+physical values of floating-point stored values that were read with a BSCALE and a BZERO (or PSCALn and PZEROn) that are not 1 and 0,
+with that scale and zero, and the stored values, `(value - BZERO)/BSCALE`, are written. The BSCALE and BZERO of the header of an HDU that
+is made from such data are those of the data.
 
 # Keywords
 

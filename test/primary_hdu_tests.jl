@@ -539,6 +539,74 @@
 
     ####
 
+    ####    Test the floating-point data with a scale, which are the physical values of the stored values    ####
+
+    @testset "Scaled floating-point data" begin
+        scaledread(bytes; kwds...) = read(IOBuffer(bytes), HDU; kwds...)
+        simple, naxis, naxis1 = kw("SIMPLE", "T"), kw("NAXIS", 1), kw("NAXIS1", 3)
+        for (bitpix, T) in ((-32, Float32), (-64, Float64))
+            stored = collect(reinterpret(UInt8, hton.(T[1, 2, 3])))
+            cards = [simple, kw("BITPIX", bitpix), naxis, naxis1, kw("BSCALE", 2.0), kw("BZERO", 1.0)]
+            bytes = filebytes(cards, stored)
+            #  the values that are read with BSCALE and BZERO have the type of the stored values, so the data are an array that says
+            #  that they are the physical values, and has the scale and the zero, and writes the stored values
+            hdu = @test_logs scaledread(bytes)
+            data = hdu.data
+            @test data isa FITSFiles.ScaledArray && data == T[3, 5, 7] && eltype(data) == T && parent(data) isa Vector{T}
+            @test data.scale == 2 && data.zero == 1 && FITSFiles.scaleof(data) == 2 && FITSFiles.zeroof(data) == 1
+            @test written(hdu) == codeunits(bytes)
+            #  the values that are changed are inverted
+            hdu.data[1] = 11
+            @test scaledread(written(hdu); scale = false).data == T[5, 2, 3]
+            #  and the stored values, which are read without BSCALE and BZERO, are plain, and are written as they are
+            raw = scaledread(bytes; scale = false)
+            @test raw.data isa Vector{T} && raw.data == T[1, 2, 3] && written(raw) == codeunits(bytes)
+            #  the data tell it, and not the HDU, so the data are the physical values in another HDU, with or without the cards
+            fresh = scaledread(bytes)
+            @test written(HDU(Primary, fresh.data, getfield(fresh, :cards))) == codeunits(bytes)
+            fromdata = HDU(Primary, fresh.data)
+            @test fromdata.cards["BSCALE"] == 2 && fromdata.cards["BZERO"] == 1
+            @test scaledread(written(fromdata); scale = false).data == T[1, 2, 3]
+            made = HDU(Primary, FITSFiles.ScaledArray(T[3, 5, 7], T(2), T(1)))
+            @test made.cards["BSCALE"] == 2 && made.cards["BZERO"] == 1 && scaledread(written(made); scale = false).data == T[1, 2, 3]
+            #  the scale of the data is the scale of the header, which is set from the data, with a warning if it is another
+            different = @test_logs (:warn, "BSCALE set to $(T(2)), the value of the scale of the data.") HDU(Primary,
+                FITSFiles.ScaledArray(T[3, 5, 7], T(2), T(1)), Card{<:Any}[Card("BSCALE", 3.0), Card("BZERO", 1.0)])
+            @test different.cards["BSCALE"] == 2
+            mismatched = scaledread(bytes)
+            getfield(mismatched, :cards)["BSCALE"] = 3.0
+            @test_throws ArgumentError("The scale and the zero of the data, 2.0 and 1.0, are not the BSCALE and the BZERO of the " *
+                "header, 3.0 and 1.0.") written(mismatched)
+            #  an array that is made from the data by their values is plain, and is the stored values, and a copy is the physical values
+            @test !(fresh.data .+ 0 isa FITSFiles.ScaledArray) && !(fresh.data[1:2] isa FITSFiles.ScaledArray) && !(Array(fresh.data) isa FITSFiles.ScaledArray)
+            copied = copy(fresh.data)
+            @test copied isa FITSFiles.ScaledArray && copied.scale == 2 && copied.zero == 1 && copied == fresh.data
+            @test scaledread(written(HDU(Primary, fresh.data .+ 0, getfield(fresh, :cards))); scale = false).data == T[3, 5, 7]
+            #  the undefined values, and the values that are not finite, are kept
+            special = T[1, NaN, Inf]
+            specialbytes = filebytes(cards, collect(reinterpret(UInt8, hton.(special))))
+            hdu = scaledread(specialbytes)
+            @test isnan(hdu.data[2]) && hdu.data[3] == Inf && written(hdu) == codeunits(specialbytes)
+            #  a BSCALE of 1 and a BZERO of 0 do not scale the data, which are the stored values
+            plain = filebytes([simple, kw("BITPIX", bitpix), naxis, naxis1, kw("BSCALE", 1.0), kw("BZERO", 0.0)], stored)
+            @test scaledread(plain).data isa Vector{T} && written(scaledread(plain)) == codeunits(plain)
+            @test scaledread(filebytes([simple, kw("BITPIX", bitpix), naxis, naxis1], stored)).data isa Vector{T}
+            #  the data of an HDU that is made are as they are, since they are not read with a scale
+            made = HDU(Primary, T[1, 2, 3], Card{<:Any}[Card("BSCALE", 2.0), Card("BZERO", 1.0)])
+            @test made.data isa Vector{T} && scaledread(written(made); scale = false).data == T[1, 2, 3]
+            #  and a scale that cannot be inverted is an error, as it is for the integers, unless the stored values are written
+            zeroscale = filebytes([simple, kw("BITPIX", bitpix), naxis, naxis1, kw("BSCALE", 0.0), kw("BZERO", 1.0)], stored)
+            @test_throws ArgumentError("The values cannot be written as stored values, since BSCALE is 0.") written(
+                scaledread(zeroscale))
+            @test written(scaledread(zeroscale; scale = false)) == codeunits(zeroscale)
+        end
+        #  the integers that are scaled are not the stored values, whatever the type is, and so are written as before
+        ints = filebytes([simple, kw("BITPIX", 16), naxis, naxis1, kw("BSCALE", 2.0)], collect(reinterpret(UInt8,
+            hton.(Int16[1, 2, 3]))))
+        @test !(scaledread(ints).data isa FITSFiles.ScaledArray) && scaledread(ints).data == Float32[2, 4, 6]
+        @test written(scaledread(ints)) == codeunits(ints)
+    end
+
     @testset "Scaled data" begin
         bytesof(values) = collect(reinterpret(UInt8, hton.(values)))
         #  an HDU that is read with the data scaled
