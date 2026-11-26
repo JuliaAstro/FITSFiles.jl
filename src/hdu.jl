@@ -950,6 +950,26 @@ end
 
 ####    Generic IO Functions
 
+#  The number of bytes that are left to read in `io`, or the largest integer if they are not known.
+unreadbytes(io::IOBuffer) = bytesavailable(io)
+unreadbytes(io::IOStream) = filesize(io) - position(io)
+unreadbytes(io::IO) = typemax(Int)
+
+"""
+	readbytes(io, n)
+
+Read the `n` bytes of the data of an HDU. An error says that the file is shorter than the header says if
+it has fewer bytes, instead of the data failing to match the shape of the array.
+"""
+function readbytes(io::IO, n::Integer)
+	short(m) = ArgumentError("The data of the HDU is $n bytes, as its header says, but the file has " *
+		"only $m of them.")
+	n > unreadbytes(io) && throw(short(unreadbytes(io)))
+	bytes = read(io, n)
+	length(bytes) < n && throw(short(length(bytes)))
+	bytes
+end
+
 function padblock(io::IO, format::DataFormat, pad::UInt8 = 0x00)
 	#  Pad remaining data block to BLOCKLEN length (2880 bytes)
 	N = format.leng*sizeof(format.type)

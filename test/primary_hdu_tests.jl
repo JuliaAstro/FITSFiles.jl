@@ -317,6 +317,29 @@
         #  an HDU that is created has the fixed format and the order
         hdu = HDU(Primary, rand(Float32, 2, 3))
         @test_logs written(hdu)
+
+        ####    The size of the data (Eq. 1)
+
+        #  a size that overflows the integers is an error, and not a size that is not read
+        big = "4611686018427387904"
+        @test_throws r"The data array is too large: 2 bytes × 4611686018427387904 values" reading(
+            filebytes([simple, bitpix, naxis, kw("NAXIS1", big)], data))
+        @test_throws r"The data array is too large: 8 bytes × 2 × 4611686018427387904 values" reading(
+            filebytes([simple, kw("BITPIX", -64), kw("NAXIS", 2), kw("NAXIS1", 2), kw("NAXIS2", big)], data))
+        @test_throws r"too large" reading(filebytes([simplef, bitpix, naxis, kw("NAXIS1", big)], data))
+        @test_throws r"too large" reading(filebytes([kw("XTENSION", "'IMAGE   '"), bitpix, naxis, kw("NAXIS1", big),
+            kw("PCOUNT", 0), kw("GCOUNT", 1)], data))
+        @test @test_logs(reading(filebytes([simple, bitpix, kw("NAXIS", 2), kw("NAXIS1", 0), kw("NAXIS2", big)]))) isa HDU
+
+        #  a file that has fewer bytes than the header says is an error that says so, and does not allocate the bytes
+        @test_throws ArgumentError("The data of the HDU is 20 bytes, as its header says, but the file has only 6 of them.") reading(
+            filebytes([simple, bitpix, naxis, kw("NAXIS1", 10)], data; pad = false))
+        @test_throws ArgumentError("The data of the HDU is 4 bytes, as its header says, but the file has only 2 of them.") reading(
+            filebytes([simplef, bitpix, naxis, kw("NAXIS1", 2)], UInt8[0, 1]; pad = false))
+        @test_throws r"as its header says, but the file has only 6 of them" reading(
+            filebytes([simple, bitpix, naxis, kw("NAXIS1", 2^61)], data; pad = false))
+        @test_throws r"as its header says, but the file has only 2880 of them" reading(
+            filebytes([simple, bitpix, naxis, kw("NAXIS1", 2^61)], data))
     end
 
 end

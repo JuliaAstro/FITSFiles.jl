@@ -12,7 +12,7 @@ end
 #  describe their use. The data are an array of the shape of the NAXISn keywords, or a vector if the HDU has a
 #  heap or groups (PCOUNT and GCOUNT), so that the number of values is not the product of the NAXISn.
 function Base.read(io::IO, ::Type{Conform}, format::DataFormat, fields::ConformField; kwds...)
-    data = ntoh.(reinterpret(format.type, read(io, sizeof(format.type)*format.leng)))
+    data = ntoh.(reinterpret(format.type, readbytes(io, sizeof(format.type)*format.leng)))
     length(data) == prod(format.shape) ? reshape(data, format.shape) : data
 end
 
