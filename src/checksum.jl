@@ -104,6 +104,16 @@ function decodechecksum(text::AbstractString)
     ~complement
 end
 
+#  The value of the DATASUM card, which is the unsigned integer of the sum of the data records, or nothing if
+#  the value is not known, i.e., blank, or is not a number
+function datasumvalue(cards::Cards)
+    j = Base.findfirst("DATASUM", cards)
+    ismissing(j) && return nothing
+    value = cards[j].value
+    value isa AbstractString || return nothing
+    tryparse(UInt32, strip(value))
+end
+
 #  Set the card of the keyword to the string value in fixed format, with the comment of the card if it has one, in
 #  the place of the card, or after the last card.
 function setchecksumcard!(cards::Cards, key::AbstractString, value::AbstractString, comment::AbstractString)
@@ -134,16 +144,6 @@ function setchecksum!(cards::Cards, data::AbstractVector{UInt8})
     write(header, cards)
     sum = addsums(onescomplementsum(take!(header)), datasum)
     setchecksumcard!(cards, "CHECKSUM", encodechecksum(sum), "HDU checksum")
-end
-
-#  The value of the DATASUM card, which is the unsigned integer of the sum of the data records, or nothing if
-#  the value is not known, i.e., blank, or is not a number
-function datasumvalue(cards::Cards)
-    j = Base.findfirst("DATASUM", cards)
-    ismissing(j) && return nothing
-    value = cards[j].value
-    value isa AbstractString || return nothing
-    tryparse(UInt32, strip(value))
 end
 
 """

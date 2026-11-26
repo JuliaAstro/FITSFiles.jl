@@ -495,7 +495,7 @@ function verify!(::Type{<:AbstractHDU}, cards::Cards, mankeys::AbstractDict, res
 	verifyinteger(mankeys, r"^(BITPIX|NAXIS\d*|PCOUNT|GCOUNT)$")
 	verifyinteger(reskeys, r"^(EXTVER|EXTLEVEL|WCSAXES[A-Z]?|MJDREFI|JDREFI)$")
 	#  The descriptive keywords of Sects. 4.4.2.1 to 4.4.2.3 are character strings, and the dates are dates.
-	verifystring(reskeys, r"^(ORIGIN|TELESCOP|INSTRUME|OBSERVER|OBJECT|AUTHOR|REFERENC|EXTNAME)$")
+	verifystring(reskeys, r"^(ORIGIN|TELESCOP|INSTRUME|OBSERVER|OBJECT|AUTHOR|REFERENC|EXTNAME|CHECKSUM|DATASUM)$")
 	verifydate(reskeys, r"^DATE")
 	verifyxtension!(cards)
 end

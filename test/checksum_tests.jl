@@ -130,6 +130,11 @@
     short = bytes[1:2880+sizeof(Int16)*6]
     @test @test_logs(reading(short; checksum = true)).data == Int16[1 2 3; 4 5 6]
 
+    #  the keywords are strings
+    cards = Card{<:Any}[Card("CHECKSUM", 12), Card("DATASUM", true)]
+    @test_logs (:warn, r"CHECKSUM must be a character string") (:warn, r"DATASUM must be a character string") HDU(
+        Primary, missing, cards)
+
     ####    A file of HDUs
 
     mktemp() do path, io
