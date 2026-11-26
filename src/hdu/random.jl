@@ -333,6 +333,13 @@ end
 #  The data of a type of Table 11, which are the stored values with the offset
 offsetdata(array) = haskey(RAWTYPE, nonmissingtype(eltype(array)))
 
+#  The number of parameters of a value of the data. The parameters of one name are the columns of a matrix, with a row for each
+#  group or, in a record, one row (Sect. 6.1.2 of the standard), and any other value is one parameter.
+paramcount(value) = value isa AbstractArray && ndims(value) > 1 ? size(value, 2) : 1
+
+#  The names of the parameters, which are the names of the values, as many as the parameters they have
+valuenames(names, values) = reduce(vcat, [fill(name, paramcount(value)) for (name, value) in zip(names, values)]; init = String[])
+
 #  The names of the values of a group, which are the keys of a named tuple, and param1, param2, ... and data otherwise
 function groupnames(group::NamedTuple)
     String.(keys(group))
@@ -352,10 +359,15 @@ function DataFormat(::Type{Random}, data::AbstractArray,
             "has $(length(names)): the parameters and the array of each group are the same."))
         size(group[end]) == shape || throw(ArgumentError("The array of group $g has the size $(size(group[end])), " *
             "but that of group 1 has the size $shape."))
+        for (j, value) in enumerate(Tuple(group)[1:end-1])
+            value isa AbstractArray && !(ndims(value) == 2 && size(value, 1) == 1) && throw(ArgumentError(
+                "The parameter $(names[j]) of group $g must be a number, or a matrix of one row for the parameters of its " *
+                "name, but it has the size $(size(value))."))
+        end
         randomtype(collect(group), names)
     end
     type  = randomtype(collect(data[1]), names)
-    param = length(names)-1
+    param = sum(paramcount, Tuple(data[1])[1:end-1]; init = 0)
     group = length(data)
     heap  = 0
     leng  = group*(param + prod(shape))
@@ -366,7 +378,8 @@ function FieldFormat(::Type{Random}, format::DataFormat, reskeys::Dict{S, V},
     data::AbstractArray; kwds...) where {S<:AbstractString, V<:ValueType}
 
     #  The names of the parameters are the keys of the records, or the PTYPEn keywords
-    names = data[1] isa NamedTuple ? groupnames(data[1]) : [paramnames(reskeys, format.param); "data"]
+    names = data[1] isa NamedTuple ? [valuenames(groupnames(data[1])[1:end-1], Tuple(data[1])[1:end-1]); groupnames(data[1])[end]] :
+        [paramnames(reskeys, format.param); "data"]
     randomfields(format, reskeys, names[1:end-1], names[end]; offset = offsetdata(data[1][end]))
 end
 
@@ -382,10 +395,12 @@ function DataFormat(::Type{Random}, data::U, mankeys::Dict{S, V}) where
     for j = 1:length(data)-1
         data[j] isa AbstractArray && size(data[j], 1) == group || throw(ArgumentError(
             "The parameter $(names[j]) must have a value for each of the $group groups of the array $(names[end])."))
+        ndims(data[j]) <= 2 || throw(ArgumentError("The parameter $(names[j]) must be a vector, or a matrix with a row " *
+            "for each group, and a column for each of the parameters of its name, but it has $(ndims(data[j])) dimensions."))
     end
     type  = randomtype(collect(data), names)
     shape = size(array)[2:end]
-    param = length(data)-1
+    param = sum(paramcount, Tuple(data)[1:end-1]; init = 0)
     heap  = 0
     leng  = group*(param + prod(shape))
     DataFormat(type, leng, shape, param, group, heap)
@@ -395,7 +410,8 @@ function FieldFormat(::Type{Random}, format::DataFormat, reskeys::Dict{S, V},
     data::U; record::Bool = false) where {U<:Union{Tuple, NamedTuple},
     S<:AbstractString, V<:ValueType}
 
-    names = data isa NamedTuple ? groupnames(data) : [paramnames(reskeys, format.param); "data"]
+    names = data isa NamedTuple ? [valuenames(groupnames(data)[1:end-1], Tuple(data)[1:end-1]); groupnames(data)[end]] :
+        [paramnames(reskeys, format.param); "data"]
     randomfields(format, reskeys, names[1:end-1], names[end]; offset = offsetdata(data[end]))
 end
 
