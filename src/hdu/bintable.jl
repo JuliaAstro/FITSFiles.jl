@@ -569,3 +569,22 @@ function Base.write(io::IO, ::Type{BitVector}, value)
     unsafe_copyto!(pointer(vec), reinterpret(Ptr{UInt8}, pointer(value.chunks)), siz)
     write(io, vec)
 end
+
+"""
+	verifyheap!(cards, mankeys)
+
+Warn if THEAP of a binary table is outside of the range that the standard allows (Sect. 7.3.2), and
+return the cards unchanged. The heap starts THEAP bytes after the start of the main data table, so THEAP
+cannot be less than NAXIS1*NAXIS2 or more than that plus PCOUNT, the bytes of the gap and the heap.
+"""
+function verifyheap!(cards::Cards, mankeys::AbstractDict)
+	haskey(mankeys, "THEAP") || return cards
+	heap = mankeys["THEAP"]
+	table = get(mankeys, "NAXIS1", 0) * get(mankeys, "NAXIS2", 0)
+	if heap < table
+		@warn "THEAP $heap is less than NAXIS1*NAXIS2, $table, and the heap overlaps the table."
+	elseif heap > table + get(mankeys, "PCOUNT", 0)
+		@warn "THEAP $heap is more than NAXIS1*NAXIS2 + PCOUNT, $(table + get(mankeys, "PCOUNT", 0)), and the heap is past the data."
+	end
+	cards
+end

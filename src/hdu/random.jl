@@ -67,8 +67,9 @@ RandomField(name, index, type, slice, leng, shape, zero, scale) =
     RandomField(name, index, type, slice, leng, shape, zero, scale, nothing)
 
 #  The keywords of the cards that are given with the data of an HDU that is made are verified (see `verifycardkeys`)
+#  The number of parameters of random groups is that of the data, and the keywords of the parameters are verified with it
 verifycards!(::Type{Random}, cards::Cards, mankeys::AbstractDict, reskeys::AbstractDict, format::DataFormat) =
-    verifycardkeys(Random, cards, mankeys, reskeys, format)
+    verifycardkeys(Random, cards, merge(mankeys, Dict("PCOUNT" => format.param)), reskeys)
 
 #  The fill after the data (see `verifyfill`)
 fillrule(::Type{Random}) = (0x00, "zeros", "Sect. 6.2")

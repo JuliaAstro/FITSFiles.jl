@@ -15,7 +15,7 @@ union!(RESERVEDKEYS, ["INHERIT", "BSCALE", "BZERO", "BUNIT", "BLANK", "DATAMAX",
 
 #  The keywords of the cards that are given with the data of an HDU that is made are verified (see `verifycardkeys`)
 verifycards!(::Type{Image}, cards::Cards, mankeys::AbstractDict, reskeys::AbstractDict, format::DataFormat) =
-    verifycardkeys(Image, cards, mankeys, reskeys, format)
+    verifycardkeys(Image, cards, mankeys, reskeys)
 
 #  The mandatory keywords of the header of an IMAGE extension, in the order that they must have (Sect. 7.1.1, Table 13)
 imagekeys(mankeys::AbstractDict) =

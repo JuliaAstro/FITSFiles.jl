@@ -14,7 +14,7 @@ union!(RESERVEDKEYS, ["EXTEND", "BLOCKED", "BSCALE", "BZERO", "BUNIT", "BLANK", 
 
 #  The keywords of the cards that are given with the data of an HDU that is made are verified (see `verifycardkeys`)
 verifycards!(::Type{Primary}, cards::Cards, mankeys::AbstractDict, reskeys::AbstractDict, format::DataFormat) =
-    verifycardkeys(Primary, cards, mankeys, reskeys, format)
+    verifycardkeys(Primary, cards, mankeys, reskeys)
 
 function verify!(::Type{Primary}, cards::Cards, mankeys::AbstractDict, reskeys::AbstractDict)
     cards = invoke(verify!, Tuple{Type{<:AbstractHDU}, Cards, AbstractDict, AbstractDict}, Primary, cards,
@@ -75,4 +75,21 @@ function createcards!(::Type{Primary}, format::DataFormat,
     fields::AbstractField, cards::Cards; kwds...)
 
     offsetcards!(arrangecards!(cards, ["SIMPLE" => true; shapekeys(format)]), fields)
+end
+
+"""
+	verifyprimary(cards, mankeys)
+
+Warn if the header of a primary HDU does not begin with SIMPLE, BITPIX, NAXIS, and the NAXISn keywords, in
+that order and with no other keyword between them (Sect. 4.4.1.1 of the standard), or if the values of
+these keywords are not in fixed format (Sect. 4.4.1), and return the cards unchanged. The file is read and
+written as it is, so the cards are not reordered or reformatted. The NAXIS value of `mankeys` must be
+valid, as `verifyarray` checks.
+"""
+function verifyprimary(cards::Cards, mankeys::AbstractDict)
+	#  A header that is being created does not have the keywords yet, and is arranged when it is created.
+	haskey(mankeys, "SIMPLE") || return cards
+	required = vcat(["SIMPLE", "BITPIX", "NAXIS"], ["NAXIS$j" for j = 1:get(mankeys, "NAXIS", 0)])
+	verifyorder(cards, required)
+	verifyfixed(cards, required)
 end
