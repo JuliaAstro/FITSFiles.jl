@@ -34,6 +34,12 @@ function verifyarray(mankeys::AbstractDict, reskeys::AbstractDict)
     verifyvalue(mankeys, "NAXIS", 0:MAXAXES, "an integer from 0 to $MAXAXES")
     verifyaxes(mankeys)
     verifysize(mankeys)
+    verifyarraykeys(mankeys, reskeys)
+end
+
+#  The keywords that describe an array (Sect. 4.4.2.5), which the primary array, an IMAGE extension, and the array of random
+#  groups have: BLANK, BSCALE, BZERO, DATAMIN, DATAMAX, and BUNIT.
+function verifyarraykeys(mankeys::AbstractDict, reskeys::AbstractDict)
     verifyblank(mankeys, reskeys)
     verifynumber(reskeys, r"^(BSCALE|BZERO|DATAMIN|DATAMAX)$")
     verifyfloat(reskeys, r"^(DATAMIN|DATAMAX)$")

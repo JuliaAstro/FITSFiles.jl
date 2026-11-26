@@ -4,10 +4,15 @@ function verify!(::Type{Primary}, cards::Cards, mankeys::AbstractDict, reskeys::
     cards = invoke(verify!, Tuple{Type{<:AbstractHDU}, Cards, AbstractDict, AbstractDict}, Primary, cards,
         mankeys, reskeys)
     verifyarray(mankeys, reskeys)
-    #  The keywords that are in the primary header only (Sects. 4.4.2.1 and 4.4.2.6, and App. K)
+    verifyprimarykeys(reskeys)
+    verifyprimary(cards, mankeys)
+end
+
+#  The keywords that are in the primary header only (Sects. 4.4.2.1 and 4.4.2.6, and App. K): EXTEND and BLOCKED are
+#  logicals, and INHERIT must not appear.
+function verifyprimarykeys(reskeys::AbstractDict)
     verifylogical(reskeys, r"^(EXTEND|BLOCKED)$")
     haskey(reskeys, "INHERIT") && @warn "INHERIT must not appear in the primary header (Appendix K). It is read as it is."
-    verifyprimary(cards, mankeys)
 end
 
 function verify!(::Type{Primary}, cards::Cards, format::DataFormat,
