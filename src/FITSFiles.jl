@@ -53,6 +53,10 @@ include("hdu/table.jl")
 include("hdu/bintable.jl")
 include("hdu/zimage.jl")
 include("hdu/ztable.jl")
+include("hdu/iueimage.jl")
+include("hdu/a3dtable.jl")
+include("hdu/foreign.jl")
+include("hdu/dump.jl")
 include("fitscore.jl")
 
 end

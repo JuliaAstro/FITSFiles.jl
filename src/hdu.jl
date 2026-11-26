@@ -8,11 +8,7 @@
 
 abstract type AbstractHDU end
 
-#  Conforming HDU Extensions that do not have a file: Conform is in conform.jl
-struct IUEImage <: AbstractHDU end
-struct A3DTable <: AbstractHDU end
-struct Foreign <: AbstractHDU end
-struct Dump <: AbstractHDU end
+#  The HDU types are defined in the files of src/hdu, which are included after this file
 
 const Cards = Union{Vector{Card}, Vector{Card{<:Any}}}
 
