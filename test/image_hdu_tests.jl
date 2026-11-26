@@ -371,6 +371,28 @@
         #  the other keywords can be in free format
         silent([header; "BZERO   = 1.0"; "OBJECT  = 'NGC 1275'"])
 
+        ####    The keywords of the primary header, SIMPLE, EXTEND, and BLOCKED, are not in an extension (Sects. 4.4.1.1,
+        ####    4.4.2.1, and 7.1.2)
+
+        warned([header; kw("SIMPLE", "T")], r"SIMPLE must not appear in an extension header \(Sect. 4.4.1.1\)")
+        for key in ("EXTEND", "BLOCKED")
+            warned([header; kw(key, "T")], Regex("$key must not appear in an IMAGE extension header \\(Sects. 4.4.2.1 and 7.1.2\\)"))
+        end
+
+        ####    INHERIT is a logical immediately after the mandatory keywords (Sect. 4.4.2.6 and Appendix K)
+
+        silent([header; kw("INHERIT", "T")])
+        silent([header; kw("INHERIT", "F"); "OBJECT  = 'NGC 1275'"])
+        warned([header; "OBJECT  = 'NGC 1275'"; kw("INHERIT", "T")],
+            r"INHERIT must be the keyword immediately after the mandatory keywords, keyword 7 of this header \(Sect. 4.4.2.6 and Appendix K\), but it is keyword 8")
+        @test_logs (:warn, r"Keyword 5 of the header is INHERIT, but the Standard requires PCOUNT") (:warn,
+            r"INHERIT must be the keyword immediately after the mandatory keywords") reading(
+            filebytes([xtension, bitpix, naxis, naxis1, kw("INHERIT", "T"), pcount, gcount], data))
+        warned([header; kw("INHERIT", 1)], r"INHERIT must be a logical, T or F, but its value is 1")
+        warned([header; kw("INHERIT", "'T'")], r"INHERIT must be a logical, T or F")
+        #  without PCOUNT and GCOUNT, it is after the keywords that are there
+        @test_logs (:warn, r"PCOUNT is missing") (:warn, r"GCOUNT is missing") reading(
+            filebytes([xtension, bitpix, naxis, naxis1, kw("INHERIT", "T")], data))
     end
 
 end

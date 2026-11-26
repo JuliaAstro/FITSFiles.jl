@@ -30,6 +30,20 @@ function verify!(::Type{Image}, cards::Cards, mankeys::AbstractDict, reskeys::Ab
     verifyorder(cards, required; section = "Sects. 4.4.1.2 and 7.1.1",
         names = "XTENSION, BITPIX, NAXIS, the NAXISn, PCOUNT, and GCOUNT")
     verifyfixed(cards, required)
+    #  The keywords of the primary header, and of the physical blocks, are not in an extension (Sects. 4.4.1.1, 4.4.2.1,
+    #  and 7.1.2)
+    haskey(mankeys, "SIMPLE") && @warn "SIMPLE must not appear in an extension header (Sect. 4.4.1.1). It is read as it is."
+    for key in ("EXTEND", "BLOCKED")
+        haskey(reskeys, key) && @warn "$key must not appear in an IMAGE extension header (Sects. 4.4.2.1 and 7.1.2). " *
+            "It is read as it is."
+    end
+    #  INHERIT is a logical that is immediately after the mandatory keywords (Sect. 4.4.2.6 and Appendix K)
+    verifylogical(reskeys, r"^INHERIT$")
+    j = Base.findfirst("INHERIT", cards)
+    if !ismissing(j) && j != length(required) + 1
+        @warn "INHERIT must be the keyword immediately after the mandatory keywords, keyword $(length(required) + 1) " *
+            "of this header (Sect. 4.4.2.6 and Appendix K), but it is keyword $j. It is read as it is."
+    end
     cards
 end
 
