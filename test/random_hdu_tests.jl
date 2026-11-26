@@ -952,6 +952,95 @@
         #  random groups without a group are a header
         @test length(written(HDU(Random))) == 2880 && length(written(HDU(Random); checksum = true)) == 2880
 
+        ####    The unsigned integers and the signed bytes of Table 11 (Sects. 5.2.5 and 6.3)
+
+        #  the array has the offset BZERO, and each parameter has the offset PZEROn, so the physical values are the
+        #  unsigned integers
+        offsets = [kw("PZERO1", "32768"), kw("PZERO2", "32768"), kw("BZERO", "32768")]
+        unsigned = Int16[-32768, 0, 10, 11, 12, 32767, 5, 20, 21, 22]
+        offsetbytes = filebytes(grouphdr(extra = offsets), bytesof(unsigned))
+        offsetdata = reading(offsetbytes).data
+        @test offsetdata == (param1 = UInt16[0, 65535], param2 = UInt16[32768, 32773],
+            data = UInt16[32778 32779 32780; 32788 32789 32790])
+        @test eltype(offsetdata.param1) == UInt16 && eltype(offsetdata.param2) == UInt16 && eltype(offsetdata.data) == UInt16
+        @test reading(offsetbytes; scale = false).data ==
+            (param1 = Int16[-32768, 32767], param2 = Int16[0, 5], data = Int16[10 11 12; 20 21 22])
+        records = reading(offsetbytes; record = true).data
+        @test records[2] == (param1 = 0xffff, param2 = 0x8005, data = UInt16[32788, 32789, 32790])
+        @test typeof(records[1].param1) == UInt16
+        #  a file is written with the same bytes, with and without the scale, and as records
+        for kwds in ((;), (; scale = false), (; record = true))
+            @test written(reading(offsetbytes; kwds...)) == offsetbytes
+        end
+        #  a value that is changed is written as its stored value
+        changed = reading(offsetbytes)
+        changed.data.param1[1] = 100
+        changed.data.data[2, 3] = 0
+        @test reading(written(changed); scale = false).data ==
+            (param1 = Int16[-32668, 32767], param2 = Int16[0, 5], data = Int16[10 11 12; 20 21 -32768])
+        #  every type of Table 11 has its offset, and the parameters and the array are of the type of the offset
+        for (bitpix, raw, physical_, offset) in ((8, UInt8, Int8, -128), (16, Int16, UInt16, 2^15),
+            (32, Int32, UInt32, 2^31), (64, Int64, UInt64, UInt128(2)^63))
+            values = raw.([1, 2, 10, 11, 12, 3, 4, 20, 21, 22])
+            values[1] = typemin(raw)
+            values[6] = typemax(raw)
+            extras = [kw("PZERO1", offset), kw("PZERO2", offset), kw("BZERO", offset)]
+            bytes = filebytes(grouphdr(; bitpix, extra = extras), bytesof(values))
+            expected = [physical_(Int128(value) + offset) for value in values]
+            offset32 = reading(bytes).data
+            @test offset32 == (param1 = expected[[1, 6]], param2 = expected[[2, 7]],
+                data = permutedims(reshape(expected[[3, 4, 5, 8, 9, 10]], (3, 2))))
+            @test eltype(offset32.param1) == physical_ && eltype(offset32.data) == physical_
+            for kwds in ((;), (; scale = false), (; record = true))
+                @test written(reading(bytes; kwds...)) == bytes
+            end
+        end
+        #  the parameters and the array have their own offsets: the other values are scaled
+        arrayonly = filebytes(grouphdr(extra = [kw("BZERO", "32768")]), bytesof(unsigned))
+        arraydata = reading(arrayonly).data
+        @test eltype(arraydata.param1) == Float32 && eltype(arraydata.data) == UInt16
+        @test arraydata.param1 == Float32[-32768, 32767] && written(reading(arrayonly)) == arrayonly
+        paramonly = filebytes(grouphdr(extra = [kw("PZERO2", "32768")]), bytesof(unsigned))
+        @test eltype(reading(paramonly).data.param1) == Float32 && eltype(reading(paramonly).data.param2) == UInt16
+        @test eltype(reading(paramonly).data.data) == Float32 && written(reading(paramonly)) == paramonly
+        #  an offset of another type, or a scale that is not 1, is a scaled value
+        other = filebytes(grouphdr(bitpix = 32, extra = [kw("PZERO1", "32768"), kw("BZERO", "32768")]),
+            bytesof(Int32.(unsigned)))
+        @test eltype(reading(other).data.param1) == Float32 && eltype(reading(other).data.data) == Float32
+        scaledoffset = filebytes(grouphdr(extra = [kw("PSCAL1", "2.0"), kw("PZERO1", "32768")]), bytesof(unsigned))
+        @test reading(scaledoffset).data.param1 == Float32[-32768, 32767] .* 2 .+ 32768
+        @test written(reading(scaledoffset)) == scaledoffset
+
+        #  data of unsigned integers have the offsets in the header, which is a header that was made
+        unsignedhdu = HDU(Random, (a = UInt16[0, 65535], c = UInt16[1, 2], data = UInt16[1 2 3; 4 5 6]))
+        cards = getfield(unsignedhdu, :cards)
+        @test cards["BITPIX"] == 16 && cards["BZERO"] == 32768 && cards["PZERO1"] == 32768 && cards["PZERO2"] == 32768
+        @test count(c -> c.key in ("BZERO", "PZERO1", "PZERO2"), cards) == 3
+        unsignedbytes = written(unsignedhdu)
+        @test reading(unsignedbytes; scale = false).data ==
+            (a = Int16[-32768, 32767], c = Int16[-32767, -32766], data = Int16[-32767 -32766 -32765; -32764 -32763 -32762])
+        @test reading(unsignedbytes).data == (a = UInt16[0, 65535], c = UInt16[1, 2], data = UInt16[1 2 3; 4 5 6])
+        @test written(reading(unsignedbytes)) == unsignedbytes
+        #  the same data as records, and as a tuple
+        @test written(HDU(Random, [(a = UInt16(0), c = UInt16(1), data = UInt16[1, 2, 3]),
+            (a = UInt16(65535), c = UInt16(2), data = UInt16[4, 5, 6])])) == unsignedbytes
+        @test written(HDU(Random, (UInt16[0, 65535], UInt16[1 2 3; 4 5 6])))[2881:end] ==
+            written(HDU(Random, (a = UInt16[0, 65535], data = UInt16[1 2 3; 4 5 6])))[2881:end]
+        #  the cards that the header has are not added again
+        withcards = HDU(Random, (a = UInt16[0, 65535], data = UInt16[1 2 3; 4 5 6]),
+            Card{<:Any}[Card("BZERO", 32768), Card("PZERO1", 32768)])
+        @test count(c -> c.key in ("BZERO", "PZERO1"), getfield(withcards, :cards)) == 2
+        #  the parameters and the array are of one type, which may be unsigned
+        @test_throws mixed HDU(Random, (a = Int16[0, 1], data = UInt16[1 2 3; 4 5 6]))
+        @test_throws mixed HDU(Random, (a = UInt16[0, 1], data = Int16[1 2 3; 4 5 6]))
+        @test_throws ArgumentError HDU(Random, (a = UInt16[0, 1], data = Int32[1 2 3; 4 5 6]))
+        #  the unsigned data of a file are read lazily
+        mktemp() do path, io
+            write(io, [unsignedhdu]); close(io)
+            @test fits(path)[1].data == (a = UInt16[0, 65535], c = UInt16[1, 2], data = UInt16[1 2 3; 4 5 6])
+            @test eltype(fits(path; scale = false)[1].data.a) == Int16
+        end
+
         ####    The lazy file of random groups reads the same
 
         mktemp() do path, io

@@ -65,7 +65,10 @@ function Base.read(io::IO, ::Type{Random}, format::DataFormat,
     #  The values of the groups, one group in each column: the parameters, and then the array
     nbytes = sizeof(format.type)*format.leng
     values = reshape(ntoh.(reinterpret(format.type, readbytes(io, nbytes))), P + prod(shape), G)
-    physical(value, field) = scale ? scaled(value, field.scale, field.zero) : value
+    #  The physical values of a field are the values of the offset convention of Table 11 of the standard (Sect. 5.2.5, which
+    #  Sect. 6.3 gives to the parameters and the array) or are scaled (Eqs. 3 and 5)
+    images = [ImageField(field.type, field.zero, field.scale, nothing, nothing, nothing) for field in fields]
+    apply(value, k) = scale ? physical(value, images[k]) : value
     names = [field.name for field in fields]
     ndxs = [name => findall(x -> x == name, names) for name in unique(names)]
     if record
@@ -73,16 +76,16 @@ function Base.read(io::IO, ::Type{Random}, format::DataFormat,
         #  Concatenate (horizontally) fields having the same name.
         data = []
         for g = 1:G
-            flds = Any[physical(values[k, g], fields[k]) for k = 1:P]
-            push!(flds, physical(isempty(shape) ? values[end, g] : reshape(values[P+1:end, g], shape), fields[end]))
+            flds = Any[apply(values[k, g], k) for k = 1:P]
+            push!(flds, apply(isempty(shape) ? values[end, g] : reshape(values[P+1:end, g], shape), P+1))
             push!(data, (; [Symbol(name) => length(ndx) > 1 ? hcat(flds[ndx]...) : flds[ndx...]
                 for (name, ndx) in ndxs]... ))
         end
     else
         #  Return data as NamedTuple of arrays
         #  Concatenate (horizontally) columns having the same name.
-        cols = Any[physical(values[k, :], fields[k]) for k = 1:P]
-        push!(cols, physical(reshape(permutedims(values[P+1:end, :]), (G, shape...)), fields[end]))
+        cols = Any[apply(values[k, :], k) for k = 1:P]
+        push!(cols, apply(reshape(permutedims(values[P+1:end, :]), (G, shape...)), P+1))
         data = (; [Symbol(name) => (length(ndx) > 1 ? hcat(cols[ndx]...) : cols[ndx...])
             for (name, ndx) in ndxs]...)
     end
@@ -122,9 +125,11 @@ function storeerror(e::ArgumentError, field::RandomField, j::Integer)
 end
 
 #  The stored value of the value of a parameter, which is the value as it is if it is of the type of BITPIX, and
-#  otherwise is the value without PZEROn and PSCALn (see `storedvalue`).
+#  otherwise is the value without PZEROn and PSCALn (see `storedvalue`), or the value of the offset convention.
 function storedparam(value, field::RandomField, image::ImageField, k::Integer, j::Integer; check::Bool = true)
     typeof(value) == field.type && return value
+    #  The value of the offset convention of Table 11 is the stored value with the offset
+    typeof(value) == offsettype(field.type, field.scale, field.zero) && return offsetvalue(value, field.type)
     image.scale == 0 && throw(ArgumentError(
         "The parameter $(field.name) of group $j cannot be written as a stored value, since its PSCAL$k is 0."))
     try
@@ -222,22 +227,25 @@ function DataFormat(::Type{Random}, data::Missing, mankeys::Dict{S, V}) where
 end
 
 #  The fields of the groups: the parameters, which have the names `names` and the keywords PSCALn and PZEROn, and the
-#  array, which has the name `array` and the keywords BSCALE and BZERO. Parameters of the same name are numbered.
-function randomfields(format::DataFormat, reskeys::AbstractDict, names, array::AbstractString)
+#  array, which has the name `array` and the keywords BSCALE and BZERO. Parameters of the same name are numbered. The data of
+#  the types of Table 11 (`offset`) have the offset of the type for PZEROn and BZERO if the header has none.
+function randomfields(format::DataFormat, reskeys::AbstractDict, names, array::AbstractString; offset::Bool = false)
     type, P, bytes = format.type, format.param, sizeof(format.type)
+    #  The zero of data of a physical type of Table 11 is the offset of the type, if the header has none
+    zero_ = offset ? OFFSETTYPE[type][2] : 0.0f0
     indices = Dict{String, Int}()
     fields = Vector{RandomField}(undef, P+1)
     k = 0
     for j = 1:P
         name  = String(names[j])
         index = indices[name] = get!(indices, name, 0) + 1
-        pzero = leastfloat(get(reskeys, "PZERO$j", 0.0f0))
+        pzero = leastfloat(get(reskeys, "PZERO$j", zero_))
         scale = leastfloat(get(reskeys, "PSCAL$j", 1.0f0))
         fields[j] = RandomField(name, index, type, k+1:k+bytes, 1, (1,), pzero, scale)
         k += bytes
     end
     leng  = prod(format.shape)
-    bzero = leastfloat(get(reskeys,  "BZERO", 0.0f0))
+    bzero = leastfloat(get(reskeys,  "BZERO", zero_))
     scale = leastfloat(get(reskeys, "BSCALE", 1.0f0))
     fields[end] = RandomField(array, 1, type, k+1:k+leng*bytes, leng, format.shape, bzero, scale)
     fields
@@ -252,18 +260,23 @@ end
 
 #  The type of the values of the groups, which is the type of the array of the groups, and is the type that BITPIX
 #  gives: the parameters and the elements of the array have the same representation (Sect. 6.3 of the standard), so it is
-#  an error if a parameter has another type. `values` are the parameters and the array, and `names` their names.
+#  an error if a parameter has another type. `values` are the parameters and the array, and `names` their names. The type
+#  is the integer of the same size for an unsigned integer or a signed byte (Table 11).
 function randomtype(values, names)
     type = nonmissingtype(eltype(values[end]))
-    haskey(TYPE2BITS, type) || throw(ArgumentError("The array $(names[end]) has the type $type, but random groups " *
-        "have the types of BITPIX (Table 8): $(join(sort!(string.(collect(keys(TYPE2BITS)))), ", "))."))
+    haskey(TYPE2BITS, get(RAWTYPE, type, type)) || throw(ArgumentError("The array $(names[end]) has the type $type, " *
+        "but random groups have the types of BITPIX (Table 8): $(join(sort!(string.(collect(keys(TYPE2BITS)))), ", "))."))
     for (j, value) in enumerate(values[1:end-1])
         nonmissingtype(eltype(value)) == type || throw(ArgumentError("The parameter $(names[j]) has the type " *
             "$(nonmissingtype(eltype(value))), but the array $(names[end]) has the type $type: the parameters and " *
             "the array of random groups have the same type, which is BITPIX (Sect. 6.3). Convert them to one type."))
     end
-    type
+    #  The stored type of the unsigned integers and the signed bytes of Table 11
+    get(RAWTYPE, type, type)
 end
+
+#  The data of a type of Table 11, which are the stored values with the offset
+offsetdata(array) = haskey(RAWTYPE, nonmissingtype(eltype(array)))
 
 #  The names of the values of a group, which are the keys of a named tuple, and param1, param2, ... and data otherwise
 function groupnames(group::NamedTuple)
@@ -299,7 +312,7 @@ function FieldFormat(::Type{Random}, format::DataFormat, reskeys::Dict{S, V},
 
     #  The names of the parameters are the keys of the records, or the PTYPEn keywords
     names = data[1] isa NamedTuple ? groupnames(data[1]) : [paramnames(reskeys, format.param); "data"]
-    randomfields(format, reskeys, names[1:end-1], names[end])
+    randomfields(format, reskeys, names[1:end-1], names[end]; offset = offsetdata(data[1][end]))
 end
 
 function DataFormat(::Type{Random}, data::U, mankeys::Dict{S, V}) where
@@ -328,7 +341,7 @@ function FieldFormat(::Type{Random}, format::DataFormat, reskeys::Dict{S, V},
     S<:AbstractString, V<:ValueType}
 
     names = data isa NamedTuple ? groupnames(data) : [paramnames(reskeys, format.param); "data"]
-    randomfields(format, reskeys, names[1:end-1], names[end])
+    randomfields(format, reskeys, names[1:end-1], names[end]; offset = offsetdata(data[end]))
 end
 
 function createcards!(::Type{Random}, format::DataFormat,
@@ -338,8 +351,19 @@ function createcards!(::Type{Random}, format::DataFormat,
     #  Include PTYPE cards if any value is not an empty string
     named = any(!isempty(field.name) for field in fields[1:P])
     ptype = named ? ["PTYPE$j" => String(fields[j].name) for j = 1:P] : Pair{String, Any}[]
-    arrangecards!(cards, ["SIMPLE" => true; shapekeys(format; first = 2);
-        "GROUPS" => true; "PCOUNT" => P; "GCOUNT" => format.group; ptype])
+    offsetcards!(arrangecards!(cards, ["SIMPLE" => true; shapekeys(format; first = 2);
+        "GROUPS" => true; "PCOUNT" => P; "GCOUNT" => format.group; ptype]), fields)
+end
+
+#  The PZEROn and BZERO cards of the offset convention of Table 11, if the header does not have them.
+function offsetcards!(cards::Cards, fields::Vector{RandomField})
+    for (j, field) in enumerate(fields)
+        key = j < length(fields) ? "PZERO$j" : "BZERO"
+        if !isnothing(offsettype(field.type, field.scale, field.zero)) && !haskey(cards, key)
+            push!(cards, Card(key, OFFSETTYPE[field.type][2]))
+        end
+    end
+    cards
 end
 
 function createdata(::Type{Random}, format::DataFormat,
