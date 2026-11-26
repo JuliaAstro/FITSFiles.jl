@@ -371,7 +371,8 @@ end
 
 Read the next header-data unit (HDU) from `io` and return it. The data of an HDU that is read
 from a file is a lazy array, which is read when the data is accessed, and the data of an HDU that
-is read from another stream is read at once.
+is read from another stream is read at once. The fill of the last data block is zeros, or ASCII spaces for an ASCII table,
+and a warning says if it is not (see [`verifyfill`](@ref)).
 
 # Keywords
 
@@ -408,6 +409,7 @@ function Base.read(io::IO, ::Type{HDU}; type = nothing, strict::Bool = true, uni
 			data = read(io, type_, format, fields; kwds...)
 		end
 		N = sizeof(format.type)*format.leng
+		verifyfill(io, type_, pos, N)
 		seek(io, pos + BLOCKLEN*div(N, BLOCKLEN, RoundUp))
 	else
 		# indicate data is missing
@@ -1164,6 +1166,31 @@ function readbytes(io::IO, n::Integer)
 	bytes = read(io, n)
 	length(bytes) < n && throw(short(length(bytes)))
 	bytes
+end
+
+#  The byte that fills the last data block after the data, and what it is called, and the section of the standard: zeros, except
+#  for the ASCII spaces of an ASCII table
+fillrule(::Type{<:AbstractHDU}) = (0x00, "zeros", "Sect. 3.3.2")
+fillrule(::Type{Random}) = (0x00, "zeros", "Sect. 6.2")
+fillrule(::Type{Table}) = (0x20, "ASCII spaces", "Sect. 7.2.3")
+fillrule(::Type{<:Union{Bintable, ZImage, ZTable}}) = (0x00, "zeros", "Sect. 7.3.3")
+
+"""
+	verifyfill(io, type, pos, nbytes)
+
+Warn if the fill of the last data block after the `nbytes` bytes of the data of an HDU of the type `type`, which begin at
+the position `pos` of `io`, is not what the standard says: all bits zero, or ASCII spaces for an ASCII table (Sects. 3.3.2,
+6.2, 7.2.3, and 7.3.3). The data are read as they are, but the fill is not kept, and is written as it should be. A last
+block that is not filled, which is a file that ends after the data, is not verified. The position of `io` is not kept.
+"""
+function verifyfill(io::IO, type::Type{<:AbstractHDU}, pos::Integer, nbytes::Integer)
+	nfill = BLOCKLEN*cld(nbytes, BLOCKLEN) - nbytes
+	nfill == 0 && return nothing
+	byte, name, section = fillrule(type)
+	seek(io, pos + nbytes)
+	all(==(byte), read(io, nfill)) || @warn "The fill of the last data block of the HDU is not all $name ($section). The data are " *
+		"read as they are, and the fill is written as $name."
+	nothing
 end
 
 function padblock(io::IO, format::DataFormat, pad::UInt8 = 0x00)
