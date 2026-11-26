@@ -19,5 +19,5 @@ end
 function createcards!(::Type{Image}, format::DataFormat,
     fields::ImageField, cards::Cards; kwds...)
 
-    arrangecards!(cards, ["XTENSION" => "IMAGE"; shapekeys(format)])
+    offsetcards!(arrangecards!(cards, ["XTENSION" => "IMAGE"; shapekeys(format)]), fields)
 end

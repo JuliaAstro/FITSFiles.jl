@@ -126,8 +126,12 @@ const BITPIXVALUES = (8, 16, 32, 64, -32, -64)
 const MAXAXES = 999
 
 const MISSTYPE = (UInt8, Int16, Int32, Int64)
-const TEMPTYPE = Dict(-2^7 => Int16, 2^15 => UInt32, UInt32(2)^31 => UInt64,
-	UInt64(2)^63 => UInt128)
+#  The unsigned integers and the signed bytes are stored as the integers of the same size with an offset in
+#  BZERO (Table 11 of the standard): the type of the array => the type of the physical values and BZERO.
+const OFFSETTYPE = Dict(Int16 => (UInt16, 2^15), Int32 => (UInt32, 2^31), Int64 => (UInt64, UInt64(2)^63),
+	UInt8 => (Int8, -2^7))
+#  The type of the array of the physical type, which is the key of OFFSETTYPE
+const RAWTYPE = Dict(physical => raw for (raw, (physical, _)) in OFFSETTYPE)
 const OUTTYPE  = Dict(
     UInt8 => Float32, Int16 => Float32, Int32 => Float64, Int64 => Float64,
     Float32 => Float32, Float64 => Float64)

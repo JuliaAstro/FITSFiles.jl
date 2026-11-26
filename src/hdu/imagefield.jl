@@ -63,8 +63,10 @@ end
 function DataFormat(::Type{<:ImageHDU}, data::AbstractArray, mankeys::Dict{S, V}) where
     {S<:AbstractString, V<:ValueType}
 
-    #  The type of the stored values, which excludes the undefined (missing) ones
+    #  The type of the stored values, which excludes the undefined (missing) ones, and is the integer of the same
+    #  size for the physical types of Table 11 (e.g., an Int16 for a UInt16)
     type  = nonmissingtype(eltype(data))
+    type  = get(RAWTYPE, type, type)
     leng  = length(data)
     shape = size(data)
     param = get(mankeys, "PCOUNT", 0)
@@ -76,7 +78,10 @@ end
 function FieldFormat(::Type{<:ImageHDU}, format::DataFormat, reskeys::Dict{S, V},
     data::Union{Missing, AbstractArray}) where {S<:AbstractString, V<:ValueType}
 
-    zero_ = leastfloat(get(reskeys, "BZERO", 0.0f0))
+    #  The offset of the data of a physical type of Table 11 is its BZERO, if the header has none
+    offset = data isa AbstractArray && haskey(RAWTYPE, nonmissingtype(eltype(data))) ?
+        OFFSETTYPE[RAWTYPE[nonmissingtype(eltype(data))]][2] : 0.0f0
+    zero_ = leastfloat(get(reskeys, "BZERO", offset))
     scale = leastfloat(get(reskeys, "BSCALE", 1.0f0))
     miss  = format.type in MISSTYPE ? get(reskeys, "BLANK", nothing) : nothing
     dmin  = leastfloat(get(reskeys, "DATAMIN", nothing))
@@ -89,11 +94,39 @@ zerosarray(format::DataFormat) = length(format.shape) > 0 ? zeros(format.type, f
 
 createdata(::Type{<:ImageHDU}, format::DataFormat, ::ImageField; kwds...) = zerosarray(format)
 
+#  The type of the physical values of an array of the stored type `type` that has the offset BZERO of Table 11 of
+#  the standard and the default BSCALE, i.e., a UInt16 for an Int16 and a BZERO of 32768, or nothing.
+function offsettype(type::Type, scale::Real, zero::Real)
+    haskey(OFFSETTYPE, type) && scale == 1 && zero == OFFSETTYPE[type][2] ? OFFSETTYPE[type][1] : nothing
+end
+
+#  The value of the other type of the offset convention: the stored value for the physical value, and the physical
+#  value for the stored value. The offset is a flip of the most significant bit.
+offsetvalue(::Missing, ::Type) = missing
+function offsetvalue(x::Integer, ::Type{T}) where T<:Integer
+    U = unsigned(typeof(x))
+    reinterpret(T, reinterpret(U, x) ⊻ (one(U) << (8sizeof(U) - 1)))
+end
+
+#  The BZERO card of the offset convention, if the header does not have one.
+function offsetcards!(cards::Cards, fields::ImageField)
+    if !isnothing(offsettype(fields.type, fields.scale, fields.zero)) && !haskey(cards, "BZERO")
+        push!(cards, Card("BZERO", OFFSETTYPE[fields.type][2]))
+    end
+    cards
+end
+
+#  The physical values of the stored values: scaled, or the values of the offset convention of Table 11.
+function physical(data, fields::ImageField)
+    T = offsettype(fields.type, fields.scale, fields.zero)
+    isnothing(T) ? scaled(data, fields.scale, fields.zero) : offsetvalue.(data, T)
+end
+
 function Base.read(io::IO, ::Type{<:ImageHDU}, format::DataFormat,
     fields::ImageField; scale::Bool = true, kwds...)
 
     data = read(io, format, fields)
-    scale ? scaled(data, fields.scale, fields.zero) : data
+    scale ? physical(data, fields) : data
 end
 
 function Base.write(io::IO, ::Type{<:ImageHDU}, data::Missing, format::DataFormat,
@@ -120,6 +153,9 @@ function Base.read(io::IO, format::DataFormat, fields::ImageField)
 end
 
 function Base.write(io::IO, data::AbstractArray, fields::ImageField)
+    #  The physical values of the offset convention are written as the stored values
+    T = offsettype(fields.type, fields.scale, fields.zero)
+    !isnothing(T) && nonmissingtype(eltype(data)) == T && (data = offsetvalue.(data, fields.type))
     #  The undefined values are written as BLANK, or NaN for floating-point data
     data = unsetmissing(data, fields.miss, fields.type)
     n = Base.write(io, hton.(reshape(data, :)))
