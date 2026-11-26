@@ -825,6 +825,15 @@
         @test_logs reading(filebytes(grouphdr(extra = [kw("PTYPE1", "'DATA'")]), bytesof(stored)))
         @test keys(reading(filebytes(grouphdr(extra = [kw("PTYPE1", "'DATA'")]), bytesof(stored))).data) ==
             (:DATA, :param2, :data)
+        #  an absent PTYPEn has the name param<n>, which is a warning if it is the name of another parameter
+        clash = filebytes(grouphdr(extra = [kw("PTYPE1", "'param2'")]), bytesof(stored))
+        clashed = @test_logs (:warn, r"PTYPE2 is absent, so the parameter is named param2, which is also the name of " *
+            r"PTYPE1\. The parameters of the same name are one parameter, which is the sum of them \(Sect. 6.1.2\)") reading(clash)
+        @test keys(clashed.data) == (:param2, :data) && clashed.data.param2 == Float32[1 2; 3 4]
+        @test_logs (:warn, r"PTYPE2 is absent") @test written(clashed) == clash
+        @test_logs reading(filebytes(grouphdr(extra = [kw("PTYPE1", "'param1'")]), bytesof(stored)))
+        @test_logs (:warn, r"PTYPE1 is absent, so the parameter is named param1, which is also the name of PTYPE2") reading(
+            filebytes(grouphdr(extra = [kw("PTYPE2", "'param1'")]), bytesof(stored)))
         #  the data that are created have the names of the data, whatever the name of the array is
         for array in (:data, :b, :values)
             columns = NamedTuple{(:a, :c, array)}((Int16[1, 3], Int16[2, 4], Int16[10 11 12; 20 21 22]))
@@ -856,6 +865,17 @@
         #  data of a tuple are named param1, param2, ... and data
         @test reading(written(HDU(Random, (Int16[1, 3], Int16[10 11 12; 20 21 22]))); scale = false).data ==
             (param1 = Int16[1, 3], data = Int16[10 11 12; 20 21 22])
+        ####    Parameters that have the same name are summed (Sect. 6.1.2)
+
+        dates = [kw("PTYPE1", "'DATE'"), kw("PTYPE2", "'DATE'"), kw("PSCAL2", "0.5")]
+        datebytes = filebytes(grouphdr(extra = dates), bytesof(stored))
+        dated = reading(datebytes)
+        @test keys(dated.data) == (:DATE, :data) && dated.data.DATE == Float32[1 1; 3 2]
+        @test vec(sum(dated.data.DATE; dims = 2)) == Float32[2, 5]
+        @test written(dated) == datebytes && written(reading(datebytes; record = true)) == datebytes
+        @test reading(datebytes; record = true).data[2].DATE == Float32[3 2]
+        @test reading(datebytes; scale = false).data.DATE == Int16[1 2; 3 4]
+
     end
 
 end

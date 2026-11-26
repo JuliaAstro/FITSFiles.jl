@@ -39,7 +39,9 @@ function paramnames(reskeys::AbstractDict, P::Integer)
     replace(names, "data" => "param" * "_"^k * string(n))
 end
 
-#  Warn of a PTYPEn of data, which is the name of the array, so the parameter is renamed.
+#  Warn of the names of the parameters that are not what the header says: a PTYPEn of data, which is renamed, and an
+#  absent PTYPEn whose default name param<n> is the name of another parameter, so the parameters are one parameter
+#  that is the sum of them (Sect. 6.1.2 of the standard).
 function verifyparams(reskeys::AbstractDict, P::Integer)
     names = ptypenames(reskeys, P)
     data = findall(==("data"), names)
@@ -47,6 +49,12 @@ function verifyparams(reskeys::AbstractDict, P::Integer)
         keys = join(["PTYPE$j" for j in data], ", ", " and ")
         @warn "$keys of the random groups $(length(data) > 1 ? "are" : "is") 'data', which is the name of the array of " *
             "a group, so the parameter is named $(paramnames(reskeys, P)[first(data)]). The header is not changed."
+    end
+    for j = 1:P
+        haskey(reskeys, "PTYPE$j") && continue
+        k = findfirst(i -> i != j && names[i] == names[j], 1:P)
+        isnothing(k) || @warn "PTYPE$j is absent, so the parameter is named $(names[j]), which is also the name of " *
+            "PTYPE$k. The parameters of the same name are one parameter, which is the sum of them (Sect. 6.1.2)."
     end
 end
 
