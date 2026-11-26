@@ -1,5 +1,18 @@
 ####    Image HDU functions
 
+"""
+	Image header-data unit (HDU)
+
+An Image HDU consists of a vector of cards and optionally a multidimensional array
+(<=999 dimensions).
+"""
+struct Image <: AbstractHDU end
+XTENSIONTYPE["IMAGE"] = Image
+
+#  The keywords of the cards that are given with the data of an HDU that is made are verified (see `verifycardkeys`)
+verifycards!(::Type{Image}, cards::Cards, mankeys::AbstractDict, reskeys::AbstractDict, format::DataFormat) =
+    verifycardkeys(Image, cards, mankeys, reskeys, format)
+
 #  The mandatory keywords of the header of an IMAGE extension, in the order that they must have (Sect. 7.1.1, Table 13)
 imagekeys(mankeys::AbstractDict) =
     vcat(["XTENSION", "BITPIX", "NAXIS"], ["NAXIS$j" for j = 1:get(mankeys, "NAXIS", 0)], ["PCOUNT", "GCOUNT"])
@@ -54,7 +67,7 @@ function verify!(::Type{Image}, cards::Cards, format::DataFormat,
 end
 
 function createcards!(::Type{Image}, format::DataFormat,
-    fields::ImageField, cards::Cards; kwds...)
+    fields::AbstractField, cards::Cards; kwds...)
 
     #  The mandatory keywords are XTENSION, BITPIX, NAXIS, the NAXISn, PCOUNT of 0, and GCOUNT of 1 (Sect. 7.1.1)
     offsetcards!(arrangecards!(cards, ["XTENSION" => "IMAGE"; shapekeys(format); "PCOUNT" => 0; "GCOUNT" => 1]), fields)

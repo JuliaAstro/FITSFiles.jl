@@ -8,73 +8,7 @@
 
 abstract type AbstractHDU end
 
-#  Primary HDU
-"""
-	Primary header-data unit (HDU)
-
-A Primary HDU consists of a vector of cards and optionally a multidimensional
-array (<=999 dimensions). The Primary HDU is the first HDU in a vector of HDUs.
-"""
-struct Primary <: AbstractHDU end
-
-"""
-	Random header-data unit (HDU)
-
-A Random HDU consists of a vector of cards and optionally a vector of records
-containing a list of parameters followed by a multidimensional array. The
-Random HDU is the first HDU in a vector of HDUs.
-
-The data are a named tuple of arrays, or, with `record = true`, a vector of named tuples, one for each group. The
-parameters are named by their PTYPEn keywords (or `param1`, `param2`, ... if there are none) and the array of a group is
-named `data`, so a parameter whose PTYPEn is `data` is named `param<n>` (see the warning). The groups are along the first
-axis of the array. Parameters that have the same name are the columns of one array, whose sum along its columns is the
-value of the parameter (Sect. 6.1.2 of the standard), so that the parameters are written as they were read, and
-`sum(data.DATE; dims = 2)` (`sum(record.DATE)` in a record) is the value of the parameter `DATE`. The data
-are written by position, so the names of the data do not have to be the names of the header.
-
-The parameters and the array have the same type, which is the type of BITPIX (Sect. 6.3). The data are read with
-PSCALn and PZEROn applied to the parameters and BSCALE and BZERO to the array, unless `scale = false` is given, and the
-values that are not of the type of BITPIX are written as the stored values (see [`Base.write(io::IO, hdu::HDU)`](@ref)).
-A parameter with the PSCALn of 1 and the PZEROn of the offsets of Table 11 (Sect. 5.2.5, which Sect. 6.3 gives to
-the parameters), and the array with the BSCALE of 1 and the BZERO of the offsets, are the unsigned integers or the signed
-bytes: `UInt16`, `UInt32`, `UInt64`, or `Int8`, for the values of 16-, 32-, or 64-bit integers, or bytes. Data of those
-types have the PZEROn and BZERO keywords of the offsets when the HDU is made.
-
-A header with an NAXIS of 1 has no axes in the array of a group, and so one value in each group (Eq. 6 of the standard), which is
-a vector of the groups in the data, and a number in a record. Data of a vector are a table by default, so make them with `HDU(Random, data)`.
-
-The elements of the array of integers that are the stored value of BLANK are `missing` (Sect. 4.4.2.5), with and without
-`scale = false`, and are written as BLANK. The parameters do not have undefined values.
-"""
-struct Random <: AbstractHDU end
-
-#  Standard HDU Extensions
-"""
-	Image header-data unit (HDU)
-
-An Image HDU consists of a vector of cards and optionally a multidimensional array
-(<=999 dimensions).
-"""
-struct Image <: AbstractHDU end
-"""
-	Table header-data unit (HDU)
-
-A Table HDU consists of a vector of cards and optionally a 2-dimensional array
-of ASCII data structured as vector of records.
-"""
-struct Table <: AbstractHDU end
-"""
-	Bintable header-data unit (HDU)
-
-A Bintable HDU consists of a vector of cards and optionally a 2-dimensional
-array of binary data structured as a vector of records.
-"""
-struct Bintable <: AbstractHDU end
-struct ZImage <: AbstractHDU end
-struct ZTable <: AbstractHDU end
-
-#  Conforming HDU Extensions
-struct Conform <: AbstractHDU end
+#  Conforming HDU Extensions that do not have a file: Conform is in conform.jl
 struct IUEImage <: AbstractHDU end
 struct A3DTable <: AbstractHDU end
 struct Foreign <: AbstractHDU end
@@ -165,7 +99,8 @@ const OUTTYPE  = Dict(
 const XTENSIONLENGTH = 8
 #  The maximum number of fields of a table (Sects. 7.2.1 and 7.3.1)
 const MAXFIELDS = 999
-const XTENSIONTYPE = Dict("IMAGE" => Image, "TABLE" => Table, "BINTABLE" => Bintable)
+#  The HDU type of the value of XTENSION, which each type of extension adds to when it is defined
+const XTENSIONTYPE = Dict{String, Type}()
 
 const MANDATORYKEYS = (
 	#  Mandatory keys, except THEAP (see Table C.1)
@@ -255,9 +190,9 @@ end
 #  since the header is arranged when it is made (see `createcards!`). Only the HDUs of an array, which verify their keywords
 #  when they are read, are verified.
 verifycards!(::Type, cards::Cards, mankeys::AbstractDict, reskeys::AbstractDict, format::DataFormat) = cards
-function verifycards!(type::Type{<:Union{Primary, Image, Random}}, cards::Cards, mankeys::AbstractDict, reskeys::AbstractDict,
-	format::DataFormat)
-
+#  The verification of the keywords of the cards of an HDU of the type `type` that is made, which a type that verifies them defines (see
+#  the files of Primary, Image, and Random), with the keywords of the first card that are made from the data left out.
+function verifycardkeys(type::Type, cards::Cards, mankeys::AbstractDict, reskeys::AbstractDict, format::DataFormat)
 	keys = filter(pair -> first(pair) ∉ ("SIMPLE", "XTENSION"), mankeys)
 	#  The number of parameters of random groups is the number of the data, and the keywords of the parameters are verified with it
 	type == Random && (keys["PCOUNT"] = format.param)
@@ -1207,9 +1142,6 @@ end
 #  The byte that fills the last data block after the data, and what it is called, and the section of the standard: zeros, except
 #  for the ASCII spaces of an ASCII table
 fillrule(::Type{<:AbstractHDU}) = (0x00, "zeros", "Sect. 3.3.2")
-fillrule(::Type{Random}) = (0x00, "zeros", "Sect. 6.2")
-fillrule(::Type{Table}) = (0x20, "ASCII spaces", "Sect. 7.2.3")
-fillrule(::Type{<:Union{Bintable, ZImage, ZTable}}) = (0x00, "zeros", "Sect. 7.3.3")
 
 """
 	verifyfill(io, type, pos, nbytes)

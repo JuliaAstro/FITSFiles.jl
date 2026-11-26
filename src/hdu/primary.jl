@@ -1,5 +1,17 @@
 ####    Primary HDU functions
 
+"""
+	Primary header-data unit (HDU)
+
+A Primary HDU consists of a vector of cards and optionally a multidimensional
+array (<=999 dimensions). The Primary HDU is the first HDU in a vector of HDUs.
+"""
+struct Primary <: AbstractHDU end
+
+#  The keywords of the cards that are given with the data of an HDU that is made are verified (see `verifycardkeys`)
+verifycards!(::Type{Primary}, cards::Cards, mankeys::AbstractDict, reskeys::AbstractDict, format::DataFormat) =
+    verifycardkeys(Primary, cards, mankeys, reskeys, format)
+
 function verify!(::Type{Primary}, cards::Cards, mankeys::AbstractDict, reskeys::AbstractDict)
     cards = invoke(verify!, Tuple{Type{<:AbstractHDU}, Cards, AbstractDict, AbstractDict}, Primary, cards,
         mankeys, reskeys)
@@ -56,7 +68,7 @@ function verify!(::Type{Primary}, cards::Cards, format::DataFormat,
 end
 
 function createcards!(::Type{Primary}, format::DataFormat,
-    fields::ImageField, cards::Cards; kwds...)
+    fields::AbstractField, cards::Cards; kwds...)
 
     offsetcards!(arrangecards!(cards, ["SIMPLE" => true; shapekeys(format)]), fields)
 end
