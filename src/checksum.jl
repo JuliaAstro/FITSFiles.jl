@@ -104,3 +104,35 @@ function decodechecksum(text::AbstractString)
     ~complement
 end
 
+#  Set the card of the keyword to the string value in fixed format, with the comment of the card if it has one, in
+#  the place of the card, or after the last card.
+function setchecksumcard!(cards::Cards, key::AbstractString, value::AbstractString, comment::AbstractString)
+    j = Base.findfirst(key, cards)
+    if ismissing(j)
+        push!(cards, Card(key, value, comment))
+    else
+        cards[j] = Card(key, value, isempty(cards[j].comment) ? comment : cards[j].comment)
+    end
+    cards
+end
+
+"""
+    setchecksum!(cards, data)
+
+Set the DATASUM and CHECKSUM cards of the HDU of `cards` and the bytes of its `data`, which are the data records
+including the fill, and return the cards. The DATASUM is the sum of the data records, and the CHECKSUM is the
+encoded string that makes the sum of the HDU negative zero (Sect. 4.4.2.7 and Appendix J of the standard). The
+cards that the header has are replaced, and the others are added after the last card. The CHECKSUM is in fixed
+format, with the single quotes in columns 11 and 28, as the algorithm requires. The comments of the cards are not
+dated, so that the same HDU is written with the same bytes.
+"""
+function setchecksum!(cards::Cards, data::AbstractVector{UInt8})
+    datasum = onescomplementsum(data)
+    setchecksumcard!(cards, "DATASUM", string(datasum), "data unit checksum")
+    setchecksumcard!(cards, "CHECKSUM", "0000000000000000", "HDU checksum")
+    header = IOBuffer()
+    write(header, cards)
+    sum = addsums(onescomplementsum(take!(header)), datasum)
+    setchecksumcard!(cards, "CHECKSUM", encodechecksum(sum), "HDU checksum")
+end
+

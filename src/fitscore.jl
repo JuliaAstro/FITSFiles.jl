@@ -41,17 +41,18 @@ end
     Base.write(io::IO, hdus::Vector{HDU})
     Base.write(filename::AbstractString, hdus::Vector{HDU})
 
-Write a vector of header-data units (HDUs) to a file.
+Write a vector of header-data units (HDUs) to a file. The keyword `checksum::Bool=false` sets the DATASUM and
+CHECKSUM keywords of each HDU (see [`Base.write(io::IO, hdu::HDU)`](@ref)).
 """
-function Base.write(io::IO, hdus::Vector{HDU})
+function Base.write(io::IO, hdus::Vector{HDU}; kwds...)
     for hdu in hdus
-        write(io, hdu)
+        write(io, hdu; kwds...)
     end
 end
 
-function Base.write(file::AbstractString, hdus::Vector{HDU})
+function Base.write(file::AbstractString, hdus::Vector{HDU}; kwds...)
     io = open(file, write=true)
-    write(io, hdus)
+    write(io, hdus; kwds...)
     close(io)
 end
 

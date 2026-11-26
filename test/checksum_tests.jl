@@ -48,4 +48,46 @@
     end
     @test_throws ArgumentError FITSFiles.decodechecksum("short")
 
+    ####    The keywords of an HDU
+
+    written(hdu; kwds...) = (buffer = IOBuffer(); write(buffer, hdu; kwds...); take!(buffer))
+    reading(bytes; kwds...) = read(IOBuffer(bytes), HDU; scale = false, kwds...)
+    #  the card images of an HDU, and the bytes of its data after the header
+    cardimages(bytes) = [String(bytes[j:j+79]) for j = 1:80:2880]
+    cardof(bytes, key) = only(filter(c -> startswith(c, rpad(key, 8)), cardimages(bytes)))
+    datapart(bytes) = bytes[2881:end]
+    #  the bytes with the card of the keyword replaced by the card image
+    function replacecard(bytes, key, image)
+        k = findfirst(c -> startswith(c, rpad(key, 8)), cardimages(bytes))
+        replaced = copy(bytes)
+        replaced[80(k-1)+1:80k] = codeunits(rpad(image, 80))
+        replaced
+    end
+
+    hdus = [HDU(Primary, Int16[1 2 3; 4 5 6]), HDU(Image, Float32[1.5 2.5; -1 7]),
+        HDU(Bintable, (a = Int32[1, 2, 3], b = [1.5, 2.5, 3.5])), HDU(Primary)]
+    for hdu in hdus
+        bytes = written(hdu; checksum = true)
+        #  the sum of the HDU is negative zero, and DATASUM is the sum of the data records
+        @test sumof(bytes) === 0xffffffff
+        @test startswith(cardof(bytes, "DATASUM"), "DATASUM = '$(sumof(datapart(bytes)))'")
+        #  CHECKSUM is in fixed format, with the single quotes in columns 11 and 28
+        card = cardof(bytes, "CHECKSUM")
+        @test card[9:10] == "= " && card[11] == '\'' && card[28] == '\'' && card[29] != '\''
+        @test FITSFiles.decodechecksum(card[12:27]) isa UInt32
+        #  an HDU that is written without the keywords does not have them, and is written as it was
+        plain = written(hdu)
+        @test !any(c -> startswith(c, "CHECKSUM") || startswith(c, "DATASUM"), cardimages(plain))
+    end
+    #  an HDU without data has a DATASUM of 0
+    @test startswith(cardof(written(HDU(Primary); checksum = true), "DATASUM"), "DATASUM = '0'")
+
+    #  an HDU that is read with the keywords is written with the same bytes
+    for hdu in hdus
+        bytes = written(hdu; checksum = true)
+        again = reading(bytes)
+        @test written(again; checksum = true) == bytes
+        @test written(again) == bytes
+    end
+
 end
