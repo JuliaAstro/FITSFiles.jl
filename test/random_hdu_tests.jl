@@ -701,4 +701,96 @@
 
     rm(temppath)
 
+    @testset "Random groups" begin
+
+        ####    The files of random groups (Sect. 6)
+
+        kw(key, value) = rpad(key, 8) * "= " * lpad(value, 20)
+        #  The bytes of a header, which has the cards and END, and of the data, which have the fill of the last block
+        function filebytes(cards, data = UInt8[]; pad = true)
+            header = rpad(join(rpad.([cards; "END"], 80)), 2880 * cld(80 * (length(cards) + 1), 2880))
+            fill = pad && !isempty(data) ? zeros(UInt8, cld(length(data), 2880) * 2880 - length(data)) : UInt8[]
+            [collect(codeunits(header)); data; fill]
+        end
+        bytesof(values) = collect(reinterpret(UInt8, hton.(values)))
+        #  The header of random groups of NAXIS1 = 0, the axes `axes`, `pcount` parameters, and `gcount` groups
+        function grouphdr(; bitpix = 16, axes = [3], pcount = 2, gcount = 2, extra = String[], drop = String[])
+            cards = vcat([kw("SIMPLE", "T"), kw("BITPIX", bitpix), kw("NAXIS", length(axes) + 1), kw("NAXIS1", 0)],
+                [kw("NAXIS$(j+1)", n) for (j, n) in enumerate(axes)],
+                [kw("GROUPS", "T"), kw("PCOUNT", pcount), kw("GCOUNT", gcount)], extra)
+            filter(c -> !(strip(c[1:8]) in drop), cards)
+        end
+        reading(bytes; kwds...) = read(IOBuffer(bytes), HDU; kwds...)
+        written(hdu; kwds...) = (io = IOBuffer(); write(io, hdu; kwds...); take!(io))
+        #  two groups of two parameters and an array of three values: (1, 2, 10, 11, 12) and (3, 4, 20, 21, 22)
+        stored = Int16[1, 2, 10, 11, 12, 3, 4, 20, 21, 22]
+        groups = filebytes(grouphdr(), bytesof(stored))
+
+        ####    The values are the physical values, and are written as the stored values (Eqs. 3 and 5)
+
+        hdu = reading(groups)
+        @test hdu isa HDU{Random}
+        @test hdu.data == (param1 = Float32[1, 3], param2 = Float32[2, 4], data = Float32[10 11 12; 20 21 22])
+        @test reading(groups; scale = false).data ==
+            (param1 = Int16[1, 3], param2 = Int16[2, 4], data = Int16[10 11 12; 20 21 22])
+        #  a file that is read is written with the same bytes, with and without the scale, and as records
+        for kwds in ((;), (; scale = false), (; record = true), (; record = true, scale = false))
+            @test written(reading(groups; kwds...)) == groups
+        end
+
+        scales = [kw("PSCAL1", "2.0"), kw("PZERO1", "100.0"), kw("PSCAL2", "0.5"), kw("BSCALE", "0.5"), kw("BZERO", "1.0")]
+        scaledbytes = filebytes(grouphdr(extra = scales), bytesof(stored))
+        scaledhdu = reading(scaledbytes)
+        @test scaledhdu.data == (param1 = Float32[102, 106], param2 = Float32[1, 2],
+            data = Float32[6 6.5 7; 11 11.5 12])
+        for kwds in ((;), (; scale = false), (; record = true), (; record = true, scale = false))
+            @test written(reading(scaledbytes; kwds...)) == scaledbytes
+        end
+        #  the header is as it was read
+        @test getfield(scaledhdu, :cards) == getfield(reading(scaledbytes; scale = false), :cards)
+
+        #  a value that is changed is written as its stored value
+        scaledhdu.data.data[2, 3] = 7
+        scaledhdu.data.param1[1] = 104
+        changed = reading(written(scaledhdu); scale = false).data
+        @test changed.data == Int16[10 11 12; 20 21 12] && changed.param1 == Int16[2, 3]
+        #  a value that is not a stored value is an error, which names the parameter or the array and the group
+        scaledhdu.data.param2[2] = 1.3
+        @test_throws ArgumentError("The parameter param2 of group 2: The value 1.3 cannot be stored as Int16 data with " *
+            "PSCAL2 0.5 and PZERO2 0.0: the nearest stored value, 3, is the value 1.5. Use check = false to write the " *
+            "stored value.") written(scaledhdu)
+        @test reading(written(scaledhdu; check = false); scale = false).data.param2 == Int16[2, 3]
+        scaledhdu.data.param2[2] = 2
+        scaledhdu.data.data[1, 1] = 5.3
+        @test_throws ArgumentError written(scaledhdu)
+        @test occursin("array data of group 1", sprint(showerror, try written(scaledhdu) catch e e end))
+        #  a value that is not in the range of the type, and NaN, which has no BLANK in random groups, are errors
+        scaledhdu.data.data[1, 1] = 6
+        scaledhdu.data.param1[2] = 1e9
+        @test_throws ArgumentError written(scaledhdu)
+        scaledhdu.data.param1[2] = NaN
+        @test_throws ArgumentError written(scaledhdu)
+        @test_throws ArgumentError written(scaledhdu; check = false)
+        #  a PSCALn of 0 cannot be inverted
+        zero_ = reading(filebytes(grouphdr(extra = [kw("PSCAL2", "0.0")]), bytesof(stored)))
+        @test_throws ArgumentError("The parameter param2 of group 1 cannot be written as a stored value, since its " *
+            "PSCAL2 is 0.") written(zero_)
+        @test written(reading(filebytes(grouphdr(extra = [kw("PSCAL2", "0.0")]), bytesof(stored)); scale = false)) ==
+            filebytes(grouphdr(extra = [kw("PSCAL2", "0.0")]), bytesof(stored))
+
+        #  the stored values of the other types: bytes, and 32- and 64-bit integers, and floating-point values
+        for (bitpix, type) in ((8, UInt8), (16, Int16), (32, Int32), (64, Int64), (-32, Float32), (-64, Float64))
+            values = type.([1, 2, 10, 11, 12, 3, 4, 20, 21, 22])
+            bytes = filebytes(grouphdr(; bitpix), bytesof(values))
+            for kwds in ((;), (; scale = false), (; record = true))
+                @test written(reading(bytes; kwds...)) == bytes
+            end
+            @test eltype(reading(bytes; scale = false).data.data) == type
+        end
+        #  the floating-point values are written as they are, with NaN, whose stored value is NaN
+        floats = filebytes(grouphdr(bitpix = -32), bytesof(Float32[1, NaN, 10, 11, 12, 3, 4, 20, Inf, 22]))
+        @test written(reading(floats)) == floats
+
+    end
+
 end

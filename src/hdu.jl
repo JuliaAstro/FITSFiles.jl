@@ -23,6 +23,10 @@ struct Primary <: AbstractHDU end
 A Random HDU consists of a vector of cards and optionally a vector of records
 containing a list of parameters followed by a multidimensional array. The
 Random HDU is the first HDU in a vector of HDUs.
+
+The data are read with
+PSCALn and PZEROn applied to the parameters and BSCALE and BZERO to the array, unless `scale = false` is given, and the
+values that are not of the type of BITPIX are written as the stored values (see [`Base.write(io::IO, hdu::HDU)`](@ref)).
 """
 struct Random <: AbstractHDU end
 

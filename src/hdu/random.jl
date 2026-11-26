@@ -59,19 +59,49 @@ function Base.read(io::IO, ::Type{Random}, format::DataFormat,
 end
 
 function Base.write(io::IO, ::Type{Random}, data::Union{AbstractArray, NamedTuple},
-    format::DataFormat, fields::Vector{RandomField}; kwds...)
+    format::DataFormat, fields::Vector{RandomField}; check::Bool = true, kwds...)
 
     #  Write data array
     N = format.group
     if N > 0
+        #  The stored values of the physical values (Eqs. 3 and 5), which are the values that are of the type of BITPIX
+        images = [ImageField(field.type, field.zero, field.scale, nothing, nothing, nothing) for field in fields]
         for j=1:N
-            for field in fields[1:format.param]
-                write(io, hton(getparam(data, field, j)))
+            for (k, field) in enumerate(fields[1:format.param])
+                write(io, hton(storedparam(getparam(data, field, j), field, images[k], k, j; check)))
             end
-            write(io, hton.(getgroup(data, fields[end], j, format)))
+            write(io, hton.(storedgroup(getgroup(data, fields[end], j, format), fields[end], images[end], j; check)))
         end
         #  Pad last block with zeros
         padblock(io, format)
+    end
+end
+
+#  The error of a value that cannot be stored, with the name of the field and the group of the value
+function storeerror(e::ArgumentError, field::RandomField, j::Integer)
+    what = field.leng == 1 && field.name != "data" ? "parameter $(field.name)" : "array $(field.name)"
+    ArgumentError("The $what of group $j: " * e.msg)
+end
+
+#  The stored value of the value of a parameter, which is the value as it is if it is of the type of BITPIX, and
+#  otherwise is the value without PZEROn and PSCALn (see `storedvalue`).
+function storedparam(value, field::RandomField, image::ImageField, k::Integer, j::Integer; check::Bool = true)
+    typeof(value) == field.type && return value
+    image.scale == 0 && throw(ArgumentError(
+        "The parameter $(field.name) of group $j cannot be written as a stored value, since its PSCAL$k is 0."))
+    try
+        storedvalue(value, image, check; keys = ("PSCAL$k", "PZERO$k"))
+    catch e
+        e isa ArgumentError ? throw(storeerror(e, field, j)) : rethrow()
+    end
+end
+
+#  The stored values of the values of the array of a group (see `storedvalues`).
+function storedgroup(values::AbstractArray, field::RandomField, image::ImageField, j::Integer; check::Bool = true)
+    try
+        storedvalues(values, image; check)
+    catch e
+        e isa ArgumentError ? throw(storeerror(e, field, j)) : rethrow()
     end
 end
 
