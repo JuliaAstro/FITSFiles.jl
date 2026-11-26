@@ -933,6 +933,15 @@
         empty = reading(filebytes(grouphdr(axes = [0], gcount = 3), bytesof(Int16[1, 2, 3, 4, 5, 6]))).data
         @test size(empty.data) == (3, 0) && empty.param1 == Float32[1, 3, 5] && empty.param2 == Float32[2, 4, 6]
 
+        ####    The mandatory keywords that give the size of the data (Sect. 6.1.1 and Table 12)
+
+        for key in ("BITPIX", "NAXIS", "PCOUNT", "GCOUNT")
+            @test_throws ArgumentError("$key is missing, but it is a mandatory keyword of random groups (Sect. 6.1.1, " *
+                "Table 12).") reading(filebytes(grouphdr(drop = [key]), bytesof(stored)))
+        end
+        #  the header of an HDU that is created has the keywords
+        @test HDU(Random, missing, Card{<:Any}[Card("GROUPS", true)]).cards["GCOUNT"] == 0
+
         ####    The lazy file of random groups reads the same
 
         mktemp() do path, io

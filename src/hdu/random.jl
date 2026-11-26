@@ -171,6 +171,14 @@ end
 function verify!(::Type{Random}, cards::Cards, mankeys::AbstractDict, reskeys::AbstractDict)
     cards = invoke(verify!, Tuple{Type{<:AbstractHDU}, Cards, AbstractDict, AbstractDict}, Random, cards,
         mankeys, reskeys)
+    #  BITPIX, NAXIS, PCOUNT, and GCOUNT give the size of the data (Eq. 4 of the standard), which cannot be read
+    #  without them, and they are mandatory (Sect. 6.1.1). A header that is being created does not have the keywords
+    #  yet, and is arranged when it is created.
+    created = !haskey(mankeys, "SIMPLE")
+    for key in ("BITPIX", "NAXIS", "PCOUNT", "GCOUNT")
+        created || haskey(mankeys, key) || throw(ArgumentError(
+            "$key is missing, but it is a mandatory keyword of random groups (Sect. 6.1.1, Table 12)."))
+    end
     #  NAXIS1 is 0, and NAXIS2 to NAXIS are the axes of the array of a group. PCOUNT is the number of parameters
     #  and GCOUNT is the number of groups (Sect. 6.1.1).
     verifybitpix(mankeys)
@@ -179,7 +187,7 @@ function verify!(::Type{Random}, cards::Cards, mankeys::AbstractDict, reskeys::A
     verifyaxes(mankeys; first = 2)
     verifyvalue(mankeys, "PCOUNT", 0:typemax(Int), "non-negative")
     verifyvalue(mankeys, "GCOUNT", 0:typemax(Int), "non-negative")
-    haskey(mankeys, "SIMPLE") && verifygroupsize(mankeys)
+    created || verifygroupsize(mankeys)
     verifyparams(reskeys, get(mankeys, "PCOUNT", 0))
     cards
 end
