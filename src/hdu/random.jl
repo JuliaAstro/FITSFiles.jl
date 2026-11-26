@@ -239,6 +239,15 @@ function verify!(::Type{Random}, cards::Cards, mankeys::AbstractDict, reskeys::A
     verifyvalue(mankeys, "PCOUNT", 0:typemax(Int), "non-negative")
     verifyvalue(mankeys, "GCOUNT", 0:typemax(Int), "non-negative")
     created || verifygroupsize(mankeys)
+    #  The mandatory keywords of the primary header come first, in order, and the keywords of random groups, GROUPS, PCOUNT, and
+    #  GCOUNT, are anywhere after them (Sect. 6.1.1, Table 12). The values of the mandatory keywords are in fixed format
+    #  (Sect. 4.4.1).
+    if !created
+        required = vcat(["SIMPLE", "BITPIX", "NAXIS"], ["NAXIS$j" for j = 1:get(mankeys, "NAXIS", 0)])
+        verifyorder(cards, required; section = "Sects. 4.4.1.1 and 6.1.1",
+            names = "SIMPLE, BITPIX, NAXIS, NAXIS1 of 0, and the NAXISn")
+        verifyfixed(cards, [required; "GROUPS"; "PCOUNT"; "GCOUNT"])
+    end
     verifyparamkeys(reskeys, get(mankeys, "PCOUNT", 0))
     verifyparams(reskeys, get(mankeys, "PCOUNT", 0))
     cards
