@@ -1041,6 +1041,80 @@
             @test eltype(fits(path; scale = false)[1].data.a) == Int16
         end
 
+        ####    The undefined values of the array (Sect. 4.4.2.5)
+
+        #  the elements of the array that are the stored value of BLANK are missing, and the parameters are not
+        blankvalues = Int16[1, 2, 10, -32768, 12, -32768, 4, 20, 21, 22]
+        blankbytes = filebytes(grouphdr(extra = [kw("BLANK", "-32768")]), bytesof(blankvalues))
+        blanked = reading(blankbytes).data
+        @test isequal(blanked.data, Union{Float32, Missing}[10 missing 12; 20 21 22])
+        @test blanked.param1 == Float32[1, -32768] && eltype(blanked.param1) == Float32
+        @test isequal(reading(blankbytes; scale = false).data.data, Union{Int16, Missing}[10 missing 12; 20 21 22])
+        @test reading(blankbytes; scale = false).data.param1 == Int16[1, -32768]
+        blankrecords = reading(blankbytes; record = true).data
+        @test isequal(blankrecords[1].data, Union{Float32, Missing}[10, missing, 12]) && blankrecords[1].param1 == 1
+        @test isequal(blankrecords[2].data, Float32[20, 21, 22]) && blankrecords[2].param1 == -32768
+        #  a file with undefined values is written with the same bytes
+        for kwds in ((;), (; scale = false), (; record = true))
+            @test written(reading(blankbytes; kwds...)) == blankbytes
+        end
+        #  BLANK is a stored value, so it is the value before BZERO and BSCALE are applied
+        scaledblank = filebytes(grouphdr(extra = [kw("BLANK", "-32768"), kw("BSCALE", "2.0"), kw("BZERO", "1.0")]),
+            bytesof(blankvalues))
+        @test isequal(reading(scaledblank).data.data, Union{Float32, Missing}[21 missing 25; 41 43 45])
+        @test written(reading(scaledblank)) == scaledblank
+        offsetblank = filebytes(grouphdr(extra = [kw("BLANK", "-32768"), kw("PZERO1", "32768"), kw("BZERO", "32768")]),
+            bytesof(blankvalues))
+        offsetblanked = reading(offsetblank).data
+        @test isequal(offsetblanked.data, Union{UInt16, Missing}[32778 missing 32780; 32788 32789 32790])
+        @test offsetblanked.param1 == UInt16[1 + 32768, 0] && eltype(offsetblanked.param1) == UInt16
+        @test written(reading(offsetblank)) == offsetblank
+        #  without BLANK the values are values
+        @test reading(filebytes(grouphdr(), bytesof(blankvalues))).data.data == Float32[10 -32768 12; 20 21 22]
+        #  the types of the integers that have a BLANK: bytes, and 16-, 32-, and 64-bit integers
+        for (bitpix, type) in ((8, UInt8), (16, Int16), (32, Int32), (64, Int64))
+            values = type.([1, 2, 10, 11, 12, 3, 4, 20, 21, 22])
+            values[4] = typemin(type)
+            bytes = filebytes(grouphdr(; bitpix, extra = [kw("BLANK", typemin(type))]), bytesof(values))
+            @test isequal(reading(bytes; scale = false).data.data, Union{type, Missing}[10 missing 12; 20 21 22])
+            @test written(reading(bytes)) == bytes
+        end
+        #  a value that is changed to missing, or to NaN, is written as BLANK
+        undefined = reading(blankbytes)
+        undefined.data.data[1, 1] = missing
+        undefined.data.data[2, 3] = NaN
+        @test isequal(reading(written(undefined); scale = false).data.data,
+            Union{Int16, Missing}[missing missing 12; 20 21 missing])
+        @test reading(written(undefined); scale = false).data.param1 == Int16[1, -32768]
+        #  missing or NaN is an error if there is no BLANK, which is the value that stands for it
+        noblank = reading(filebytes(grouphdr(), bytesof(blankvalues)))
+        noblank.data.data[1, 1] = NaN
+        @test_throws ArgumentError written(noblank)
+        @test_throws ArgumentError("The array data of group 1: NaN cannot be written as integer data that does not " *
+            "have a BLANK keyword.") written(noblank)
+        @test_throws ArgumentError written(HDU(Random, (a = Int16[1, 2], data = Union{Int16, Missing}[1 missing 3; 4 5 6])))
+        #  data that are created have BLANK if the header has it, and then the undefined values are BLANK
+        madeblank = HDU(Random, (a = Int16[1, 2], data = Union{Int16, Missing}[1 missing 3; 4 5 6]),
+            Card{<:Any}[Card("BLANK", -32768)])
+        madeagain = reading(written(madeblank); scale = false)
+        @test isequal(madeagain.data.data, Union{Int16, Missing}[1 missing 3; 4 5 6]) && madeagain.data.a == Int16[1, 2]
+        @test written(madeagain) == written(madeblank)
+        #  the undefined values of floating-point data are NaN, and BLANK is not used
+        floatdata = HDU(Random, (a = Float32[1, 2], data = Union{Float32, Missing}[1 missing 3; 4 5 6]))
+        floatagain = reading(written(floatdata)).data
+        @test isnan(floatagain.data[1, 2]) && floatagain.data[2, 3] == 6 && eltype(floatagain.data) == Float32
+        @test_logs (:warn, r"BLANK is for integer data \(a positive BITPIX\) only \(Sect. 4.4.2.5\), so it is not used") reading(
+            filebytes(grouphdr(bitpix = -32, extra = [kw("BLANK", "5")]), bytesof(Float32.(1:10))))
+        #  BLANK is an integer
+        @test_throws ArgumentError("BLANK must be an integer, but its value is 2.5f0.") reading(
+            filebytes(grouphdr(extra = [kw("BLANK", "2.5")]), bytesof(blankvalues)))
+        #  the undefined values of a file are read lazily
+        mktemp() do path, io
+            write(io, blankbytes); close(io)
+            @test isequal(fits(path)[1].data.data, Union{Float32, Missing}[10 missing 12; 20 21 22])
+            @test isequal(fits(path; scale = false)[1].data.data, Union{Int16, Missing}[10 missing 12; 20 21 22])
+        end
+
         ####    The lazy file of random groups reads the same
 
         mktemp() do path, io
