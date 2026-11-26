@@ -344,9 +344,11 @@ is read from another stream is read at once.
 - `scale::Bool=true`: apply the scale and zero keywords to the data
 """
 function Base.read(io::IO, ::Type{HDU}; type = nothing, strict::Bool = true, units::Union{Bool, Module} = true,
-    kwds...)::HDU
+    checksum::Bool = false, kwds...)::HDU
     #  Read cards
+    firstpos = checksum ? position(io) : 0
     cards, mankeys, reskeys = read(io, Card; strict, units)
+    datapos = checksum ? position(io) : 0
 
 	#  Read data
 	type_  = type === nothing ? typeofhdu(mankeys) : type
@@ -368,6 +370,7 @@ function Base.read(io::IO, ::Type{HDU}; type = nothing, strict::Bool = true, uni
 		# indicate data is missing
 		data = missing
 	end
+	checksum && verifychecksum(io, cards, firstpos, datapos, position(io))
 	HDU{type_}(cards, data)
 end
 
@@ -376,8 +379,13 @@ end
 
 Write a header-data unit (HDU) to `io`: the header cards, the END card, and blank cards that pad
 the header to a multiple of 2880 bytes, followed by the data.
+
+# Keywords
+
+- `checksum::Bool=false`: set the DATASUM and CHECKSUM keywords to the checksums of the data and of the HDU
+  (Sect. 4.4.2.7 of the standard), which replace the keywords of the header, if it has them
 """
-function Base.write(io::IO, hdu::HDU{<:AbstractHDU}; kwds...)
+function Base.write(io::IO, hdu::HDU{<:AbstractHDU}; checksum::Bool = false, kwds...)
 
 	cards = getfield(hdu, :cards)
 	mankeys, reskeys = getreservedkeys(cards)
@@ -387,10 +395,19 @@ function Base.write(io::IO, hdu::HDU{<:AbstractHDU}; kwds...)
 	format = DataFormat(type, missing, mankeys)
 	cards  = verify!(type, cards, format, mankeys)
 	fields = FieldFormat(type, format, reskeys, missing)
-	#  Write cards
-	write(io, cards)
-	#  Write data
-	write(io, type, getfield(hdu, :data), format, fields; kwds...)
+	if checksum
+		#  The sums are of the bytes of the data, and then of the header, which has the sums
+		data = IOBuffer()
+		write(data, type, getfield(hdu, :data), format, fields; kwds...)
+		bytes = take!(data)
+		write(io, setchecksum!(copy(cards), bytes))
+		write(io, bytes)
+	else
+		#  Write cards
+		write(io, cards)
+		#  Write data
+		write(io, type, getfield(hdu, :data), format, fields; kwds...)
+	end
 end
 
 function Base.read(io::IO, ::Type{Card}; strict::Bool = true, units::Union{Bool, Module} = true)
@@ -478,7 +495,7 @@ function verify!(::Type{<:AbstractHDU}, cards::Cards, mankeys::AbstractDict, res
 	verifyinteger(mankeys, r"^(BITPIX|NAXIS\d*|PCOUNT|GCOUNT)$")
 	verifyinteger(reskeys, r"^(EXTVER|EXTLEVEL|WCSAXES[A-Z]?|MJDREFI|JDREFI)$")
 	#  The descriptive keywords of Sects. 4.4.2.1 to 4.4.2.3 are character strings, and the dates are dates.
-	verifystring(reskeys, r"^(ORIGIN|TELESCOP|INSTRUME|OBSERVER|OBJECT|AUTHOR|REFERENC|EXTNAME)$")
+	verifystring(reskeys, r"^(ORIGIN|TELESCOP|INSTRUME|OBSERVER|OBJECT|AUTHOR|REFERENC|EXTNAME|CHECKSUM|DATASUM)$")
 	verifydate(reskeys, r"^DATE")
 	verifyxtension!(cards)
 end
