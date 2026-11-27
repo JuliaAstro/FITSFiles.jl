@@ -121,32 +121,37 @@ function fits(file::AbstractString; kwds...)
 end
 
 """
-    Base.write(io::IO, hdus::Vector{HDU})
-    Base.write(filename::AbstractString, hdus::Vector{HDU})
+    Base.write(io::IO, hdus::AbstractVector{<:HDU})
+    Base.write(filename::AbstractString, hdus::AbstractVector{<:HDU})
 
-Write a vector of header-data units (HDUs) to a file, with a warning if the first HDU is not a primary HDU or a later one
-is (Sect. 3.1 of the standard). The keyword `checksum::Bool=false` sets the DATASUM and
-CHECKSUM keywords of each HDU (see [`Base.write(io::IO, hdu::HDU)`](@ref)).
+Write a vector of header-data units (HDUs), of any type of HDU, e.g., the `Vector{HDU{Primary}}` of `[HDU(data, cards)]`, to a file, with a
+warning if the first HDU is not a primary HDU or a later one is (Sect. 3.1 of the standard). The keyword `checksum::Bool=false` sets the
+DATASUM and CHECKSUM keywords of each HDU (see [`Base.write(io::IO, hdu::HDU)`](@ref)).
 """
-function Base.write(io::IO, hdus::Vector{<:HDU}; kwds...)
+function Base.write(io::IO, hdus::AbstractVector{<:HDU}; kwds...)
     for (j, hdu) in enumerate(hdus)
         verifyname(view(hdus, 1:j))
         write(io, verifyposition(hdu, j); kwds...)
     end
 end
 
-function Base.write(file::AbstractString, hdus::Vector{<:HDU}; kwds...)
+#  The methods for a `Vector` and a `SubArray` of HDUs, which are more specific than `Base.write(::IO, ::Array)` and `Base.write(::IO, ::StridedArray)`
+#  for a vector of a type of HDU, e.g., `Vector{HDU{Primary}}`, which the method for an `AbstractVector` is not more specific than
+Base.write(io::IO, hdus::Vector{<:HDU}; kwds...) = invoke(write, Tuple{IO, AbstractVector{<:HDU}}, io, hdus; kwds...)
+Base.write(io::IO, hdus::SubArray{<:HDU, 1}; kwds...) = invoke(write, Tuple{IO, AbstractVector{<:HDU}}, io, hdus; kwds...)
+
+function Base.write(file::AbstractString, hdus::AbstractVector{<:HDU}; kwds...)
     io = open(file, write=true)
     write(io, hdus; kwds...)
     close(io)
 end
 
 """
-	info(hdus::Vector{HDU})
+	info(hdus::AbstractVector{<:HDU})
 
 Briefly describe the list of header-data units (HDUs).
 """
-function info(hdus::Vector{HDU})
+function info(hdus::AbstractVector{<:HDU})
 	typ  = rpad("HDU",   INFOTYPELEN)
 	nam  = rpad("Name",  INFONAMELEN)
 	ver  = lpad("Ver",   INFOVERSLEN)
@@ -160,7 +165,7 @@ function info(hdus::Vector{HDU})
 	end
 end
 
-function Base.show(io::IO, ::MIME"text/plain", hdus::AbstractVector{HDU})
+function Base.show(io::IO, ::MIME"text/plain", hdus::AbstractVector{<:HDU})
 	typ  = rpad("HDU",   INFOTYPELEN)
 	nam  = rpad("Name",  INFONAMELEN)
 	ver  = lpad("Ver",   INFOVERSLEN)
@@ -188,7 +193,7 @@ end
 
 ####    Dictionary-like key function for HDUs
 
-function Base.haskey(hdus::Vector{HDU}, key::Type{<:AbstractHDU})::Bool
+function Base.haskey(hdus::AbstractVector{<:HDU}, key::Type{<:AbstractHDU})::Bool
 	for hdu in hdus
 		if typeofhdu(hdu) == key
 			return true
@@ -197,7 +202,7 @@ function Base.haskey(hdus::Vector{HDU}, key::Type{<:AbstractHDU})::Bool
 	false
 end
 
-function Base.getindex(hdus::Vector{HDU}, key::Type{<:AbstractHDU})::HDU
+function Base.getindex(hdus::AbstractVector{<:HDU}, key::Type{<:AbstractHDU})::HDU
 	for hdu in hdus
 		if typeofhdu(hdu) == key
 			return hdu
@@ -206,7 +211,7 @@ function Base.getindex(hdus::Vector{HDU}, key::Type{<:AbstractHDU})::HDU
 	throw(KeyError(key))
 end
 
-function Base.getindex(hdus::Vector{HDU}, name::U)::HDU where
+function Base.getindex(hdus::AbstractVector{<:HDU}, name::U)::HDU where
 	U<:Union{AbstractString, Symbol}
 
 	for hdu in hdus
@@ -227,7 +232,7 @@ Return the HDU of the vector `hdus` whose EXTNAME is `name`, without regard to t
 if the name is not unique. With a `version`, return the HDU whose EXTVER is `version`, where an absent EXTVER is 1
 (Sect. 4.4.2.6 of the standard). A `KeyError` is raised if there is no such HDU.
 """
-function Base.getindex(hdus::Vector{HDU}, name::U, version::Integer)::HDU where
+function Base.getindex(hdus::AbstractVector{<:HDU}, name::U, version::Integer)::HDU where
 	U<:Union{AbstractString, Symbol}
 
 	for hdu in hdus
@@ -238,7 +243,7 @@ function Base.getindex(hdus::Vector{HDU}, name::U, version::Integer)::HDU where
 	throw(KeyError((name, version)))
 end
 
-function Base.get(hdus::Vector{HDU}, name::U, default::V = "")::Union{HDU, Nothing}  where
+function Base.get(hdus::AbstractVector{<:HDU}, name::U, default::V = "")::Union{HDU, Nothing}  where
 	{U<:Union{AbstractString, Symbol}, V<:Union{AbstractString, Symbol}}
 
 	value::Union{HDU, Nothing} = nothing
@@ -255,7 +260,7 @@ function Base.get(hdus::Vector{HDU}, name::U, default::V = "")::Union{HDU, Nothi
 	value
 end
 
-function Base.get(hdus::Vector{HDU}, names::K, defaults::D)::Vector where
+function Base.get(hdus::AbstractVector{<:HDU}, names::K, defaults::D)::Vector where
 	{K<:Union{Vector, Tuple}, D<:Union{Vector, Tuple}}
 
 	values = Any[fill(nothing, length(names))...]
@@ -275,7 +280,7 @@ function Base.get(hdus::Vector{HDU}, names::K, defaults::D)::Vector where
 	values
 end
 
-function Base.findfirst(key::AbstractString, hdus::Vector{HDU})::Union{Integer, Nothing}
+function Base.findfirst(key::AbstractString, hdus::AbstractVector{<:HDU})::Union{Integer, Nothing}
 	for (j, hdu) in enumerate(hdus)
 		if uppercase(rstrip(hdu.cards[key])) == uppercase(key)
 			return j
