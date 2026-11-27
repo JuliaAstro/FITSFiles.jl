@@ -338,12 +338,16 @@ function Base.read(io::IO, ::Type{HDU}; type = nothing, strict::Bool = true, uni
 		verifyfill(io, type_, pos, N)
 		seek(io, pos + BLOCKLEN*div(N, BLOCKLEN, RoundUp))
 	else
-		# indicate data is missing
-		data = missing
+		#  There are no data blocks, so the data are missing, or the empty array that the axes describe
+		data = emptydata(type_, format, fields; kwds...)
 	end
 	checksum && verifychecksum(io, cards, firstpos, datapos, position(io))
 	HDU{type_}(cards, data)
 end
+
+#  The data of an HDU that has no data blocks are missing. A type of HDU whose data are an array that can have an axis of length 0, i.e.,
+#  an array of no values, defines its own
+emptydata(::Type{<:AbstractHDU}, format::DataFormat, fields; kwds...) = missing
 
 """
     Base.write(io::IO, hdu::HDU; <keywords>)

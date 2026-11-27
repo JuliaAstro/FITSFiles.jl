@@ -181,6 +181,11 @@ end
 
 createdata(::Type{Image}, format::DataFormat, ::ImageField; kwds...) = zerosarray(format)
 
+#  The data of an array that has an axis of length 0, which has no data blocks (Sect. 7.1.1), are an empty array of the axes, and the
+#  data of an array that has no axes are missing
+emptydata(::Type{Image}, format::DataFormat, fields::ImageField; kwds...) =
+    length(format.shape) > 0 ? read(IOBuffer(UInt8[]), Image, format, fields; kwds...) : missing
+
 #  The BZERO card of the offset convention, if the header does not have one.
 function offsetcards!(cards::Cards, fields::ImageField)
     if !isnothing(offsettype(fields.type, fields.scale, fields.zero)) && !haskey(cards, "BZERO")

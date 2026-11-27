@@ -526,6 +526,22 @@
         end
         #  and those of 8- and 16-bit integers are Float32 for a Float32 scale
         @test eltype(reading(filebytes(header(16, 3, kw("BSCALE", 0.5f0)), bytesof(Int16[1, 2, 3]))).data) === Float32
+
+        ####    An array with an axis of length 0 has no data blocks, and the data are an empty array of the axes (Sect. 7.1.1)
+
+        for (bitpix, shape, type) in ((16, (3, 0), Int16), (-32, (0, 3), Float32), (8, (0, 2, 2), UInt8), (64, (0,), Int64))
+            hdr = ["XTENSION= 'IMAGE   '", kw("BITPIX", bitpix), kw("NAXIS", length(shape)),
+                [kw("NAXIS$j", n) for (j, n) in enumerate(shape)]..., kw("PCOUNT", 0), kw("GCOUNT", 1)]
+            bytes = filebytes(hdr, UInt8[])
+            hdu = reading(bytes)
+            @test hdu isa HDU{Image} && hdu.data isa Array{type, length(shape)} && size(hdu.data) == shape
+            @test written(hdu) == codeunits(bytes)
+            made = HDU(Image, zeros(type, shape))
+            @test size(made.data) == shape && size(reading(written(made)).data) == shape
+        end
+        #  an array that has no axes has no data
+        noaxes = ["XTENSION= 'IMAGE   '", kw("BITPIX", 16), kw("NAXIS", 0), kw("PCOUNT", 0), kw("GCOUNT", 1)]
+        @test ismissing(reading(filebytes(noaxes, UInt8[])).data)
         bytes = filebytes(header(16, 3, kw("BSCALE", 2.5), kw("BZERO", 10)), stored)
         hdu = reading(bytes)
         @test hdu.data == Float32[-2.5, 10, 760]
@@ -606,7 +622,7 @@
         #  and the fill of the last block is not required
         hdu = @test_logs reading(filebytes(header(16, 3), bytesof(Int16[1, 2, 3]); pad = false))
         @test hdu.data == [1, 2, 3]
-        #  an array of two axes is in the order of the first axis, as is an array of three, and no axes or a zero axis has no data
+        #  an array of two axes is in the order of the first axis, as is an array of three, and no axes has no data and a zero axis has an empty array
         bytes = filebytes(["XTENSION= 'IMAGE   '", kw("BITPIX", 16), kw("NAXIS", 2), kw("NAXIS1", 2), kw("NAXIS2", 3),
             kw("PCOUNT", 0), kw("GCOUNT", 1)], bytesof(Int16[1, 2, 3, 4, 5, 6]))
         @test reading(bytes).data == [1 3 5; 2 4 6]
@@ -615,7 +631,8 @@
         @test size(reading(bytes).data) == (2, 1, 2) && vec(reading(bytes).data) == [1, 2, 3, 4]
         for axes in ([kw("NAXIS", 0)], [kw("NAXIS", 2), kw("NAXIS1", 3), kw("NAXIS2", 0)])
             hdu = @test_logs reading(filebytes(["XTENSION= 'IMAGE   '", kw("BITPIX", 16), axes..., kw("PCOUNT", 0), kw("GCOUNT", 1)]))
-            @test ismissing(hdu.data) && @test_logs(written(hdu)) == codeunits(filebytes(
+            #  no axes have no data, and an axis of length 0 has an empty array
+            @test (length(axes) == 1 ? ismissing(hdu.data) : size(hdu.data) == (3, 0)) && @test_logs(written(hdu)) == codeunits(filebytes(
                 ["XTENSION= 'IMAGE   '", kw("BITPIX", 16), axes..., kw("PCOUNT", 0), kw("GCOUNT", 1)]))
         end
 
