@@ -16,7 +16,10 @@ The values of a field of type `A` are strings, of type `I` are `Int64`, and of t
 undefined value, which is the TNULLn string of the field (Sect. 7.2.2 of the standard). A blank field is the value 0, as the standard
 says (Sect. 7.2.5). The values of a field that has a TSCALn and a TZEROn that are not 1 and 0 are the physical values, which are `Float64`
 (Eq. 7), unless `scale = false`. The values of an integer field whose TSCALn is 1 and TZEROn is an integer are exact integers (`Int64`, or
-`UInt64` or `Int128` if they do not fit), which are a [`ScaledArray`](@ref).
+`BigInt` if they do not fit), which are a [`ScaledArray`](@ref). The integers of an
+integer field that do not fit an `Int64` are a column of `BigInt`, since the standard has no limit (Sect. 7.2.5). The real numbers of the data are
+written with the digits that they need if the field has room for them, which is more than the `d` of the format if they need it (the formats of
+Table 15 are input formats, Sect. 7.2.1), so that what is read is written again.
 
 The data are matched to the fields by name: a named tuple of columns and the records that are named tuples have a value for each field of its
 TTYPEn, in any order. The fields without a TTYPEn are named `column1`, `column2`, and so on.
@@ -132,16 +135,24 @@ tablenumber(keys::AbstractDict, key::AbstractString) = get(keys, key, nothing) i
 tablefloat(value::Real) = value isa Float32 ? Base.parse(Float64, string(value)) : Float64(value)
 
 #  The TZEROn of a field: an integer if the values of the field are exact integers, which an integer field has if TSCALn is 1 and TZEROn is an
-#  integer (a value of a header that is a whole floating-point number up to 2^53 is one) of at most 2^100, so that the sums of the values of the
-#  field and TZEROn are integers of 128 bits (Sect. 7.2.2), and a Float64 otherwise
+#  integer (a value of a header that is a whole floating-point number up to 2^53 is one), and a Float64 otherwise
 function tablezero(value, code::AbstractString, scale::Real)
     isnothing(value) && return 0.0
     whole = value isa Integer || (value isa AbstractFloat && isinteger(value) && abs(value) <= 2.0^53)
-    code == "I" && scale == 1 && whole && abs(value) < Int128(2)^100 ? Int128(value) : tablefloat(value)
+    code == "I" && scale == 1 && whole ? (value isa Integer ? value : Int(value)) : tablefloat(value)
 end
 
 #  Are the physical values of an integer field exact integers, which are the stored values and TZEROn (see `tablezero`)?
 exactzero(field::TableField) = field.type <: Integer && field.zero isa Integer && field.zero != 0
+
+#  The name of the field j of the data, which has a character and no space at its end, since a string of a card does not keep the spaces at its end,
+#  so that the data are matched to the field of the name
+function checkname(j::Integer, name::AbstractString)
+    (isempty(name) || name != rstrip(name)) && throw(ArgumentError("The name of field $j of the data, $(repr(name)), is empty or has a " *
+        "space at its end, but the name of a field is the string of a TTYPEn keyword, which is not empty and does not keep the spaces at its end " *
+        "(Sect. 7.2.2)."))
+    name
+end
 
 #  The name of a field, which is the default if the name is empty, and which no other field has, since the columns of the data are named by the
 #  fields, and the columns of two fields that have the same name would be one.
@@ -339,6 +350,11 @@ function verifyfieldkeys(::Type{Table}, mankeys::AbstractDict, reskeys::Abstract
         null isa AbstractString && length(rstrip(null)) > width && @warn "TNULL$j, $(repr(rstrip(null))), is longer than the $width " *
             "characters of its field (Sect. 7.2.2), so no value is undefined. The undefined values cannot be written."
         verifyextremes(Table, reskeys, j, code)
+        for (low, high) in (("TDMIN", "TDMAX"), ("TLMIN", "TLMAX"))
+            a, b = get(reskeys, "$low$j", nothing), get(reskeys, "$high$j", nothing)
+            a isa Real && b isa Real && !(a isa Bool) && !(b isa Bool) && a > b && @warn "$low$j, $a, is more than $high$j, $b, but " *
+                "$low$j is the minimum and $high$j is the maximum (Sect. 7.2.2). They are read as they are."
+        end
         disp = get(reskeys, "TDISP$j", nothing)
         if disp isa AbstractString && !occursin(TABLEDISPFORM, strip(disp))
             @warn "TDISP$j must be a display format of Table 16 (Sect. 7.2.2), but its value is $(repr(disp)). It is read as it is."
@@ -556,6 +572,7 @@ function FieldFormat(::Type{Table}, format::DataFormat, reskeys::Dict{S, V},
     names = Set{String}()
     fields = Vector{TableField}(undef, length(forms))
     for j in eachindex(forms)
+        isnothing(given) || checkname(j, given[j])
         name = tablename(isnothing(given) ? tablestring(reskeys, "TTYPE$j", "") : given[j], "column$j", names)
         fields[j] = tablefield(reskeys, j, name, forms[j], starts[j])
     end
@@ -640,15 +657,15 @@ function tablevalueerror(field::TableField, item::AbstractString, row::Integer, 
     ArgumentError("The value $(repr(item)) of field $(field.name) in row $row is not $what of the format $(field.form) (Sect. 7.2.5).")
 end
 
-#  The value of an integer field: a single optional sign and one or more digits, with spaces before or after them, or 0 if the field is blank
+#  The value of an integer field: a single optional sign and one or more digits, with spaces before or after them, or 0 if the field is blank, an
+#  Int64, or a BigInt if the Int64 does not hold it
 function parseinteger(field::TableField, item::AbstractString, row::Integer)
     text = strip(item, ' ')
     isempty(text) && return 0
     occursin(r"^[+-]?[0-9]+$", text) || throw(tablevalueerror(field, item, row, "an integer"))
+    #  An integer that does not fit an Int64 is a BigInt, since the standard has no limit (Sect. 7.2.5)
     value = tryparse(Int64, text)
-    isnothing(value) && throw(ArgumentError("The integer $(repr(strip(item))) of field $(field.name) in row $row is not in the range of " *
-        "an Int64, from $(typemin(Int64)) to $(typemax(Int64))."))
-    value
+    isnothing(value) ? Base.parse(BigInt, text) : value
 end
 
 const REALFORM = r"^([+-]?)([0-9]*)(?:\.([0-9]*))?(?:[EeDd]([+-]?[0-9]+)|([+-][0-9]+))?$"
@@ -702,28 +719,64 @@ function readcolumn(field::TableField, bytes::AbstractMatrix{UInt8}; scale::Bool
     if code == "A" && !all(byte -> 0x20 <= byte <= 0x7e, view(bytes, field.slice, :))
         @warn "The characters of field $(field.name) are not all ASCII text characters, from 32 to 126 (Sect. 7.2.5). They are read as they are."
     end
-    values = Vector{Union{type, Missing}}(undef, N)
+    #  The values of an integer field are Int64, or BigInt if one of them is not an Int64
+    values = Vector{Union{code == "I" ? Union{Int64, BigInt} : type, Missing}}(undef, N)
     for j = 1:N
         item = String(bytes[field.slice, j])
         values[j] = isundefined(field, item) ? missing : code == "A" ? rstrip(item) :
             code == "I" ? parseinteger(field, item, j) : parsereal(field, item, j, decimals)
     end
+    code == "I" && any(value -> value isa BigInt, values) && (type = BigInt)
     #  The column has missing values only if there are undefined entries
-    column = any(ismissing, values) ? values : Vector{type}(values)
+    column = any(ismissing, values) ? Union{type, Missing}[ismissing(value) ? missing : type(value) for value in values] :
+        type[value for value in values]
+    verifyrange(field, column)
     (scale && code != "A" && !(field.scale == 1 && field.zero == 0)) || return column
     exactzero(field) && return ScaledArray(exactvalues(column, field.zero), field.scale, field.zero)
+    #  A BigInt is scaled as a 64-bit floating-point number, as the other integers are
+    type == BigInt && (column = [ismissing(value) ? missing : Float64(value) for value in column])
     column = scaled(column, field.scale, field.zero)
     code == "I" ? column : ScaledArray(column, field.scale, field.zero)
 end
 
-#  The exact integers of the stored values of an integer field and TZEROn, which are 128-bit integers that are converted to the first of Int64,
-#  UInt64, and Int128 that holds all of them
+#  The exact integers of the stored values of an integer field and TZEROn: Int64, or BigInt if an Int64 does not hold all of them, as for the
+#  integers of the other fields. The sums are 128-bit integers, unless the stored values are BigInt or TZEROn is not an Int64 or an Int128 of at
+#  most 2^100, which are BigInt.
 function exactvalues(column::AbstractVector, zero::Integer)
-    wide = [ismissing(value) ? missing : Int128(value) + Int128(zero) for value in column]
+    big = nonmissingtype(eltype(column)) === BigInt || !(zero isa Union{Int64, Int128} && abs(zero) < Int128(2)^100)
+    wide = [ismissing(value) ? missing : big ? BigInt(value) + BigInt(zero) : Int128(value) + Int128(zero) for value in column]
     present = collect(skipmissing(wide))
     lo, hi = isempty(present) ? (0, 0) : extrema(present)
-    type = typemin(Int64) <= lo && hi <= typemax(Int64) ? Int64 : lo >= 0 && hi <= typemax(UInt64) ? UInt64 : Int128
+    type = typemin(Int64) <= lo && hi <= typemax(Int64) ? Int64 : BigInt
     any(ismissing, wide) ? Union{type, Missing}[ismissing(value) ? missing : type(value) for value in wide] : type[value for value in present]
+end
+
+#  The smallest and the largest value of a column of a field, which are the minimum and the maximum physical values of the column that TDMINn and
+#  TDMAXn are (Sect. 7.2.2), are not less than TDMINn and not more than TDMAXn, which a warning says if they are. The values of the column are the
+#  stored values, whose physical values are those of TSCALn and TZEROn (Eq. 7), and the undefined values are not in the minimum and the maximum.
+#  The numbers of a header have the digits that they were written with, so a real number of the column is compared to within 10^-6 of its size.
+function verifyrange(field::TableField, column::AbstractVector)
+    (isnothing(field.dmin) && isnothing(field.dmax)) && return nothing
+    field.type <: AbstractString && return nothing
+    present = collect(skipmissing(column))
+    (isempty(present) || field.scale == 0) && return nothing
+    lo, hi = extrema(present)
+    #  The physical values of integers are integers if the field is not scaled or its values are exact integers
+    exact = field.type <: Integer && field.scale == 1 && (field.zero isa Integer || field.zero == 0)
+    compact(x::BigInt) = typemin(Int64) <= x <= typemax(Int64) ? Int64(x) : x
+    physical(x) = exact ? compact(BigInt(x) + (field.zero == 0 ? 0 : field.zero)) : field.zero + field.scale * Float64(x)
+    lo, hi = minmax(physical(lo), physical(hi))
+    number(x) = x isa Integer ? x : tablefloat(x)
+    for (name, bound, value, less) in (("TDMIN", field.dmin, lo, true), ("TDMAX", field.dmax, hi, false))
+        isnothing(bound) && continue
+        bound = number(bound)
+        outside = less ? value < bound : value > bound
+        outside && !(bound isa AbstractFloat || value isa AbstractFloat ? isapprox(value, bound; rtol = 1e-6) : false) &&
+            @warn "$name of field $(field.name), $bound, is $(less ? "more" : "less") than the $(less ? "smallest" : "largest") value of " *
+                "the field, $value, but $name is the $(less ? "minimum" : "maximum") " *
+                "physical value of the column (Sect. 7.2.2). It is read as it is."
+    end
+    nothing
 end
 
 function Base.read(io::IO, ::Type{Table}, format::DataFormat, fields::Vector{TableField};
@@ -768,15 +821,12 @@ function storedreal(field::TableField, value::Real, code::AbstractString; check:
         physical == (scale, zero) || throw(ArgumentError("The scale and the zero of the data of field $(field.name), " *
             "$(physical[1]) and $(physical[2]), are not the TSCAL and the TZERO of the header, $scale and $zero."))
         if code == "I"
-            #  The exact integers are the stored values and TZEROn, which the stored value is an integer of an Int64 of
+            #  The exact integers are the stored values and TZEROn, and the stored value is an Int64, or a BigInt if the Int64 does not hold it
             (value isa Integer || (value isa AbstractFloat && isfinite(value) && isinteger(value))) && zero isa Integer ||
                 throw(ArgumentError("The value $value of field $(field.name) is not an integer, but the field has the format " *
                 "$(field.form) of integers (Sect. 7.2.5)."))
-            stored = Int128(value) - Int128(zero)
-            typemin(Int64) <= stored <= typemax(Int64) || throw(ArgumentError("The value $value of field $(field.name) is " *
-                "the stored value $stored with TZERO $zero, which is not in the range of an Int64, from $(typemin(Int64)) to " *
-                "$(typemax(Int64)) (Sect. 7.2.5)."))
-            return Int64(stored)
+            stored = BigInt(value) - BigInt(zero)
+            return typemin(Int64) <= stored <= typemax(Int64) ? Int64(stored) : stored
         end
         scale == 0 && throw(ArgumentError("The values cannot be written as stored values, since TSCAL is 0."))
         return (Float64(value) - zero) / scale
@@ -794,7 +844,7 @@ end
 #  value is the TNULLn string, filled with spaces (Sects. 7.2.2 and 7.2.5). A value that has more characters than the field has would shift the
 #  fields after it, so it is an error.
 function fieldtext(field::TableField, value, format; check::Bool = true, physical = nothing)
-    code, width, _ = tableformat(field.form)
+    code, width, decimals = tableformat(field.form)
     if ismissing(value)
         isnothing(field.null) && throw(ArgumentError("A missing value cannot be written to field $(field.name), which has no " *
             "TNULLn keyword (Sect. 7.2.2)."))
@@ -815,13 +865,29 @@ function fieldtext(field::TableField, value, format; check::Bool = true, physica
         else
             isfinite(stored) || throw(ArgumentError("The value $value of field $(field.name) cannot be written in the format " *
                 "$(field.form), which has no NaN or infinity (Sect. 7.2.5)."))
-            text = Printf.format(format, Float64(stored))
-            code == "D" && (text = replace(text, "E" => "D"))
+            text = realtext(Float64(stored), code, width, decimals, format)
         end
     end
     length(text) > width && throw(ArgumentError("The value $(repr(value)) of field $(field.name) has $(length(text)) characters, but " *
         "the format $(field.form) has $width, and a longer value would shift the fields after it (Sect. 7.2.5)."))
     code == "A" ? rpad(text, width) : lpad(text, width)
+end
+
+#  The text of a real number in a field of the format code F, E, or D, of `width` characters, and d `decimals`: the digits of the format, and the
+#  fewest more digits that give the number again, if the text of them fits the field. The formats of Table 15 are input formats (Sect. 7.2.1),
+#  so the digits of the number that the format does not have are not lost, which they are if the number is rounded to the digits, and the number
+#  that needs more digits than the field has is rounded to the digits of the format. The exponent letter of a D format is D.
+function realtext(value::Float64, code::AbstractString, width::Integer, decimals::Integer, format)
+    letter = code == "F" ? "f" : "E"
+    again(text) = Base.parse(Float64, replace(strip(text), "D" => "E")) == value
+    text = Printf.format(format, value)
+    if !again(text)
+        for k = decimals+1:width
+            more = Printf.format(Printf.Format("%$(width).$(k)$letter"), value)
+            length(more) <= width && again(more) && (text = more; break)
+        end
+    end
+    code == "D" ? replace(text, "E" => "D") : text
 end
 
 #  The format of the output of the real field, or nothing
