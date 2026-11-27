@@ -1448,4 +1448,37 @@
         @test ismissing(HDU(Bintable).data) && ismissing(reread(HDU(Bintable)).data)
         @test written(reread(HDU(Bintable))) == written(HDU(Bintable))
     end
+
+    ####    Test the bit arrays (Sect. 7.3.3.1)    ####
+
+    @testset "bit arrays" begin
+        #  the bits are in order from the most significant bit of the first byte, and the bits after the end are zeros
+        bits = BitVector([1, 0, 1, 1, 0, 0, 0, 0, 0, 1])
+        io = IOBuffer(); write(io, BitVector, bits)
+        @test take!(io) == UInt8[0b10110000, 0b01000000]
+        @test read(IOBuffer(UInt8[0b10110000, 0b01000000]), BitVector, 10) == bits
+        @test read(IOBuffer(UInt8[0b10110000, 0b01111111]), BitVector, 10) == bits
+        @test read(IOBuffer(UInt8[0xff]), BitVector, 3) == BitVector([1, 1, 1])
+        @test read(IOBuffer(UInt8[]), BitVector, 0) == BitVector()
+        io = IOBuffer(); write(io, BitVector, BitVector()); @test isempty(take!(io))
+        for n in (1, 7, 8, 9, 16, 17, 100)
+            value = BitVector(rand(Bool, n))
+            io = IOBuffer(); write(io, BitVector, value)
+            bytes = take!(io)
+            @test length(bytes) == cld(n, 8) && read(IOBuffer(bytes), BitVector, n) == value
+            @test all(j -> (bytes[(j-1) >> 3 + 1] >> (7 - (j-1) % 8)) & 1 == value[j], 1:n)
+        end
+
+        #  the bits of a field of a table, which are in order of the bytes of the file
+        written(hdu) = (io = IOBuffer(); write(io, hdu); take!(io))
+        hdu = HDU(Bintable, (b = [bits, falses(10)],))
+        @test hdu.cards["TFORM1"] == "10X" && hdu.cards["NAXIS1"] == 2
+        bytes = written(hdu)
+        @test bytes[2881:2884] == UInt8[0b10110000, 0b01000000, 0, 0]
+        @test read(IOBuffer(bytes), HDU).data.b == [bits, falses(10)]
+        #  the bit arrays of different lengths have the length of the longest, and the bits after the end are zeros
+        hdu = HDU(Bintable, (b = [BitVector([1, 0, 0, 0, 0, 0, 0, 1, 1]), BitVector([0, 1])],))
+        @test hdu.cards["TFORM1"] == "9X"
+        @test read(IOBuffer(written(hdu)), HDU).data.b == [BitVector([1, 0, 0, 0, 0, 0, 0, 1, 1]), BitVector([0, 1, 0, 0, 0, 0, 0, 0, 0])]
+    end
 end

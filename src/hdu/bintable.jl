@@ -466,7 +466,7 @@ function heapformat(data, nrows::Integer)
     DataFormat(BITS2TYPE[8], prod(shape) + param, shape, param, 1, prod(shape))
 end
 
-sizeofbitvector(v::BitVector)::Integer = (length(v)-1)÷8 + 1
+sizeofbitvector(v::BitVector)::Integer = sizeofbitvector(length(v))
 
 #  The first value that is not missing, which gives the type of a field whose first values may be
 #  undefined; a column with no defined value has the zero of its element type.
@@ -483,12 +483,13 @@ function definedvalue(values)
 end
 
 #  The value that gives the type and the size of a field from the values of its column: the first value that is not missing, and the
-#  longest string of a column of strings, whose width is the number of bytes of the longest (Sect. 7.3.3.1)
+#  longest string of a column of strings, whose width is the number of bytes of the longest (Sect. 7.3.3.1), or the longest bit array
 function fieldvalue(values)
     value = definedvalue(values)
-    value isa AbstractString || return value
+    value isa Union{AbstractString, BitVector} || return value
+    size(x) = x isa AbstractString ? ncodeunits(x) : length(x)
     for other in values
-        !ismissing(other) && ncodeunits(other) > ncodeunits(value) && (value = other)
+        !ismissing(other) && size(other) > size(value) && (value = other)
     end
     value
 end
@@ -771,23 +772,19 @@ end
 encodelogical(value::Bool) = value ? UInt8('T') : UInt8('F')
 encodelogical(::Missing) = 0x00
 
+#  The bits of a bit array are in order from the most significant bit of the first byte to the least significant bit of the last byte,
+#  and the bits after the end of the array are zeros (Sect. 7.3.3.1)
 function Base.read(io::IO, ::Type{BitVector}, len)
-    #  Read the bytes from IO and convert the UInt8s to a Bitvector
-    bv  = falses(len)
-    if len > 0
-        siz = sizeofbitvector(len)
-        vec = [read(io, UInt8) for j=1:siz]
-        unsafe_copyto!(reinterpret(Ptr{UInt8}, pointer(bv.chunks)), pointer(vec), siz)
-    end
-    bv
+    bytes = read(io, sizeofbitvector(len))
+    BitVector([bytes[(j-1) >> 3 + 1] & (0x80 >> ((j-1) & 7)) != 0 for j = 1:len])
 end
 
 function Base.write(io::IO, ::Type{BitVector}, value)
-    #  Convert the BitVector to UInt8s and write the bytes to IO
-    siz = sizeofbitvector(value)
-    vec = zeros(UInt8, siz)
-    unsafe_copyto!(pointer(vec), reinterpret(Ptr{UInt8}, pointer(value.chunks)), siz)
-    write(io, vec)
+    bytes = zeros(UInt8, sizeofbitvector(value))
+    for j in findall(value)
+        bytes[(j-1) >> 3 + 1] |= 0x80 >> ((j-1) & 7)
+    end
+    write(io, bytes)
 end
 
 """
