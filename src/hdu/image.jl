@@ -140,10 +140,10 @@ function DataFormat(::Type{Image}, data::Missing, mankeys::Dict{S, V}) where
     {S<:AbstractString, V<:ValueType}
 
     type  = BITS2TYPE[get(mankeys, "BITPIX", 32)]
-    leng  = datalength(mankeys, 1)
     shape = datasize(mankeys, 1)
     param = get(mankeys, "PCOUNT", 0)
     group = get(mankeys, "GCOUNT", 1)
+    leng  = get(mankeys, "NAXIS", 0) > 0 ? group * (param + prod(shape)) : 0
     heap  = param > 0 ? get(mankeys, "THEAP", 0) : 0
     DataFormat(type, leng, shape, param, group, heap)
 end

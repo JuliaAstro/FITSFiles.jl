@@ -581,13 +581,6 @@ function datasize(mankeys::Dict, start::Integer = 1)
 	N > 0 ? Tuple(mankeys["NAXIS$j"] for j ∈ start:N) : ()
 end
 
-function datalength(mankeys::Dict, start::Integer = 1)
-	#   Calculate the number of elements in the array
-	N = get(mankeys, "NAXIS", 0)
-	G, P = get(mankeys, "GCOUNT", 1), get(mankeys, "PCOUNT", 0)
-	N > 0 ? G * (P + prod(datasize(mankeys, start))) : 0
-end
-
 datatype(cards::Cards) = BITS2TYPE[get(cards, "BITPIX", 32)]
 datadims(cards::Cards) = get(cards, "NAXIS", 0)
 

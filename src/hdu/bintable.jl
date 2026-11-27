@@ -176,10 +176,10 @@ function DataFormat(::Type{Bintable}, data::Missing, mankeys::Dict{S, V}) where
 
     #  Mandatory keys determines HDU type.
     type  = BITS2TYPE[get(mankeys, "BITPIX", 8)]
-    leng  = datalength(mankeys, 1)
     shape = datasize(mankeys, 1)
     param = get(mankeys, "PCOUNT", 0)
     group = get(mankeys, "GCOUNT", 1)
+    leng  = get(mankeys, "NAXIS", 0) > 0 ? group * (param + prod(shape)) : 0
     heap  = get(mankeys, "THEAP", sizeof(type)*prod(shape))
     DataFormat(type, leng, shape, param, group, heap)
 end

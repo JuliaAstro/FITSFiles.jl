@@ -135,10 +135,10 @@ function DataFormat(::Type{Table}, data::Missing, mankeys::Dict{S, V}) where
 
     #  Determine format from data
     type  = BITS2TYPE[get(mankeys, "BITPIX", 8)]
-    leng  = datalength(mankeys, 1)
     shape = datasize(mankeys, 1)
     param = get(mankeys, "PCOUNT", 0)
     group = get(mankeys, "GCOUNT", 1)
+    leng  = get(mankeys, "NAXIS", 0) > 0 ? group * (param + prod(shape)) : 0
     heap  = 0
     DataFormat(type, leng, shape, param, group, heap)
 end
