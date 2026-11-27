@@ -1409,7 +1409,7 @@
         @test_logs (:warn, r"TDISP1 must be a character string") reading(tablebytes([tform, kw("TDISP1", 5)], stored))
         @test_logs (:warn, r"TUNIT1 must be a units string") reading(tablebytes([tform, kw("TUNIT1", "bogus unit!")], stored))
         @test @test_logs(reading(tablebytes([tform, kw("TUNIT1", "km/s")], stored))).data.column1 == Int16[1, 2]
-        for disp in ("A5", "L1", "I6", "I6.3", "B8.8", "O5", "Z4.2", "F8.3", "E12.4", "E12.4E3", "EN12.3", "ES12.3", "G10.2", "G10.2E2", "D12.4")
+        for disp in ("I6", "I6.3", "B8.8", "O5", "Z4.2", "F8.3", "E12.4", "E12.4E3", "EN12.3", "ES12.3", "G10.2", "G10.2E2", "D12.4")
             @test_logs reading(tablebytes([tform, kw("TDISP1", disp)], stored))
         end
         for disp in ("Q9.9", "i6", "F8", "E12", "I", "A", "F8.3.1", "Iw.m", " ", "e12.4")
@@ -1926,5 +1926,42 @@
             @test_logs reading([kw("TFORM1", form), kw("TDMIN1", 5)], form)
         end
         @test_logs (:warn, r"TDMIN1 must be a floating-point number") reading([kw("TFORM1", "1PE(2)"), kw("TDMIN1", 5)], "1PE(2)")
+    end
+
+    ####    Test the display formats of the fields (Sects. 7.3.2 and 7.3.4)    ####
+
+    @testset "display formats" begin
+        card(s) = rpad(s, 80)
+        kw(key, value) = key * repeat(" ", 8 - length(key)) * "= " * (value isa AbstractString ? "'" * rpad(value, 8) * "'" : lpad(value, 20))
+        function tablebytes(cards, naxis1)
+            header = vcat(["XTENSION= 'BINTABLE'", kw("BITPIX", 8), kw("NAXIS", 2), kw("NAXIS1", naxis1), kw("NAXIS2", 1), kw("PCOUNT", 0),
+                kw("GCOUNT", 1), kw("TFIELDS", 1)], cards, ["END"])
+            vcat(collect(codeunits(rpad(join(card.(header)), 2880 * cld(80 * length(header), 2880)))), zeros(UInt8, 2880))
+        end
+        reading(form, disp) = read(IOBuffer(tablebytes([kw("TFORM1", form), kw("TDISP1", disp)], FITSFiles.tformbytes("TFORM1", form))), HDU)
+
+        #  the formats of each type of Table 18 (Sect. 7.3.4)
+        formats = Dict("A" => ["A5"], "L" => ["L1"],
+            "X" => ["I6", "B8.8", "O5", "Z4.2", "F8.3", "E12.4", "D12.4", "EN12.3", "ES12.3"],
+            "B" => ["I6", "B8.8", "O5", "Z4.2", "F8.3", "E12.4", "D12.4", "EN12.3", "ES12.3"],
+            "I" => ["I6", "B8.8", "O5", "Z4.2", "F8.3", "E12.4", "D12.4", "EN12.3", "ES12.3"],
+            "J" => ["I6", "B8.8", "O5", "Z4.2", "F8.3", "E12.4", "D12.4", "EN12.3", "ES12.3"],
+            "K" => ["I6", "B8.8", "O5", "Z4.2", "F8.3", "E12.4", "D12.4", "EN12.3", "ES12.3"],
+            "E" => ["F8.3", "E12.4", "E12.4E3", "D12.4", "EN12.3", "ES12.3"], "D" => ["F8.3", "E12.4", "D12.4", "EN12.3", "ES12.3"],
+            "C" => ["F8.3", "E12.4", "EN12.3"], "M" => ["F8.3", "D12.4", "ES12.3"])
+        for (form, disps) in formats, disp in vcat(disps, ["G10.2", "G10.2E2"])
+            @test_logs reading(form, disp)
+        end
+        #  and the formats that the type does not have
+        wrong = Dict("A" => ["I6", "F8.3", "L1"], "L" => ["A5", "I6", "F8.3"], "I" => ["A5", "L1"], "X" => ["A5", "L1"],
+            "E" => ["I6", "A5", "L1", "B8.8", "O5", "Z4.2"], "D" => ["I6", "A5", "L1"], "C" => ["I6", "A5", "L1"])
+        for (form, disps) in wrong, disp in disps
+            @test_logs (:warn, Regex("TDISP1, \"$disp\", is not a display format for a field of type $form")) reading(form, disp)
+        end
+        #  a variable-length array has the formats of its elements
+        @test_logs reading("1PE(2)", "F8.3")
+        @test_logs (:warn, r"is not a display format for a field of type E") reading("1PE(2)", "I6")
+        #  a format that is not in Table 20 is the earlier warning only
+        @test_logs (:warn, r"TDISP1 must be a display format of Table 20") reading("I", "Q9.9")
     end
 end

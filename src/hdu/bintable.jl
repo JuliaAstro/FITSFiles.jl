@@ -1114,8 +1114,14 @@ function verifyfieldkeys(::Type{Bintable}, mankeys::AbstractDict, reskeys::Abstr
             "value is undefined. The undefined values cannot be written."
         verifyextremes(reskeys, j, type)
         disp = get(reskeys, "TDISP$j", nothing)
-        disp isa AbstractString && !occursin(TDISPFORM, strip(disp)) && @warn "TDISP$j must be a display format of Table 20 " *
-            "(Sect. 7.3.2), but its value is $(repr(disp)). It is read as it is."
+        if disp isa AbstractString && !occursin(TDISPFORM, strip(disp))
+            @warn "TDISP$j must be a display format of Table 20 (Sect. 7.3.2), but its value is $(repr(disp)). It is read as it is."
+        elseif disp isa AbstractString
+            #  The display format is one that Sect. 7.3.4 gives for the type of the field
+            code = match(r"^[A-Z]+", strip(disp)).match
+            code in DISPCODES[type] || @warn "TDISP$j, $(repr(strip(disp))), is not a display format for a field of type $type " *
+                "(Sect. 7.3.4), which has the formats $(join(DISPCODES[type], ", ")). It is read as it is."
+        end
         name = get(reskeys, "TTYPE$j", nothing)
         if name isa AbstractString && !isempty(strip(name))
             other = get(names, lowercase(rstrip(name)), 0)
@@ -1150,6 +1156,14 @@ function verifyextremes(reskeys::AbstractDict, j::Integer, type::AbstractString)
                 "but its value is $(repr(value)). It is read as it is."
         end
     end
+end
+
+#  The codes of the display formats of Table 20 that a field of each data type of Table 18 has (Sect. 7.3.4): characters are Aw and logical
+#  values are Lw; the integers, and the bits, are Iw.m, Bw.m, Ow.m, and Zw.m, or are real values, Fw.d, Ew.d, Dw.d, ENw.d, and ESw.d, as they
+#  are for scaled values; the real and complex values are real values; and Gw.d is for the data of any type.
+const DISPCODES = let integer = ["I", "B", "O", "Z", "F", "E", "D", "EN", "ES", "G"], real = ["F", "E", "D", "EN", "ES", "G"]
+    Dict("A" => ["A", "G"], "L" => ["L", "G"], "X" => integer, "B" => integer, "I" => integer, "J" => integer, "K" => integer,
+        "E" => real, "D" => real, "C" => real, "M" => real)
 end
 
 #  The types of the stored values of the fields that have an integer TNULLn, B, I, J, and K
