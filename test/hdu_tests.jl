@@ -445,9 +445,12 @@
 
         #  a table has one value for each row of a column, and random groups have the parameters of a name
         #  at the index of the field
-        @test FITSFiles.tablecell([(m = "a",), (m = "bb",)], 1, 2) == "bb"
-        @test FITSFiles.tablecell((m = ["a", "bb"],), 1, 2) == "bb"
-        @test FITSFiles.tablecell((["a", "bb"],), 1, 2) == "bb"
+        @test FITSFiles.tablecell([(m = "a",), (m = "bb",)], 1, field, 2) == "bb"
+        @test FITSFiles.tablecell((m = ["a", "bb"],), 1, field, 2) == "bb"
+        @test FITSFiles.tablecell((["a", "bb"],), 1, field, 2) == "bb"
+        @test FITSFiles.tablecell([(x = 1, m = "a"), (m = "bb", x = 2)], 1, field, 2) == "bb"
+        @test FITSFiles.tablecell((x = [1, 2], m = ["a", "bb"]), 1, field, 2) == "bb"
+        @test FITSFiles.tablecell([("a", 1), ("bb", 2)], 1, field, 2) == "bb"
         param = (; name = "m", index = 2)
         @test FITSFiles.getparam([(m = 1.5,), (m = 2.5,)], param, 2, 1) == 2.5
         @test FITSFiles.getparam([(m = [1 2; 3 4],)], param, 1, 1) == 3
