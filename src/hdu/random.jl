@@ -357,11 +357,27 @@ function verify!(::Type{Random}, cards::Cards, mankeys::AbstractDict, reskeys::A
     cards
 end
 
+#  Correct BITPIX and the NAXIS keywords to match the data format. NAXIS1 of random groups is 0, and the shape of the data begins at NAXIS2.
+function verifyshape!(::Type{Random}, cards::Cards, mankeys::AbstractDict, format::DataFormat)
+    if haskey(mankeys, "BITPIX") && format.type != BITS2TYPE[mankeys["BITPIX"]]
+        setindex!(cards, TYPE2BITS[format.type], "BITPIX")
+        @warn "BITPIX set to $(TYPE2BITS[format.type])."
+    end
+    if haskey(mankeys, "NAXIS1") && format.shape != datasize(cards, 2)
+        N = length(format.shape) + 1
+        setindex!(cards, N, "NAXIS")
+        setindex!(cards, 0, "NAXIS1")
+        for j = 2:N setindex!(cards, format.shape[j-1], "NAXIS$j") end
+        @warn "NAXIS$(2:N) set to $(format.shape)"
+    end
+    cards
+end
+
 function verify!(::Type{Random}, cards::Cards, format::DataFormat,
     mankeys::AbstractDict)
 
     get(mankeys, "SIMPLE", true) === false && @warn "Random HDU is nonconformant, since SIMPLE is F."
-    verifyshape!(cards, mankeys, format; first = 2)
+    verifyshape!(Random, cards, mankeys, format)
     if get(mankeys, "GROUPS", true) !== true
         setindex!(cards, true, "GROUPS")
         @warn "GROUPS set to true"

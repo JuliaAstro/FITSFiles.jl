@@ -265,23 +265,22 @@ function verifyfixed(cards::Cards, required::AbstractVector{<:AbstractString})
 end
 
 """
-	verifyshape!(cards, mankeys, format; first = 1)
+	verifyshape!(cards, mankeys, format)
 
 Correct BITPIX and the NAXIS keywords of `cards` to match the data format `format`, and return
-the cards. `first` is the index of the first NAXISn keyword that describes the data, which is 2
-for random groups, where NAXIS1 is 0.
+the cards. The data are described by NAXIS1 and the keywords after it. Random groups, whose NAXIS1 is 0,
+have their own method.
 """
-function verifyshape!(cards::Cards, mankeys::AbstractDict, format::DataFormat; first::Integer = 1)
+function verifyshape!(cards::Cards, mankeys::AbstractDict, format::DataFormat)
 	if haskey(mankeys, "BITPIX") && format.type != BITS2TYPE[mankeys["BITPIX"]]
 		setindex!(cards, TYPE2BITS[format.type], "BITPIX")
 		@warn "BITPIX set to $(TYPE2BITS[format.type])."
 	end
-	if haskey(mankeys, "NAXIS1") && format.shape != datasize(cards, first)
-		N = length(format.shape) + first - 1
+	if haskey(mankeys, "NAXIS1") && format.shape != datasize(cards, 1)
+		N = length(format.shape)
 		setindex!(cards, N, "NAXIS")
-		first == 2 && setindex!(cards, 0, "NAXIS1")
-		for j = first:N setindex!(cards, format.shape[j-first+1], "NAXIS$j") end
-		@warn "NAXIS$(first:N) set to $(format.shape)"
+		for j = 1:N setindex!(cards, format.shape[j], "NAXIS$j") end
+		@warn "NAXIS$(1:N) set to $(format.shape)"
 	end
 	cards
 end
