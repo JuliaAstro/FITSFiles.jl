@@ -78,13 +78,6 @@ const TYPE2BITS = Dict(UInt8 => 8, Int16 => 16, Int32 => 32, Int64 => 64,
 const BITPIXVALUES = (8, 16, 32, 64, -32, -64)
 const MAXAXES = 999
 
-const MISSTYPE = (UInt8, Int16, Int32, Int64)
-#  The unsigned integers and the signed bytes are stored as the integers of the same size with an offset in
-#  BZERO (Table 11 of the standard): the type of the array => the type of the physical values and BZERO.
-const OFFSETTYPE = Dict(Int16 => (UInt16, 2^15), Int32 => (UInt32, 2^31), Int64 => (UInt64, UInt64(2)^63),
-	UInt8 => (Int8, -2^7))
-#  The type of the array of the physical type, which is the key of OFFSETTYPE
-const RAWTYPE = Dict(physical => raw for (raw, (physical, _)) in OFFSETTYPE)
 const OUTTYPE  = Dict(
     UInt8 => Float32, Int16 => Float32, Int32 => Float64, Int64 => Float64,
     Float32 => Float32, Float64 => Float64)
@@ -512,65 +505,6 @@ function tablekeys(xtension::AbstractString, format::DataFormat, nfields::Intege
 		"NAXIS2" => N, "PCOUNT" => 0, "GCOUNT" => 1, "TFIELDS" => nfields]
 end
 
-"""
-    scaled(data, scale, zero)
-
-Return `zero + scale*data`. The type of the result is the promotion of the types of `data`,
-`scale` and `zero` (a Float32 for 32-bit integer data and a Float32 `scale`, say), but the
-operands are converted to at least a Float64 before the multiplication and the addition, which
-`muladd` fuses into a single rounding where the hardware allows it. A Float32 product would
-otherwise round the stored integers to 24 bits (e.g., a `UInt32` stored as `Int32` with `TZERO`
-2147483648 and a Float32 `TSCAL` of 1).
-"""
-function scaled(data, scale, zero)
-	T = promote_type(typeof(scale), typeof(zero), nonmissingtype(eltype(data)))
-	W = promote_type(T, Float64)
-	#  An undefined value stays undefined
-	f(x) = ismissing(x) ? missing : T(muladd(W(scale), W(x), W(zero)))
-	f.(data)
-end
-
-"""
-    setmissing(data, miss)
-
-Return `data` with `missing` in place of the raw values equal to `miss`, the value of the BLANK or
-TNULLn keyword (Sects. 4.4.2.5 and 7.3.2 of the standard). The comparison is made before any scaling.
-The result has the element type `Union{T, Missing}`, whether or not a value is equal to `miss`, and
-`data` itself is returned when `miss` is `nothing`.
-"""
-setmissing(data, ::Nothing) = data
-setmissing(value::Real, miss::Integer) = value == miss ? missing : value
-function setmissing(data::AbstractArray{T}, miss::Integer) where T
-	out = Array{Union{T, Missing}}(data)
-	out[data .== miss] .= missing
-	out
-end
-
-"""
-    unsetmissing(data, miss, type)
-
-Return `data` with `miss` in place of `missing`, as raw values of `type`: the inverse of
-[`setmissing`](@ref). Data of a floating-point `type` has no BLANK or TNULLn keyword, and the undefined
-value is `NaN` (Sect. 4.4.2.5). It is an `ArgumentError` if `data` has a `missing` value but no `miss`
-is given for an integer `type`.
-"""
-unsetmissing(data, miss, type::Type) = data
-function unsetmissing(data::AbstractArray{Union{T, Missing}}, miss, type::Type) where T
-	any(ismissing, data) || return type.(data)
-	type.(coalesce.(data, undefinedvalue(type, miss)))
-end
-function unsetmissing(value::Missing, miss, type::Type)
-	undefinedvalue(type, miss)
-end
-
-function undefinedvalue(type::Type{<:AbstractFloat}, miss)
-	type(NaN)
-end
-function undefinedvalue(type::Type, miss)
-	isnothing(miss) && throw(ArgumentError(
-		"missing values cannot be written without a BLANK or TNULLn keyword"))
-	type(miss)
-end
 
 function getreservedkeys(cards::Cards)
 	mankeys = Dict{AbstractString, ValueType}()

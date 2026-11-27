@@ -108,24 +108,8 @@ function FieldFormat(::Type{<:ImageHDU}, format::DataFormat, reskeys::Dict{S, V}
     ImageField(format.type, zero_, scale, miss, dmin, dmax)
 end
 
-#  An N-dimensional array of zeros of the type of BITPIX, or missing if the data has no axes.
-zerosarray(format::DataFormat) = length(format.shape) > 0 ? zeros(format.type, format.shape) : missing
 
 createdata(::Type{<:ImageHDU}, format::DataFormat, ::ImageField; kwds...) = zerosarray(format)
-
-#  The type of the physical values of an array of the stored type `type` that has the offset BZERO of Table 11 of
-#  the standard and the default BSCALE, i.e., a UInt16 for an Int16 and a BZERO of 32768, or nothing.
-function offsettype(type::Type, scale::Real, zero::Real)
-    haskey(OFFSETTYPE, type) && scale == 1 && zero == OFFSETTYPE[type][2] ? OFFSETTYPE[type][1] : nothing
-end
-
-#  The value of the other type of the offset convention: the stored value for the physical value, and the physical
-#  value for the stored value. The offset is a flip of the most significant bit.
-offsetvalue(::Missing, ::Type) = missing
-function offsetvalue(x::Integer, ::Type{T}) where T<:Integer
-    U = unsigned(typeof(x))
-    reinterpret(T, reinterpret(U, x) ⊻ (one(U) << (8sizeof(U) - 1)))
-end
 
 #  The BZERO card of the offset convention, if the header does not have one.
 function offsetcards!(cards::Cards, fields::ImageField)
@@ -136,10 +120,7 @@ function offsetcards!(cards::Cards, fields::ImageField)
 end
 
 #  The physical values of the stored values: scaled, or the values of the offset convention of Table 11.
-function physical(data, fields::ImageField)
-    T = offsettype(fields.type, fields.scale, fields.zero)
-    isnothing(T) ? scaled(data, fields.scale, fields.zero) : offsetvalue.(data, T)
-end
+physical(data, fields::ImageField) = physical(data, fields.type, fields.scale, fields.zero)
 
 function Base.read(io::IO, ::Type{<:ImageHDU}, format::DataFormat,
     fields::ImageField; scale::Bool = true, kwds...)
@@ -178,67 +159,11 @@ function Base.read(io::IO, format::DataFormat, fields::ImageField)
     setmissing(data, fields.miss)
 end
 
-#  The stored value of a physical value, which is (value - BZERO)/BSCALE (Eq. 3 of the standard), rounded to the
-#  nearest integer for integer data. An undefined value, which is missing, or NaN for integer data that has a BLANK,
-#  is missing. The stored value is checked, if `check` is true, by applying BSCALE and BZERO to it, with muladd, which
-#  must give the physical value again: exactly for integer data, whose stored value is rounded, and to the precision
-#  of the type for floating-point data. A value that cannot be stored without a change is an error.
-#  The keywords of the scale and the zero, which are named in an error, are BSCALE and BZERO unless `keys` are given.
-storedvalue(::Missing, fields::ImageField, check::Bool = true; keys = ("BSCALE", "BZERO")) = missing
-function storedvalue(x::Real, fields::ImageField, check::Bool = true; keys = ("BSCALE", "BZERO"))
-    type = fields.type
-    if isnan(x)
-        type <: AbstractFloat && return type(x)
-        isnothing(fields.miss) && throw(ArgumentError(
-            "NaN cannot be written as integer data that does not have a BLANK keyword."))
-        return missing
-    end
-    fields.scale == 0 && throw(ArgumentError(
-        "The values cannot be written as stored values, since $(keys[1]) is 0."))
-    W = promote_type(typeof(fields.scale), typeof(fields.zero), Float64)
-    value = (W(x) - W(fields.zero)) / W(fields.scale)
-    if type <: AbstractFloat
-        stored = type(value)
-    else
-        rounded = round(value)
-        typemin(type) <= rounded <= typemax(type) || throw(ArgumentError(
-            "The value $x is not in the range of the $type data that $(keys[1]) $(fields.scale) and $(keys[2]) " *
-            "$(fields.zero) describe: its stored value $rounded is not from $(typemin(type)) to $(typemax(type))."))
-        stored = type(rounded)
-    end
-    if check && isfinite(x)
-        #  The physical value of the stored value, in the type of the value, as the data are read
-        again = muladd(W(fields.scale), W(stored), W(fields.zero))
-        again = x isa AbstractFloat ? typeof(x)(again) : again
-        same = type <: AbstractFloat ? isapprox(again, x; rtol = eps(type)) : again == x
-        same || throw(ArgumentError(
-            "The value $x cannot be stored as $type data with $(keys[1]) $(fields.scale) and $(keys[2]) $(fields.zero): " *
-            "the nearest stored value, $stored, is the value $again. Use check = false to write the stored value."))
-    end
-    stored
-end
-
-#  The stored values of the data, which are the values of the type of the HDU (BITPIX): the data that are the
-#  physical values of the offset convention of Table 11 are the stored values with the offset, and the data of
-#  another type are the physical values that are read with BSCALE and BZERO, so they are inverted. The data of the
-#  type of the HDU are the stored values, even when BSCALE and BZERO are not 1 and 0, i.e., they were read unscaled, unless the
-#  array is a `ScaledArray`, which is the physical values of floating-point stored values.
-function storedvalues(data::AbstractArray, fields::ImageField; check::Bool = true)
-    type = nonmissingtype(eltype(data))
-    offset = offsettype(fields.type, fields.scale, fields.zero)
-    if !isnothing(offset) && type == offset
-        offsetvalue.(data, fields.type)
-    elseif data isa ScaledArray
-        #  The data are the physical values of the scale and the zero that they have, which are those of the header
-        (data.scale, data.zero) == (fields.scale, fields.zero) || throw(ArgumentError("The scale and the zero of the data, " *
-            "$(data.scale) and $(data.zero), are not the BSCALE and the BZERO of the header, $(fields.scale) and $(fields.zero)."))
-        map(x -> storedvalue(x, fields, check), data)
-    elseif type != fields.type
-        map(x -> storedvalue(x, fields, check), data)
-    else
-        data
-    end
-end
+#  The stored value of a physical value, and the stored values of the data (see `storedvalue` and `storedvalues` of the values of an array)
+storedvalue(x, fields::ImageField, check::Bool = true; keys = ("BSCALE", "BZERO")) =
+    storedvalue(x, fields.type, fields.scale, fields.zero, fields.miss, check; keys)
+storedvalues(data::AbstractArray, fields::ImageField; check::Bool = true) =
+    storedvalues(data, fields.type, fields.scale, fields.zero, fields.miss; check)
 
 function Base.write(io::IO, data::AbstractArray, fields::ImageField; check::Bool = true, kwds...)
     data = storedvalues(data, fields; check)
@@ -248,16 +173,6 @@ function Base.write(io::IO, data::AbstractArray, fields::ImageField; check::Bool
 end
 
 
-#  Set the card of the key to the value of the scale or the zero of the data, which the header has, if it is not the default value
-#  and the header does not have it. A value that the header has and is not the value of the data is set, with a warning.
-function setscalecard!(cards::Cards, key::AbstractString, value::Number, default::Number)
-    if haskey(cards, key)
-        cards[key] == value || (cards[key] = value; @warn "$key set to $value, the value of the scale of the data.")
-    elseif value != default
-        push!(cards, Card(key, value))
-    end
-    cards
-end
 
 #  The BSCALE and BZERO cards of data that are a ScaledArray, which have the scale and the zero of the data
 scalecards!(::Type, cards::Cards, data) = cards
