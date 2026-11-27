@@ -107,12 +107,20 @@ function Base.read(io::IO, ::Type{Bintable}, format::DataFormat,
 
     begpos = position(io)
     M, N, P = format.shape[1], format.shape[2], format.param
+    #  The table and the heap have the bytes that the header says, which are checked before the data are allocated
+    nbytes = M*N + P
+    nbytes > unreadbytes(io) && throw(ArgumentError("The data of the HDU is $nbytes bytes, as its header says, but the file has " *
+        "only $(unreadbytes(io)) of them."))
     #  Read data array
     if record
         #  The records are the cells of the columns
         columns = [read(io, field, format, begpos; kwds...) for field in fields]
         data = [(; [Symbol(field.name) => recordcell(field, column, j) for (field, column) in zip(fields, columns)]...)
             for j = 1:N]
+        #  The records that have fields of scaled floating-point values are written as the stored values
+        scales = Dict{Symbol, Tuple{Any, Any}}(Symbol(field.name) => (field.scale, field.zero)
+            for field in fields if get(kwds, :scale, true) && physicalfloat(field) && isnothing(field.pntr))
+        isempty(scales) || (data = ScaledTable(data, scales))
     else
         data = (; [Symbol(field.name) =>
             read(io, field, format, begpos; kwds...) for field in fields]... )
@@ -159,7 +167,7 @@ function Base.write(io::IO, ::Type{Bintable}, data::Union{AbstractArray, NamedTu
             for field in fields
                 cell = getcell(Bintable, data, field, j)
                 if isnothing(field.pntr)
-                    write(io, field, flatten(cell); kwds...)
+                    write(io, field, flatten(cell); physical = physicalscale(data, field), kwds...)
                 else
                     writearray(io, heap, field, cell; check = get(kwds, :check, true))
                 end
@@ -171,6 +179,10 @@ function Base.write(io::IO, ::Type{Bintable}, data::Union{AbstractArray, NamedTu
         write(io, zeros(UInt8, gap), bytes, zeros(UInt8, format.param - gap - length(bytes)))
         #  Pad last block with zeros
         padblock(io, format)
+    elseif format.param > 0
+        #  A table that has no rows has no arrays, so its heap, and the gap before it, are zeros
+        write(io, zeros(UInt8, format.param))
+        padblock(io, format)
     end
 end
 
@@ -181,10 +193,17 @@ Base.write(io::IO, ::Type{Bintable}, data::Missing, format::DataFormat, fields::
 #  elements has no storage, and its offset is 0 (Sect. 7.3.5).
 function writearray(io::IO, heap::IOBuffer, field::BinaryField, cell; check::Bool = true)
     type = field.type
-    type <: Union{AbstractString, BitVector} && throw(ArgumentError("The variable-length array of field $(field.name) has " *
-        "elements of type $type, which are not written."))
+    #  The characters of a string are the bytes of the array, and the bits of a bit array are the bits of its bytes, whose number is the
+    #  length of the array, and the bits after the end of the array are zeros
+    if type <: Union{AbstractString, BitVector}
+        n = type <: AbstractString ? ncodeunits(cell) : length(cell)
+        write(io, hton(field.pntr(n)), hton(field.pntr(n == 0 ? 0 : position(heap))))
+        n == 0 && return
+        type <: AbstractString ? write(heap, codeunits(checkascii(cell))) : write(heap, BitVector, cell)
+        return
+    end
     values = cell isa AbstractArray ? reshape(cell, :) : [cell]
-    values = storedcell(field, values; check)
+    values = storedcell(field, values; check, physical = cell isa ScaledArray ? (cell.scale, cell.zero) : nothing)
     n = length(values)
     write(io, hton(field.pntr(n)), hton(field.pntr(n == 0 ? 0 : position(heap))))
     n == 0 && return
@@ -203,7 +222,7 @@ function verifydata(::Type{Bintable}, data::Union{NamedTuple, AbstractVector{<:N
     M, N = format.shape[1], format.shape[2]
     variable = [field for field in fields if !isnothing(field.pntr)]
     isempty(variable) && return
-    needed = sum(length(getcell(Bintable, data, field, j)) * heapelementsize(field.type) for j = 1:N for field in variable)
+    needed = sum(heapbytes(field, getcell(Bintable, data, field, j)) for j = 1:N for field in variable; init = 0)
     available = format.param - max(format.heap - M*N, 0)
     needed > available && throw(ArgumentError("The variable-length arrays of the data have $needed bytes, but PCOUNT " *
         "$(format.param) and THEAP $(format.heap) leave $available bytes for the heap (Sect. 7.3.5)."))
@@ -221,6 +240,7 @@ function verify!(::Type{Bintable}, cards::Cards, mankeys::AbstractDict, reskeys:
     cards = invoke(verify!, Tuple{Type{<:AbstractHDU}, Cards, AbstractDict, AbstractDict}, Bintable, cards,
         mankeys, reskeys)
     verifyrows(Bintable, mankeys)
+    verifysize(Bintable, mankeys)
     #  PCOUNT is the number of bytes of the heap and the gap, and there is a single table (Sect. 7.3.1)
     verifyvalue(mankeys, "PCOUNT", 0:typemax(Int), "non-negative")
     verifyvalue(mankeys, "GCOUNT", 1:1, "the integer 1")
@@ -439,8 +459,13 @@ offsetof(type::Type) = haskey(RAWTYPE, type) ? OFFSETTYPE[RAWTYPE[type]][2] : 0.
 columnsof(data::AbstractArray) = [(record[j] for record in data) for j = 1:length(data[1])]
 columnsof(data::Union{Tuple, NamedTuple}) = [data[j] for j = 1:length(data)]
 
-#  The number of bytes of a value of an array in the heap
-heapelementsize(type::Type) = type <: Bool ? 1 : sizeof(type)
+#  The number of bytes of a value of an array in the heap, which is a byte for a character
+heapelementsize(type::Type) = type <: Union{Bool, AbstractString} ? 1 : sizeof(type)
+
+#  The number of bytes of the variable-length array `cell` of a field in the heap: the characters of a string, the bits of a bit array
+#  in whole bytes, or the elements of an array
+heapbytes(field::BinaryField, cell) = field.type <: AbstractString ? ncodeunits(cell) :
+    field.type <: BitVector ? sizeofbitvector(length(cell)) : length(cell) * heapelementsize(field.type)
 
 #  The type, the number of elements, the bytes in a row, the type of the array descriptor, the largest number of elements of a
 #  variable-length array, and the bytes of the heap of a field from the cells `values` of its column. The cells that are arrays of
@@ -693,7 +718,64 @@ function Base.read(io::IO, field::BinaryField, format::DataFormat,
         column = nullcomplex(setmissing(column, field.null))
         column = scale ? physical(column, type, field.scale, field.zero) : column
     end
-    applydims(column, field)
+    scalefloats(applydims(column, field), field, scale)
+end
+
+#  Are the physical values of a field the same type as its stored values, which are floating-point or complex? They are if the field is
+#  scaled by a TSCAL that is not 1 or a TZERO that is not 0 (Eq. 7). The values do not say that they are scaled, so they are a
+#  `ScaledArray`, which has the scale and the zero, and is written as the stored values.
+physicalfloat(field::BinaryField) = !isnothing(field.scale) && field.type <: Union{AbstractFloat, Complex} &&
+    !(field.scale == 1 && field.zero == 0)
+
+function scalefloats(column, field::BinaryField, scale::Bool)
+    scale && physicalfloat(field) || return column
+    isnothing(field.pntr) ? ScaledArray(column, field.scale, field.zero) :
+        map(cell -> ScaledArray(cell, field.scale, field.zero), column)
+end
+
+"""
+    ScaledTable(records, scales)
+
+The records of a binary table (`record = true`) that has fields of floating-point or complex stored values that are scaled by a TSCALn and a
+TZEROn. The values of those fields are the physical values (see [`ScaledArray`](@ref)), which the dictionary `scales` has the scale and the
+zero of, by the name of the field, and are written as the stored values. The records are the values of `parent`.
+"""
+struct ScaledTable{R, V<:AbstractVector{R}} <: AbstractVector{R}
+    parent::V
+    scales::Dict{Symbol, Tuple{Any, Any}}
+end
+
+Base.parent(table::ScaledTable) = table.parent
+Base.size(table::ScaledTable) = size(table.parent)
+Base.IndexStyle(::Type{<:ScaledTable}) = IndexLinear()
+Base.getindex(table::ScaledTable, i::Int) = table.parent[i]
+Base.setindex!(table::ScaledTable, value, i::Int) = (table.parent[i] = value; table)
+Base.copy(table::ScaledTable) = ScaledTable(copy(table.parent), table.scales)
+
+#  The scale and the zero of a field of the data, if its values are the physical values of floating-point stored values, and nothing if they are
+#  the stored values
+physicalscale(data::NamedTuple, field::BinaryField) = (column = data[Symbol(field.name)];
+    column isa ScaledArray ? (column.scale, column.zero) : nothing)
+physicalscale(data::ScaledTable, field::BinaryField) = get(data.scales, Symbol(field.name), nothing)
+physicalscale(data, field::BinaryField) = nothing
+
+#  The TSCALn and TZEROn cards of the fields that are the physical values of floating-point stored values, which have the scale and the zero of
+#  the data
+function scalecards!(::Type{Bintable}, cards::Cards, data::NamedTuple)
+    for (j, column) in enumerate(data)
+        column isa ScaledArray || continue
+        setscalecard!(cards, "TSCAL$j", column.scale, 1)
+        setscalecard!(cards, "TZERO$j", column.zero, 0)
+    end
+    cards
+end
+function scalecards!(::Type{Bintable}, cards::Cards, data::ScaledTable)
+    for (j, name) in enumerate(keys(data[1]))
+        haskey(data.scales, name) || continue
+        setscalecard!(cards, "TSCAL$j", data.scales[name][1], 1)
+        setscalecard!(cards, "TZERO$j", data.scales[name][2], 0)
+    end
+    cards
 end
 
 #  The dimensions of an array of strings, which are the dimensions TDIMn if there is more than one and they hold no more characters
@@ -752,14 +834,29 @@ end
 
 #  The stored values of the physical values of a cell: the values of the offsets of Table 19 have the offset, and the values that are
 #  not of the type of the field are inverted from the scale and the zero (Eq. 7), as the values of an array of an image are
-function storedcell(field::BinaryField, value; check::Bool = true)
+function storedcell(field::BinaryField, value; check::Bool = true, physical = nothing)
+    #  The values of the data that are the physical values of floating-point stored values are inverted, if the data have the scale and the
+    #  zero of the header
+    if !isnothing(physical) && !isnothing(field.scale)
+        physical == (field.scale, field.zero) || throw(ArgumentError("The scale and the zero of the data of field $(field.name), " *
+            "$(physical[1]) and $(physical[2]), are not the TSCAL and the TZERO of the header, $(field.scale) and $(field.zero)."))
+        return invertscale(value, field.type, field.scale, field.zero)
+    end
     (isnothing(field.scale) || field.type <: Union{Bool, BitVector, AbstractString} ||
         (field.scale == 1 && field.zero == 0 && !haskey(OFFSETTYPE, field.type))) && return value
     stored(values) = storedvalues(values, field.type, field.scale, field.zero, field.null; check)
     value isa AbstractArray ? stored(value) : only(stored([value]))
 end
 
-function Base.write(io::IO, field::BinaryField, value::U; check::Bool = true, kwds...) where
+#  The stored values (value - TZERO)/TSCAL of the physical values of floating-point or complex values (Eq. 7), whose undefined values are missing
+function invertscale(values, type::Type, scale::Real, zero::Real)
+    scale == 0 && throw(ArgumentError("The values cannot be written as stored values, since TSCAL is 0."))
+    wide(x) = x isa Complex ? ComplexF64(x) : Float64(x)
+    stored(x) = ismissing(x) ? missing : type((wide(x) - wide(zero)) / wide(scale))
+    values isa AbstractArray ? map(stored, values) : stored(values)
+end
+
+function Base.write(io::IO, field::BinaryField, value::U; check::Bool = true, physical = nothing, kwds...) where
     U <: Union{AbstractArray, AbstractString, BitVector, Real, Complex, Missing}
 
     type, leng = field.type, field.leng
@@ -773,7 +870,7 @@ function Base.write(io::IO, field::BinaryField, value::U; check::Bool = true, kw
     type <: Bool && return leng == 0 ? 0 : write(io, padelements(encodelogical.(value), leng, 0x00))
     #  The stored values of the physical values, and the undefined values, which are written as TNULLn (Sect. 7.3.2), or NaN for
     #  floating-point data
-    value = unsetmissing(storedcell(field, value; check), field.null, type)
+    value = unsetmissing(storedcell(field, value; check, physical), field.null, type)
 
     if type <: AbstractString && value isa AbstractArray
         #  The strings of an array of strings are the characters of the field in order, with the number of characters of the first
@@ -885,6 +982,15 @@ function verifyrows(::Type{Bintable}, mankeys::AbstractDict)
 	verifyvalue(mankeys, "BITPIX", 8:8, "the integer 8")
 	verifyvalue(mankeys, "NAXIS", 2:2, "the integer 2")
 	verifyaxes(mankeys)
+end
+
+#  The bytes of the table, NAXIS1 × NAXIS2, and the bytes of the heap, PCOUNT, are at most the largest integer, so that the data can be read
+#  and indexed (Sect. 7.3.1)
+function verifysize(::Type{Bintable}, mankeys::AbstractDict)
+    nbytes = BigInt(get(mankeys, "NAXIS1", 0)) * BigInt(get(mankeys, "NAXIS2", 0)) + BigInt(get(mankeys, "PCOUNT", 0))
+    nbytes > typemax(Int) && throw(ArgumentError("The table is too large: NAXIS1 × NAXIS2 + PCOUNT, " *
+        "$(get(mankeys, "NAXIS1", 0)) × $(get(mankeys, "NAXIS2", 0)) + $(get(mankeys, "PCOUNT", 0)) bytes, is more than " *
+        "$(typemax(Int)) bytes."))
 end
 
 """
