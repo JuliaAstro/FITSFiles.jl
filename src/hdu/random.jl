@@ -31,6 +31,31 @@ The elements of the array of integers that are the stored value of BLANK are `mi
 """
 struct Random <: AbstractHDU end
 
+#  The scale and the zero of the `j`th column of the array, which are those of the array if they are numbers
+scaleof(array::ScaledArray, j::Integer = 1) = array.scale isa AbstractVector ? array.scale[j] : array.scale
+zeroof(array::ScaledArray, j::Integer = 1) = array.zero isa AbstractVector ? array.zero[j] : array.zero
+
+"""
+	ScaledRecords(records, scales, zeros)
+
+The records of random groups (`record = true`) whose values are the physical values of floating-point stored values (see
+[`ScaledArray`](@ref)): the parameters and the array of each record, which have the type of the stored values, and are written as the
+stored values. The vectors `scales` and `zeros` have the PSCALn and PZEROn of the parameters, and the BSCALE and BZERO of the array,
+in order. The records are the values of `parent`.
+"""
+struct ScaledRecords{R, V<:AbstractVector{R}, S<:AbstractVector, Z<:AbstractVector} <: AbstractVector{R}
+	parent::V
+	scales::S
+	zeros::Z
+end
+
+Base.parent(records::ScaledRecords) = records.parent
+Base.size(records::ScaledRecords) = size(records.parent)
+Base.IndexStyle(::Type{<:ScaledRecords}) = IndexLinear()
+Base.getindex(records::ScaledRecords, i::Int) = records.parent[i]
+Base.setindex!(records::ScaledRecords, value, i::Int) = (records.parent[i] = value; records)
+Base.copy(records::ScaledRecords) = ScaledRecords(copy(records.parent), records.scales, records.zeros)
+
 #  Random groups are tried before the Primary HDU and the Bintable HDU, whose data and header they also fit. The data are records
 #  whose last element, the data of a group, is an array of 2 or more dimensions, and the header has GROUPS = T and NAXIS1 = 0.
 detectpriority(::Type{Random}) = 1

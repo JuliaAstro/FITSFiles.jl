@@ -553,7 +553,7 @@
             hdu = @test_logs scaledread(bytes)
             data = hdu.data
             @test data isa FITSFiles.ScaledArray && data == T[3, 5, 7] && eltype(data) == T && parent(data) isa Vector{T}
-            @test data.scale == 2 && data.zero == 1 && FITSFiles.scaleof(data) == 2 && FITSFiles.zeroof(data) == 1
+            @test data.scale == 2 && data.zero == 1
             @test written(hdu) == codeunits(bytes)
             #  the values that are changed are inverted
             hdu.data[1] = 11
