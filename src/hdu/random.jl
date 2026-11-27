@@ -512,7 +512,7 @@ function createcards!(::Type{Random}, format::DataFormat,
     #  Include PTYPE cards if any value is not an empty string
     named = any(!isempty(field.name) for field in fields[1:P])
     ptype = named ? ["PTYPE$j" => String(fields[j].name) for j = 1:P] : Pair{String, Any}[]
-    offsetcards!(arrangecards!(cards, ["SIMPLE" => true; shapekeys(format; first = 2);
+    offsetcards!(arrangecards!(cards, ["SIMPLE" => true; shapekeys(Random, format);
         "GROUPS" => true; "PCOUNT" => P; "GCOUNT" => format.group; ptype]), fields)
 end
 
@@ -597,4 +597,11 @@ function verifyblank(::Type{Random}, mankeys::AbstractDict, reskeys::AbstractDic
     verifyinteger(reskeys, r"^BLANK$")
     haskey(reskeys, "BLANK") && get(mankeys, "BITPIX", 8) < 0 && @warn "BLANK is for integer data " *
         "(a positive BITPIX) only (Sect. 4.4.2.5), so it is not used."
+end
+
+#  The keywords BITPIX and NAXIS, and NAXISn of the shape of the data of random groups, whose NAXIS1 is 0, and whose axes begin at NAXIS2
+function shapekeys(::Type{Random}, format::DataFormat)
+    required = Pair{String, Any}["BITPIX" => TYPE2BITS[format.type], "NAXIS" => length(format.shape) + 1, "NAXIS1" => 0]
+    for (j, n) in enumerate(format.shape) push!(required, "NAXIS$(j+1)" => n) end
+    required
 end

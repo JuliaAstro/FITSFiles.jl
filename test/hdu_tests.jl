@@ -259,28 +259,32 @@
         naxis2 = Card("NAXIS2", 3, "rows")
         cards = Card{<:Any}[Card("COMMENT", "text"), naxis2, Card("EXTRA", 1.5),
             Card("BITPIX", 16), Card("END")]
-        kards = FITSFiles.arrangecards!(cards, ["SIMPLE" => true; FITSFiles.shapekeys(format)])
+        kards = FITSFiles.arrangecards!(cards, ["SIMPLE" => true; FITSFiles.shapekeys(Primary, format)])
         @test [c.key for c in kards] == ["SIMPLE", "BITPIX", "NAXIS", "NAXIS1", "NAXIS2", "COMMENT", "EXTRA"]
         @test (kards[1].value, kards[2].value, kards[3].value, kards[4].value, kards[5].value) ==
             (true, 16, 2, 2, 3)
         @test kards[5].comment == "rows" && kards[5] === naxis2
 
         #  the keys of the shape begin at NAXIS2 for random groups, whose NAXIS1 is 0
-        @test FITSFiles.shapekeys(format) == ["BITPIX" => 16, "NAXIS" => 2, "NAXIS1" => 2, "NAXIS2" => 3]
-        @test FITSFiles.shapekeys(format; first = 2) ==
+        for type in (Primary, Image, FITSFiles.Conform)
+            @test FITSFiles.shapekeys(type, format) == ["BITPIX" => 16, "NAXIS" => 2, "NAXIS1" => 2, "NAXIS2" => 3]
+            @test FITSFiles.shapekeys(type, FITSFiles.DataFormat(Float32, 1, (), 0, 1, 0)) == ["BITPIX" => -32, "NAXIS" => 0]
+        end
+        @test FITSFiles.shapekeys(Random, format) ==
             ["BITPIX" => 16, "NAXIS" => 3, "NAXIS1" => 0, "NAXIS2" => 2, "NAXIS3" => 3]
-        @test FITSFiles.shapekeys(FITSFiles.DataFormat(Float32, 1, (), 0, 1, 0)) == ["BITPIX" => -32, "NAXIS" => 0]
+        @test FITSFiles.shapekeys(Random, FITSFiles.DataFormat(Float32, 1, (), 0, 1, 0)) ==
+            ["BITPIX" => -32, "NAXIS" => 1, "NAXIS1" => 0]
 
         #  the keys of a table are the length of a row and the number of rows, or zero
         table = FITSFiles.DataFormat(UInt8, 12, (4, 3), 0, 1, 0)
-        @test FITSFiles.tablekeys("TABLE", table, 2) == ["XTENSION" => "TABLE", "BITPIX" => 8, "NAXIS" => 2,
+        @test FITSFiles.tablekeys(Table, table, 2) == ["XTENSION" => "TABLE", "BITPIX" => 8, "NAXIS" => 2,
             "NAXIS1" => 4, "NAXIS2" => 3, "PCOUNT" => 0, "GCOUNT" => 1, "TFIELDS" => 2]
-        @test FITSFiles.tablekeys("BINTABLE", format, 0)[4:5] == ["NAXIS1" => 2, "NAXIS2" => 3]
-        @test FITSFiles.tablekeys("BINTABLE", FITSFiles.DataFormat(UInt8, 0, (), 0, 1, 0), 0)[4:5] ==
+        @test FITSFiles.tablekeys(Bintable, format, 0)[4:5] == ["NAXIS1" => 2, "NAXIS2" => 3]
+        @test FITSFiles.tablekeys(Bintable, FITSFiles.DataFormat(UInt8, 0, (), 0, 1, 0), 0)[4:5] ==
             ["NAXIS1" => 0, "NAXIS2" => 0]
 
         #  the extension type is padded to 8 characters by the card, as the standard requires
-        kards = FITSFiles.arrangecards!(Card{<:Any}[], FITSFiles.tablekeys("TABLE", table, 0))
+        kards = FITSFiles.arrangecards!(Card{<:Any}[], FITSFiles.tablekeys(Table, table, 0))
         @test kards[1].value == "TABLE   " && length(kards) == 8
 
         #  the types of HDU: the first card is SIMPLE or XTENSION, and the random group cards are in order

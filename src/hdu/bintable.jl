@@ -372,7 +372,7 @@ end
 function createcards!(::Type{Bintable}, format::DataFormat,
     fields::Vector{BinaryField}, cards::Cards; kwds...)
 
-    required = tablekeys("BINTABLE", format, length(fields))
+    required = tablekeys(Bintable, format, length(fields))
     #  Include TTYPE cards if any name is not an empty string
     named = any(!isempty(field.name) for field in fields)
     for (j, field) in enumerate(fields)
@@ -622,4 +622,11 @@ function verifyfields!(::Type{Bintable}, cards::Cards, mankeys::AbstractDict)
 			@warn "$key is beyond TFIELDS $N, and is not used."
 	end
 	cards
+end
+
+#  The keywords of a binary table extension from XTENSION to TFIELDS, where the shape is the length of a row and the number of rows
+function tablekeys(::Type{Bintable}, format::DataFormat, nfields::Integer)
+	M, N = length(format.shape) == 2 ? format.shape : (0, 0)
+	Pair{String, Any}["XTENSION" => "BINTABLE", "BITPIX" => 8, "NAXIS" => 2, "NAXIS1" => M,
+		"NAXIS2" => N, "PCOUNT" => 0, "GCOUNT" => 1, "TFIELDS" => nfields]
 end

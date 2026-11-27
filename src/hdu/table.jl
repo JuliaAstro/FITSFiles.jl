@@ -276,7 +276,7 @@ end
 function createcards!(::Type{Table}, format::DataFormat,
     fields::Vector{TableField}, cards::Cards; kwds...)
 
-    required = tablekeys("TABLE", format, length(fields))
+    required = tablekeys(Table, format, length(fields))
     for (j, field) in enumerate(fields)
         push!(required, "TFORM$j" => field.form, "TBCOL$j" => first(field.slice))
     end
@@ -403,4 +403,11 @@ function verifyfields!(::Type{Table}, cards::Cards, mankeys::AbstractDict)
 			@warn "$key is beyond TFIELDS $N, and is not used."
 	end
 	cards
+end
+
+#  The keywords of a ASCII table extension from XTENSION to TFIELDS, where the shape is the length of a row and the number of rows
+function tablekeys(::Type{Table}, format::DataFormat, nfields::Integer)
+	M, N = length(format.shape) == 2 ? format.shape : (0, 0)
+	Pair{String, Any}["XTENSION" => "TABLE", "BITPIX" => 8, "NAXIS" => 2, "NAXIS1" => M,
+		"NAXIS2" => N, "PCOUNT" => 0, "GCOUNT" => 1, "TFIELDS" => nfields]
 end

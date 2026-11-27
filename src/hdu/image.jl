@@ -74,7 +74,7 @@ function createcards!(::Type{Image}, format::DataFormat,
     fields::AbstractField, cards::Cards; kwds...)
 
     #  The mandatory keywords are XTENSION, BITPIX, NAXIS, the NAXISn, PCOUNT of 0, and GCOUNT of 1 (Sect. 7.1.1)
-    offsetcards!(arrangecards!(cards, ["XTENSION" => "IMAGE"; shapekeys(format); "PCOUNT" => 0; "GCOUNT" => 1]), fields)
+    offsetcards!(arrangecards!(cards, ["XTENSION" => "IMAGE"; shapekeys(Image, format); "PCOUNT" => 0; "GCOUNT" => 1]), fields)
 end
 
 """
@@ -235,4 +235,11 @@ end
 function scalecards!(::Type{Image}, cards::Cards, data::ScaledArray)
     setscalecard!(cards, "BSCALE", data.scale, 1)
     setscalecard!(cards, "BZERO", data.zero, 0)
+end
+
+#  The keywords BITPIX and NAXIS, and NAXISn of the shape of the data of an IMAGE extension
+function shapekeys(::Type{Image}, format::DataFormat)
+    required = Pair{String, Any}["BITPIX" => TYPE2BITS[format.type], "NAXIS" => length(format.shape)]
+    for (j, n) in enumerate(format.shape) push!(required, "NAXIS$j" => n) end
+    required
 end

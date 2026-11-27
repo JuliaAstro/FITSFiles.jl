@@ -60,7 +60,7 @@ FieldFormat(::Type{Conform}, format::DataFormat, reskeys::AbstractDict, data::Un
 function createcards!(::Type{Conform}, format::DataFormat,
     fields::ConformField, cards::Cards; kwds...)
 
-    arrangecards!(cards, ["SIMPLE" => true; shapekeys(format)])
+    arrangecards!(cards, ["SIMPLE" => true; shapekeys(Conform, format)])
 end
 
 function createdata(::Type{Conform}, format::DataFormat, fields::ConformField;
@@ -134,4 +134,11 @@ function DataFormat(::Type{Conform}, data::Missing, mankeys::Dict{S, V}) where
     leng  = get(mankeys, "NAXIS", 0) > 0 ? group * (param + prod(shape)) : 0
     heap  = param > 0 ? get(mankeys, "THEAP", 0) : 0
     DataFormat(type, leng, shape, param, group, heap)
+end
+
+#  The keywords BITPIX and NAXIS, and NAXISn of the shape of the data of a Conform HDU
+function shapekeys(::Type{Conform}, format::DataFormat)
+    required = Pair{String, Any}["BITPIX" => TYPE2BITS[format.type], "NAXIS" => length(format.shape)]
+    for (j, n) in enumerate(format.shape) push!(required, "NAXIS$j" => n) end
+    required
 end

@@ -456,25 +456,6 @@ function arrangecards!(cards::Cards, required)
 	append!(kards, cards)
 end
 
-#  The keywords BITPIX and NAXIS, and NAXISn of the shape of the data. The axes begin at NAXIS`first`,
-#  which is 2 for random groups, where NAXIS1 is 0.
-function shapekeys(format::DataFormat; first::Integer = 1)
-	required = Pair{String, Any}["BITPIX" => TYPE2BITS[format.type],
-		"NAXIS" => length(format.shape) + first - 1]
-	first == 2 && push!(required, "NAXIS1" => 0)
-	for (j, n) in enumerate(format.shape) push!(required, "NAXIS$(j+first-1)" => n) end
-	required
-end
-
-#  The keywords of a table extension from XTENSION to TFIELDS, where the shape is the length of a row
-#  and the number of rows.
-function tablekeys(xtension::AbstractString, format::DataFormat, nfields::Integer)
-	M, N = length(format.shape) == 2 ? format.shape : (0, 0)
-	Pair{String, Any}["XTENSION" => xtension, "BITPIX" => 8, "NAXIS" => 2, "NAXIS1" => M,
-		"NAXIS2" => N, "PCOUNT" => 0, "GCOUNT" => 1, "TFIELDS" => nfields]
-end
-
-
 function getreservedkeys(cards::Cards)
 	mankeys = Dict{AbstractString, ValueType}()
 	reskeys = Dict{AbstractString, ValueType}()
