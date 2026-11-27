@@ -78,10 +78,6 @@ const TYPE2BITS = Dict(UInt8 => 8, Int16 => 16, Int32 => 32, Int64 => 64,
 const BITPIXVALUES = (8, 16, 32, 64, -32, -64)
 const MAXAXES = 999
 
-const OUTTYPE  = Dict(
-    UInt8 => Float32, Int16 => Float32, Int32 => Float64, Int64 => Float64,
-    Float32 => Float32, Float64 => Float64)
-
     #  Combine XTENSION values in card.jl and hdu.jl. The trailing spaces of a value are not
     #  significant, so the keys are not padded.
 #  The XTENSION value is padded to 8 characters.
@@ -604,32 +600,11 @@ function typeofhdu(data::U, mankeys::Dict{S, V}) where
 	end
 	type
 end
-#=
-function compressed(type::Type{<:AbstractHDU}, mankeys::Dict{S, V}) where
-	{S<:AbstractString, V<:ValueType}
-	if type == Bintable
-		if get(mankeys, "ZIMAGE", false)
-			type = ZImage
-		elseif get(mankeys, "ZTABLE", false)
-			type = ZTable
-		end
-	end
-	type
-end
-=#
 basetype(T) = Base.typename(T).wrapper
 
 parsestring(value) = value isa String ? parsenumber(value) : value
 
 ####    Array-like Functions
-
-datatype(data::AbstractArray) = eltype(data)
-datadims(data::AbstractArray) = ndims(data)
-datasize(data::AbstractArray) = size(data)
-databytes(data::AbstractArray) = eltype(data)*length(data)
-datalength(data::AbstractArray) = length(data)
-
-datadims(mankeys::Dict) = mankeys["NAXIS"]
 
 function datasize(mankeys::Dict, start::Integer = 1)
 	#  Determine the shape of the array
@@ -651,18 +626,6 @@ function datasize(cards::Cards, start::Integer = 1)
 	#  Determine the shape of the array
 	N = datadims(cards)
 	N > 0 ? Tuple(cards["NAXIS$j"] for j ∈ start:N) : ()
-end
-
-function databytes(cards::Cards, start::Integer = 1)
-	#  Calculate the number of bytes of data
-	N, G, P = cards["NAXIS"], get(cards, "GCOUNT", 1), get(cards, "PCOUNT", 0)
-	N > 0 ? sizeof(datatype(cards)) * G * (P + prod(datasize(cards, start))) : 0
-end
-
-function datalength(cards::Cards, start::Integer = 1)
-	#  Calculate the number of elements in the array
-	N, G, P = cards["NAXIS"], get(cards, "GCOUNT", 1), get(cards, "PCOUNT", 0)
-	N > 0 ? G * (P + prod(datasize(cards, start))) : 0
 end
 
 ####    Generic IO Functions
@@ -696,44 +659,6 @@ function padblock(io::IO, format::DataFormat, pad::UInt8 = 0x00)
 	Base.write(io, fill(pad, nbloks*BLOCKLEN-N))
 end
 
-####    Reserved Keywords
-#=
-function parsegeneral(cards::Cards)
-	date = get(cards, "DATE", missing)
-	orign = get(cards, "ORIGIN", missing)
-	xtend = get(cards, "EXTEND", missing)
-	blokd = get(cards, "BLOCKED", missing)
-end
-
-function parseobservatory(cards::Cards)
-	datobs = get(cards, "DATE-OBS", missing)
-	# datxxx = get(cards, "DATExxxx", missing)
-	telscp = get(cards, "TELESCOP", missing)
-	instru = get(cards, "INSTRUME", missing)
-	obsrvr = get(cards, "OBSERVER", missing)
-	object = get(cards, "OBJECT", missing)
-end
-
-function parsebiblio(cards::Cards)
-	author = get(cards, "AUTHOR", missing)
-	refern = get(cards, "REFERENC", missing)
-end
-
-function parseextension(cards::Cards)
-	xname  = get(cards, "EXTNAME", missing)
-	xver   = get(cards, "EXTVER", missing)
-	xlevel = get(cards, "EXTLEVEL", missing)
-	nherit = get(cards, "INHERIT", missing)
-end
-
-function parsechecksums(card::Cards)
-	datsum = get(cards, "DATASUM", missing)
-	chksum = get(cards, "CHECKSUM", missing)
-end
-
-function parsewcs(cards::Cards)
-end
-=#
 
 ####    Dictionary key behaviour functions for Cards
 
