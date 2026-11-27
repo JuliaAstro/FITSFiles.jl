@@ -136,9 +136,8 @@
         #  an axis of length 0 has no data blocks, so the data are the empty array
         @test mapdata(fits(newfile("empty.fits", [HDU(Primary, zeros(Int16, 3, 0))]))[1]) == zeros(Int16, 3, 0)
         #  the tables are not an array, which is an error that names the type
-        path = newfile("tables.fits", [HDU(Primary), HDU(Table, (a = [1, 2],)), HDU(Bintable, (a = Int32[1, 2],))])
+        path = newfile("tables.fits", [HDU(Primary), HDU(Table, (a = [1, 2],))])
         @test_throws ArgumentError("The data of an HDU of the type Table are not an array, so they cannot be mapped.") mapdata(fits(path)[2])
-        @test_throws ArgumentError("The data of an HDU of the type Bintable are not an array, so they cannot be mapped.") mapdata(fits(path)[3])
         #  the file must not have been modified since the HDU was read, or have fewer bytes than the header says
         path = newfile("verify.fits", [HDU(Primary, data)])
         hdu = fits(path)[1]
@@ -349,6 +348,101 @@
         sleep(0.05)
         touch(path)
         @test_throws ArgumentError r"has been modified since the HDU was read" bytesof([mapped])
+    end
+
+    ####    The binary tables, whose fields of numbers of a fixed number of elements are mapped    ####
+
+    @testset "Bintable" begin
+        function sametable(path, j = 2; kwds...)
+            mapped = mapdata(fits(path; kwds...)[j])
+            eager = fits(IOBuffer(read(path)); kwds...)[j].data
+            @test mapped isa NamedTuple && keys(mapped) == keys(eager)
+            for name in keys(eager)
+                if mapped[name] isa FITSFiles.MappedColumn || mapped[name] isa FITSFiles.ScaledArray
+                    compare(mapped[name], eager[name])
+                else
+                    @test isequal(mapped[name], eager[name]) && typeof(mapped[name]) == typeof(eager[name])
+                end
+            end
+            mapped, eager
+        end
+        bytesof(hdus; kwds...) = (io = IOBuffer(); write(io, hdus; kwds...); take!(io))
+        #  every type of number, of one value or of many in a row, and the arrays of the rows of the dimensions TDIMn
+        for type in (UInt8, Int16, Int32, Int64, Float32, Float64)
+            data = (one = type.(1:5), many = type.(reshape(1:15, 5, 3)), array = type.(reshape(1:30, 5, 2, 3)), cube = type.(reshape(1:120, 5, 2, 3, 4)))
+            mapped, eager = sametable(newfile("numbers.fits", [HDU(Primary), HDU(Bintable, data)]))
+            @test all(column -> column isa FITSFiles.MappedColumn, values(mapped))
+            @test size(mapped.one) == (5,) && size(mapped.many) == (5, 3) && size(mapped.array) == (5, 2, 3) && size(mapped.cube) == (5, 2, 3, 4)
+            @test mapped.array[3, 2, 3] === type(3 + 5 * (2 - 1) + 10 * (3 - 1)) && mapped.many[2, 3] === type(12) && mapped.one[5] === type(5)
+            @test mapped.cube[:, 1, 2, :] isa Matrix{type}
+            @test mapped.many[:, 2] == eager.many[:, 2] && mapped.many[2, :] == eager.many[2, :] && mapped.one[2:4] isa Vector{type}
+        end
+        #  the HDU is written as it is read, when all of its fields are mapped, and the data are not read to write them
+        path = newfile("rawtable.fits", [HDU(Primary), HDU(Bintable, (a = Int16[1, 2, 3], b = Float64[1.5 2.5; 3.5 4.5; 5.5 6.5]))])
+        hdus = fits(path; access = :mapped)
+        @test bytesof(hdus) == read(path) && bytesof(hdus; checksum = true) == bytesof(fits(path; access = :memory); checksum = true)
+        @test FITSFiles.lazysource(hdus[2].data) isa FITSFiles.LazyArray
+        @test_throws ArgumentError r"The data of HDU 2 are not read, and are read from .*rawtable\.fits" write(path, hdus)
+        @test read(path) == bytesof(hdus)
+        #  the scale, the offsets of Table 19, and the undefined values
+        cards = Card{<:Any}[Card("TZERO1", 32768), Card("TSCAL2", 0.5), Card("TZERO2", 1.0), Card("TNULL3", -1), Card("TSCAL4", 2.5), Card("TZERO4", 10.0),
+            Card("TSCAL5", 3.0), Card("TNULL5", 7), Card("TZERO6", -128)]
+        data = (a = Int16[-5, 0, 5], b = Int32[1, 2, 3], c = Int16[-1, 2, 3], d = Float32[1, 2, 3], e = Int64[1, 7, 9], f = UInt8[1, 2, 3])
+        path = newfile("scaled.fits", [HDU(Primary), HDU(Bintable, data, cards)])
+        for kwds in ((;), (; scale = false))
+            mapped, eager = sametable(path; kwds...)
+            @test (mapped.d isa FITSFiles.ScaledArray) == !haskey(kwds, :scale) && mapped.c isa FITSFiles.MappedColumn
+        end
+        @test bytesof(fits(path; access = :mapped)) == read(path) && bytesof(fits(path; access = :mapped, scale = false)) == read(path)
+        #  the undefined values are missing, in the values and in the slices
+        mapped = fits(path; access = :mapped)[2].data
+        @test eltype(mapped.c) == Union{Missing, Int16} && ismissing(mapped.c[1]) && mapped.c[2] === Int16(2) && ismissing(mapped.c[1:2][1])
+        @test ismissing(mapped.e[2]) && mapped.e[3] === 27.0 && ismissing(mapped.e[1:3][2])
+        #  the fields that are not mapped are read at once: the logicals, the bits, the characters, the arrays of variable length, and the complex numbers
+        data = (a = Int32[1, 2, 3, 4], l = [true, false, true, true], bits = [BitVector([1, 0, 1]) for _ in 1:4], name = ["x", "yy", "z", "w"],
+            v = [Int16[1], Int16[1, 2], Int16[], Int16[4, 5, 6]], z = ComplexF32[1 + 2im, 3, 4, 5im], b = Float64[1, 2, 3, 4])
+        path = newfile("mixed.fits", [HDU(Primary), HDU(Bintable, data)])
+        mapped, eager = sametable(path)
+        @test mapped.a isa FITSFiles.MappedColumn && mapped.b isa FITSFiles.MappedColumn
+        @test !(mapped.l isa FITSFiles.MappedColumn) && !(mapped.name isa FITSFiles.MappedColumn) && !(mapped.v isa FITSFiles.MappedColumn) &&
+            !(mapped.z isa FITSFiles.MappedColumn)
+        #  and then the HDU is written as the values are, and the file that has the mapped fields is not written
+        hdus = fits(path; access = :mapped)
+        @test isnothing(FITSFiles.lazysource(hdus[2].data)) && FITSFiles.filesource(hdus[2].data) isa FITSFiles.LazyArray
+        @test bytesof(hdus) == bytesof(fits(path; access = :memory))
+        @test_throws ArgumentError r"The data of HDU 2 are not read, and are read from .*mixed\.fits" write(path, hdus)
+        other = joinpath(dir, "mixed2.fits")
+        write(other, hdus)
+        @test bytesof(fits(other; access = :memory)) == bytesof(fits(path; access = :memory))
+        #  a table that has no mapped fields has the fields that are read
+        path = newfile("strings.fits", [HDU(Primary), HDU(Bintable, (name = ["a", "bb"], flag = [true, false]))])
+        mapped, eager = sametable(path)
+        @test mapped.name == eager.name && !any(column -> column isa FITSFiles.MappedColumn, values(mapped))
+        #  the dimensions TDIMn that have more elements than the field, which are warned of and not used, as they are read
+        path = newfile("dims.fits", [HDU(Primary), HDU(Bintable, (a = Int16.(reshape(1:12, 4, 3)),), Card{<:Any}[Card("TDIM1", "(2,3)")])])
+        mapped = @test_logs (:warn, r"TDIM of field a") match_mode = :any mapdata(fits(path)[2])
+        @test size(mapped.a) == (4, 3) && mapped.a == fits(IOBuffer(read(path)))[2].data.a
+        #  the values of the bounds and of the changes, and the records are not mapped
+        mapped = fits(path; access = :mapped)[2].data
+        @test_throws BoundsError mapped.a[5, 1]
+        @test_throws BoundsError mapped.a[1, 4]
+        @test_throws BoundsError mapped.a[0]
+        @test_throws BoundsError mapped.a[1:5, 1]
+        @test_throws ArgumentError r"A mapped field of the data of an HDU is read-only" mapped.a[1] = 0
+        @test copy(mapped.a) isa Matrix{Int16} && copy(mapped.a) == collect(mapped.a) && mapped.a[2] === Int16(2)
+        @test getfield(fits(path; access = :mapped, record = true)[2], :data) isa FITSFiles.LazyArray
+        @test_throws ArgumentError("The data of a binary table that are records cannot be mapped.") mapdata(fits(path; record = true)[2])
+        #  the values of a row are those of the file, without the allocation of the array of a value
+        path = newfile("alloc.fits", [HDU(Primary), HDU(Bintable, (a = Int32[1, 2, 3], b = Float32[1 2; 3 4; 5 6]))])
+        hdus = fits(path; access = :mapped)
+        mapped = hdus[2].data
+        allocated1(x) = (x[2]; @allocated x[2])
+        allocated2(x) = (x[2, 2]; @allocated x[2, 2])
+        @test allocated1(mapped.a) < 200 && allocated2(mapped.b) < 200
+        #  the file that was modified after the HDU was read is an error
+        sleep(0.05)
+        touch(path)
+        @test_throws ArgumentError r"has been modified since the HDU was read" bytesof(hdus)
     end
 
 end

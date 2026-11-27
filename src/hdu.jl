@@ -295,8 +295,10 @@ The data array of an HDU that is read from a file, memory-mapped, so that the va
 file is not read at once. It is an `AbstractArray` of the values that `hdu.data` is, of the same type and with the same scale, and has the same size, e.g., a
 [`FITSFiles.ScaledArray`](@ref) of the values of floating-point stored values that have a BSCALE and a BZERO. It is for the primary HDU, the IMAGE
 extension, and the conforming HDU, i.e., for the data of an array, and for random groups, whose data are a `NamedTuple` of the mapped parameters and
-array (for repeated names a matrix of the parameters), which are read by the group and not by the file, and an error for the data of another type of
-HDU, or of random groups that are records. The data of the HDUs of a file are mapped when it is read by the keyword `access = :mapped` of
+array (for repeated names a matrix of the parameters), which are read by the group and not by the file, and for binary tables, whose data are a
+`NamedTuple` of the columns, the fields of numbers of a fixed number of elements (not complex numbers) of which are mapped, by the row and the element
+of the row, and the other fields, which are logicals, bits, characters, arrays of variable length, and complex numbers, are read at once. It is an error
+for the data of another type of HDU, and for random groups and binary tables that are records. The data of the HDUs of a file are mapped when it is read by the keyword `access = :mapped` of
 [`fits`](@ref) and `read(io, HDU)`, so that `hdu.data` is the mapped array.
 
 Slices, e.g., `array[1:100, 5, :]`, and `collect(array)` read the values at once, but each value of an array that is read by value is read with a function
@@ -330,6 +332,17 @@ function lazysource(data::NamedTuple)
 	!isnothing(source) && all(value -> lazysource(value) === source, data) ? source : nothing
 end
 
+#  The lazy array that some of the data of an HDU are read from, which the file of must not be written, which is the source of the data, or of any of
+#  the arrays of named data, e.g., the mapped fields of a binary table that has fields that are read at once
+filesource(data) = lazysource(data)
+function filesource(data::NamedTuple)
+	for value in data
+		source = lazysource(value)
+		isnothing(source) || return source
+	end
+	nothing
+end
+
 function Base.getproperty(hdu::HDU, name::Symbol)
 	if name === :data && getfield(hdu, :data) isa LazyArray
 		desc = getfield(hdu, :data)
@@ -358,8 +371,8 @@ and a warning says if it is not (see [`verifyfill`](@ref)).
 - `access::Symbol=:lazy`: how the data of an HDU that is read from a file are accessed. `:lazy` is the default: the file is scanned without reading
   the data, which are read when `hdu.data` is accessed, as an ordinary array that can be changed. `:memory` reads the data at once. `:mapped` maps
   the data of the primary HDU, an IMAGE extension, a conforming HDU, and random groups that are not records in memory (see [`mapdata`](@ref)), so that
-  `hdu.data` is a read-only array (for random groups, of arrays) that reads only the values that are indexed from the file, and the data of the other
-  types of HDU are lazy. The file must not be modified while
+  `hdu.data` is a read-only array (for random groups and binary tables, of arrays) that reads only the values that are indexed from the file, and the
+  data of the other types of HDU are lazy. The fields of a binary table that are not fixed-width numbers are read at once. The file must not be modified while
   its data are lazy or mapped. A stream that is not a file is read at once, and `:mapped` is an error for it.
 - `type=nothing`: the HDU type, e.g., `Image`, which is otherwise determined by the mandatory
   keywords of the header
