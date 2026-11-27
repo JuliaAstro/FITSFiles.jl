@@ -153,11 +153,11 @@
                     "GCOUNT  =                    1                                                  "),
                    ("BZERO", 1.0f0, "",
                     "BZERO   =                  1.0                                                  "),
-                   ("BSCALE", 0.1f0, "",
+                   ("BSCALE", 0.1, "",
                     "BSCALE  =                  0.1                                                  ")])
 
     @test (ndims(hdu.data) == 2 && size(hdu.data) == (3, 3) && length(hdu.data) == 9 &&
-           eltype(hdu.data) == Float64 && all(isapprox.(hdu.data, 1.1f0)))
+           eltype(hdu.data) == Float64 && all(hdu.data .== 1.1))
 
     #  test Image type with scale == false
     data = ones(Int32, (3,3))
@@ -191,7 +191,7 @@
                     "GCOUNT  =                    1                                                  "),
                    ("BZERO", 1.0f0, "",
                     "BZERO   =                  1.0                                                  "),
-                   ("BSCALE", 0.1f0, "",
+                   ("BSCALE", 0.1, "",
                     "BSCALE  =                  0.1                                                  ")])
 
     @test (ndims(hdu.data) == 2 && size(hdu.data) == (3, 3) && length(hdu.data) == 9 &&
@@ -232,11 +232,11 @@
                     "GCOUNT  =                    1                                                  "),
                    ("BZERO", 1.0f0, "",
                     "BZERO   =                  1.0                                                  "),
-                   ("BSCALE", 0.1f0, "",
+                   ("BSCALE", 0.1, "",
                     "BSCALE  =                  0.1                                                  ")])
 
     @test (ndims(hdu.data) == 2 && size(hdu.data) == (3, 3) && length(hdu.data) == 9 &&
-           eltype(hdu.data) == Float64 && all(isapprox.(hdu.data, 1.1f0)))
+           eltype(hdu.data) == Float64 && all(hdu.data .== 1.1))
 
     rm(temppath)
 

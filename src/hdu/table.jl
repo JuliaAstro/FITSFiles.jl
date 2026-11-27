@@ -130,8 +130,9 @@ tablestring(keys::AbstractDict, key::AbstractString, default::AbstractString) =
 tablenumber(keys::AbstractDict, key::AbstractString) = get(keys, key, nothing) isa Real && !(get(keys, key, nothing) isa Bool) ?
     get(keys, key, nothing) : nothing
 
-#  The Float64 of a number of a header, which a card has as a Float32 if the Float32 has the digits of the number, e.g., 0.1f0 for 0.1, whose
-#  Float64 is not 0.1 but the number that has the digits of the Float32
+#  The Float64 of a number of a header. A card has a floating-point number as a Float32 only if it is exactly the number of its text, but the card of
+#  a Float32 that is made, e.g., Card("TSCAL1", 0.1f0), has the digits of the Float32, 0.1, whose Float64 is not 0.1, so the Float64 is that of the
+#  digits
 tablefloat(value::Real) = value isa Float32 ? Base.parse(Float64, string(value)) : Float64(value)
 
 #  The TZEROn of a field: an integer if the values of the field are exact integers, which an integer field has if TSCALn is 1 and TZEROn is an

@@ -242,37 +242,37 @@
     #  parse Value Card with complex 64-bit float value
     @test isequal(showfields(parse(Card,
                    "CPLX_F64= (8.1, 9.2)                                                            ")),
-                  ("CPLX_F64", 8.1f0 + 9.2f0im, "",
+                  ("CPLX_F64", 8.1 + 9.2im, "",
                    "CPLX_F64= (8.1, 9.2)                                                            "))
 
     #  parse Value Card with complex 64-bit float value
     @test isequal(showfields(parse(Card,
                    "CPLX_F64= (8.1, 9.2)           / a comment string                               ")),
-                  ("CPLX_F64", 8.1f0 + 9.2f0im, "a comment string",
+                  ("CPLX_F64", 8.1 + 9.2im, "a comment string",
                    "CPLX_F64= (8.1, 9.2)           / a comment string                               "))
 
     #  parse Value Card with complex 64-bit float and integer value
     @test isequal(showfields(parse(Card,
                    "CPLX_F64= (8.1, 9)                                                              ")),
-                  ("CPLX_F64", 8.1f0 + 9.0f0im, "",
+                  ("CPLX_F64", 8.1 + 9.0im, "",
                    "CPLX_F64= (8.1, 9)                                                              "))
 
     #  parse Value Card with complex 64-bit float and integer value
     @test isequal(showfields(parse(Card,
                    "CPLX_F64= (8.1, 9)             / a comment string                               ")),
-                  ("CPLX_F64", 8.1f0 + 9.0f0im, "a comment string",
+                  ("CPLX_F64", 8.1 + 9.0im, "a comment string",
                    "CPLX_F64= (8.1, 9)             / a comment string                               "))
 
     #  parse Value Card with complex integer and 64-bit float value
     @test isequal(showfields(parse(Card,
                    "CPLX_F64= (8, 9.2)                                                              ")),
-                  ("CPLX_F64", 8.0f0 + 9.2f0im, "",
+                  ("CPLX_F64", 8.0 + 9.2im, "",
                    "CPLX_F64= (8, 9.2)                                                              "))
 
     #  parse Value Card with complex integer and 64-bit float value
     @test isequal(showfields(parse(Card,
                    "CPLX_F64= (8, 9.2)             / a comment string                               ")),
-                  ("CPLX_F64", 8.0f0 + 9.2f0im, "a comment string",
+                  ("CPLX_F64", 8.0 + 9.2im, "a comment string",
                    "CPLX_F64= (8, 9.2)             / a comment string                               "))
 
     #  parse Value Card with a null string
@@ -369,7 +369,7 @@
 
     @test isequal(showfields(parse(Card,
                    "HIERARCH ABC DEF GH IJKLM_- = -99.9 / [m] abcdef ghijklm nopqrstu vw xyzab      ")),
-                  ("ABC DEF GH IJKLM_-", -99.9f0, "abcdef ghijklm nopqrstu vw xyzab",
+                  ("ABC DEF GH IJKLM_-", -99.9, "abcdef ghijklm nopqrstu vw xyzab",
                    "HIERARCH ABC DEF GH IJKLM_- = -99.9 / [m] abcdef ghijklm nopqrstu vw xyzab      "))
     @test parse(Card, "HIERARCH ABC DEF GH IJKLM_- = -99.9 / [m] abcdef ghijklm nopqrstu vw xyzab      ").units == Unitful.m
 
@@ -625,7 +625,7 @@
 
     #  the numbers of a card that is not strict have the types of the numbers with upper case letters.
     for (img, value) in (("K       = 1.0e3", 1000.0f0), ("K       = 1.0d3", 1000.0), ("K       = 1e3", 1000.0f0),
-                         ("K       = -2.5e-3 / c", -0.0025f0), ("K       = 1.0e50", 1.0e50),
+                         ("K       = -2.5e-3 / c", -0.0025), ("K       = 1.0e50", 1.0e50),
                          ("K       = .5d0", 0.5), ("K       = 5.e1", 50.0f0), ("K       = 1.5D3", 1500.0),
                          ("K       = (1.0e3, -2.0d1)", 1000.0 - 20.0im), ("K       = (1.5e0, 2.5e0) / c", 1.5f0 + 2.5f0im),
                          ("K       = (1, 2.0d1)", 1.0 + 20.0im))

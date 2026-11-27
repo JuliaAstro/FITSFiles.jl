@@ -2,9 +2,9 @@
     ###  Regression tests: numbers  ###
 
     #  a floating-point number is a Float32 only if no precision is lost.
-    @test FITSFiles.parsenumber("1.489") === 1.489f0
-    @test FITSFiles.parsenumber("-99.9") === -99.9f0
-    @test FITSFiles.parsenumber("1.5E-5") === 1.5f-5
+    @test FITSFiles.parsenumber("1.489") === 1.489
+    @test FITSFiles.parsenumber("-99.9") === -99.9
+    @test FITSFiles.parsenumber("1.5E-5") === 1.5e-5
     @test FITSFiles.parsenumber("1E5") === 1.0f5
     @test FITSFiles.parsenumber("1234567.891") === 1234567.891
     @test FITSFiles.parsenumber("12345678901.5") === 12345678901.5
@@ -13,6 +13,26 @@
     @test FITSFiles.parsenumber("1.0D5") === 1.0e5
     @test FITSFiles.parsenumber("123") === 123
     @test parse(Card, rpad("KEY     =          1234567.891", 80)).value === 1234567.891
+
+    #  a number that is exact in single precision is a Float32, and otherwise a Float64, so that the text of a number is not changed to
+    #  the nearest number of a Float32, e.g., 266.400000 is not 266.39999f0.
+    @test FITSFiles.parsenumber("0.5") === 0.5f0
+    @test FITSFiles.parsenumber("1.0") === 1.0f0
+    @test FITSFiles.parsenumber("1.0E2") === 100.0f0
+    @test FITSFiles.parsenumber("0.1") === 0.1
+    @test FITSFiles.parsenumber("1E30") === 1.0e30
+    @test FITSFiles.parsenumber("266.400000") === 266.4
+    @test parse(Card, rpad("CRVAL1  =           266.400000", 80)).value === 266.4
+    @test Float64(FITSFiles.parsenumber("266.400000")) == parse(Float64, "266.400000")
+    #  the text of a Float32 that is not exact in double precision is read as the Float64 of the text, which is not the Float32, and the text
+    #  of a Float32 that is exact is read as the Float32
+    for x in (0.1f0, 266.4f0, 1.489f0)
+        card = parse(Card, repr(Card("K", x)))
+        @test card.value isa Float64 && card.value == parse(Float64, string(x)) && card.value != x
+    end
+    for x in (0.5f0, 1.0f0, 100.0f0, 0.15625f0)
+        @test parse(Card, repr(Card("K", x))).value === x
+    end
 
     #  complex numbers with E exponents are single precision.
     @test parse(Card, rpad("KEY     = (1.0E3, -2.0E1)", 80)).value === 1000.0f0 - 20.0f0im
@@ -88,7 +108,7 @@
         @test FITSFiles.parsecomplex("1.5", "2.5") === ComplexF32(1.5, 2.5)
         @test FITSFiles.parsecomplex("1", "2.5") === ComplexF32(1, 2.5)
         @test FITSFiles.parsecomplex("1.5D0", "2") === ComplexF64(1.5, 2)
-        @test FITSFiles.parsecomplex("756478251", "121.804") === ComplexF64(756478251, 121.804f0)
+        @test FITSFiles.parsecomplex("756478251", "121.804") === ComplexF64(756478251, 121.804)
         @test real(FITSFiles.parsecomplex("756478251", "121.804")) == 756478251
         @test FITSFiles.parsecomplex("2.5", "3847950226") isa ComplexF64
         @test FITSFiles.parsecomplex("16777216", "1.5") isa ComplexF32
