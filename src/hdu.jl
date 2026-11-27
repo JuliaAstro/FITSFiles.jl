@@ -62,12 +62,10 @@ struct HDU{S <: AbstractHDU}
 end
 
 const BLOCKLEN    = 2880
-const BYTELEN     = 8
 const INFONAMELEN = 24
 const INFOVERSLEN = 3
 const INFOTYPELEN = 8
 const INFOCARDLEN = 6
-const INFOLTYPLEN = 8
 
     #  Combine XTENSION values in card.jl and hdu.jl. The trailing spaces of a value are not
     #  significant, so the keys are not padded.
