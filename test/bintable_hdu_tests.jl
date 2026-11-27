@@ -1584,4 +1584,33 @@
         @test hdu.data.column1 == ["ab" "" "cd"]
         @test written(hdu) == bytes
     end
+
+    ####    Test the types of the fields (Sects. 7.3.3 and 7.3.3.1)    ####
+
+    @testset "types of fields" begin
+        #  the data of a type that Table 18 does not have are an error that names the types, whatever the shape of the data is
+        for data in (Float16[1, 2], [:a, :b], ['a', 'b'], Int128[1, 2], UInt128[1, 2], BigFloat[1, 2], Float16[1 2; 3 4],
+                     [Float16[1, 2], Float16[3]], [Int128[1, 2], Int128[3, 4]])
+            for hdu in (() -> HDU(Bintable, (u = data,)), () -> HDU(Bintable, [(u = x,) for x in data]))
+                err = try hdu() catch e e end
+                @test err isa ArgumentError && occursin("The data have the element type", err.msg)
+                @test err isa ArgumentError && occursin("Table 18", err.msg) && occursin("Table 19", err.msg) && occursin("UInt16", err.msg)
+            end
+        end
+        #  the types of Table 18 and the physical types of Table 19 are fields
+        for (type, tform) in ((UInt8, "B"), (Int16, "I"), (Int32, "J"), (Int64, "K"), (Float32, "E"), (Float64, "D"), (ComplexF32, "C"),
+                              (ComplexF64, "M"), (Bool, "L"), (Int8, "B"), (UInt16, "I"), (UInt32, "J"), (UInt64, "K"))
+            @test HDU(Bintable, (u = type[1, 0],)).cards["TFORM1"] == "1$tform"
+        end
+        @test HDU(Bintable, (u = ["ab"], b = [BitVector([1, 0])])).cards["TFORM1"] == "2A"
+
+        #  the characters of a field are ASCII text, so a string that has other characters is an error
+        for data in (["é"], ["abc", "naïve"], ["日本"])
+            err = try HDU(Bintable, (s = data,)) catch e e end
+            @test err isa ArgumentError && occursin("are not ASCII", err.msg) && occursin("Sect. 7.3.3.1", err.msg)
+            @test_throws ArgumentError HDU(Bintable, [(s = x,) for x in data])
+        end
+        @test FITSFiles.checkascii("abc ~") == "abc ~"
+        @test_throws ArgumentError FITSFiles.padstring("é", 4)
+    end
 end

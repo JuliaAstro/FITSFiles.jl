@@ -457,7 +457,7 @@ function columndescriptor(values)
             shape = size(values)[2:end]
             return (String, width*prod(shape), width*prod(shape), nothing, "", 0, (width, shape...))
         end
-        type = nonmissingtype(eltype(values))
+        type = checkfieldtype(nonmissingtype(eltype(values)))
         shape = size(values)[2:end]
         leng = prod(shape)
         return (type, leng, leng*heapelementsize(type), nothing, "", 0, length(shape) > 1 ? shape : nothing)
@@ -473,7 +473,7 @@ function columndescriptor(values)
     if value isa AbstractArray && !(value isa BitVector)
         lengths = [length(cell) for cell in values if !ismissing(cell)]
         if !isempty(lengths) && !all(==(first(lengths)), lengths)
-            type = nonmissingtype(eltype(value))
+            type = checkfieldtype(nonmissingtype(eltype(value)))
             heap = sum(lengths) * heapelementsize(type)
             pntr = heap > typemax(Int32) ? Int64 : Int32
             return (type, 1, 2sizeof(pntr), pntr, string(maximum(lengths)), heap, nothing)
@@ -515,8 +515,11 @@ function fieldvalue(values)
     value isa Union{AbstractString, BitVector} || return value
     size(x) = x isa AbstractString ? ncodeunits(x) : length(x)
     for other in values
-        !ismissing(other) && size(other) > size(value) && (value = other)
+        ismissing(other) && continue
+        other isa AbstractString && checkascii(other)
+        size(other) > size(value) && (value = other)
     end
+    value isa AbstractString && checkascii(value)
     value
 end
 
@@ -531,12 +534,22 @@ function fielddescriptor(field)
         byts = sizeofbitvector(leng)
     elseif typeof(field) <: AbstractArray
         type, leng = nonmissingtype(eltype(field)), length(field)
+        checkfieldtype(type)
         byts = leng*sizeof(type)
     else
         type, leng = typeof(field), 1
+        checkfieldtype(type)
         byts = leng*sizeof(type)
     end
     (type, leng, byts)
+end
+
+#  The element types of a field are the types of Table 18 of the data types, and the physical types of Table 19 (Sect. 7.3.3)
+function checkfieldtype(type::Type)
+    haskey(BINARYTYPE, rawtype(type)) && return type
+    throw(ArgumentError("The data have the element type $type, but the data of a field of a binary table have one of the types " *
+        "of Table 18: Bool (L), BitVector (X), UInt8 (B), Int16 (I), Int32 (J), Int64 (K), String (A), Float32 (E), Float64 (D), " *
+        "ComplexF32 (C), or ComplexF64 (M), or the physical types of Table 19: Int8, UInt16, UInt32, or UInt64 (Sect. 7.3.3)."))
 end
 
 function createcards!(::Type{Bintable}, format::DataFormat,
@@ -795,9 +808,14 @@ function decodestring(bytes::AbstractVector{UInt8})
     String(rstrip(String(bytes[1:(isnothing(nul) ? length(bytes) : nul - 1)])))
 end
 
+#  The characters of a field are the restricted set of ASCII text characters (Sect. 7.3.3.1)
+checkascii(value::AbstractString) = isascii(value) ? value : throw(ArgumentError("The string $(repr(value)) has characters that " *
+    "are not ASCII, but the characters of a field of a binary table are the ASCII text characters (Sect. 7.3.3.1)."))
+
 #  The bytes of a string in a field of `width` bytes, which are filled with spaces. A string that is longer than the field is an error,
 #  since its bytes would be those of the fields after it.
 function padstring(value::AbstractString, width::Integer)
+    checkascii(value)
     bytes = codeunits(value)
     length(bytes) > width && throw(ArgumentError("The string $(repr(value)) has $(length(bytes)) bytes, but the field has " *
         "$width (Sect. 7.3.3.1)."))
