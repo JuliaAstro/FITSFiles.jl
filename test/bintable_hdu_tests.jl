@@ -1428,4 +1428,24 @@
         @test @test_logs(reading(tablebytes([kw("TFORM1", "I"), kw("TTYPE1", "Flux"), kw("TFORM2", "I"), kw("TTYPE2", "Error")],
             vcat(stored, stored); naxis1 = 4, tfields = 2))).data.Error == Int16[2, 2]
     end
+
+    ####    Test a table that has no rows (Sect. 7.3.1)    ####
+
+    @testset "no rows" begin
+        written(hdu) = (io = IOBuffer(); write(io, hdu); take!(io))
+        reread(hdu; kwds...) = read(IOBuffer(written(hdu)), HDU; kwds...)
+
+        #  the table has no data blocks, and the data are the empty columns of the fields, which have the types of the fields
+        hdu = HDU(Bintable, (a = Int16[], s = String[], u = UInt16[], f = Float64[]))
+        @test hdu.cards["NAXIS2"] == 0 && hdu.cards["TFIELDS"] == 4
+        again = reread(hdu)
+        @test again.data isa NamedTuple && keys(again.data) == (:a, :s, :u, :f)
+        @test again.data.a isa Vector{Int16} && again.data.s isa Vector{String} && again.data.u isa Vector{UInt16} &&
+            again.data.f isa Vector{Float64}
+        @test all(isempty, again.data) && written(again) == written(hdu)
+        @test isempty(reread(hdu; record = true).data)
+        #  the table of no fields has no data
+        @test ismissing(HDU(Bintable).data) && ismissing(reread(HDU(Bintable)).data)
+        @test written(reread(HDU(Bintable))) == written(HDU(Bintable))
+    end
 end

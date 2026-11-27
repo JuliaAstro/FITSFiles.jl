@@ -174,6 +174,9 @@ function Base.write(io::IO, ::Type{Bintable}, data::Union{AbstractArray, NamedTu
     end
 end
 
+#  A table that has no data has no data blocks
+Base.write(io::IO, ::Type{Bintable}, data::Missing, format::DataFormat, fields::Vector{BinaryField}; kwds...) = nothing
+
 #  Write the descriptor of the variable-length array `cell` to the table `io`, and its elements to the heap `heap`. An array of no
 #  elements has no storage, and its offset is 0 (Sect. 7.3.5).
 function writearray(io::IO, heap::IOBuffer, field::BinaryField, cell; check::Bool = true)
@@ -443,7 +446,7 @@ function columndescriptor(values)
     value = fieldvalue(values)
     if value isa AbstractArray && !(value isa BitVector)
         lengths = [length(cell) for cell in values if !ismissing(cell)]
-        if !all(==(first(lengths)), lengths)
+        if !isempty(lengths) && !all(==(first(lengths)), lengths)
             type = nonmissingtype(eltype(value))
             heap = sum(lengths) * heapelementsize(type)
             pntr = heap > typemax(Int32) ? Int64 : Int32
@@ -473,6 +476,9 @@ function definedvalue(values)
 	end
 	type = nonmissingtype(eltype(values))
 	type <: Number && return zero(type)
+	#  A column of no values has the size of an empty string, or of an empty array
+	type <: AbstractString && return ""
+	type <: AbstractArray && return type()
 	throw(ArgumentError("the type of a field of missing values cannot be determined"))
 end
 
@@ -543,6 +549,12 @@ function createdata(::Type{Bintable}, format::DataFormat,
     else
         data = missing
     end
+end
+
+#  The data of a table that has no rows have no data blocks, and are the empty columns of the fields, or the empty vector of records. A table that
+#  has no fields has no data.
+function emptydata(::Type{Bintable}, format::DataFormat, fields::Vector{BinaryField}; kwds...)
+    isempty(fields) || format.shape[2] > 0 ? missing : read(IOBuffer(UInt8[]), Bintable, format, fields; kwds...)
 end
 
 function bintabzeros(f)
