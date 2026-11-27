@@ -204,6 +204,7 @@ function writearray(io::IO, heap::IOBuffer, field::BinaryField, cell; check::Boo
     end
     values = cell isa AbstractArray ? reshape(cell, :) : [cell]
     values = storedcell(field, values; check, physical = cell isa ScaledArray ? (cell.scale, cell.zero) : nothing)
+    hasmissing(values) && checknull(field)
     n = length(values)
     write(io, hton(field.pntr(n)), hton(field.pntr(n == 0 ? 0 : position(heap))))
     n == 0 && return
@@ -848,6 +849,18 @@ function storedcell(field::BinaryField, value; check::Bool = true, physical = no
     value isa AbstractArray ? stored(value) : only(stored([value]))
 end
 
+#  Does the value, or the array of values, have an undefined value?
+hasmissing(value) = value isa Missing || (value isa AbstractArray && any(ismissing, value))
+
+#  The integer TNULLn of a field, which stands for an undefined value, is a value of the type of the field (Sect. 7.3.2), so that the undefined
+#  values can be written
+function checknull(field::BinaryField)
+    type, null = field.type, field.null
+    (isnothing(null) || (type <: Union{UInt8, Int16, Int32, Int64} && typemin(type) <= null <= typemax(type))) && return
+    throw(ArgumentError("TNULL of field $(field.name), $null, is not a value of the $type of the field, from $(typemin(type)) " *
+        "to $(typemax(type)) (Sect. 7.3.2), so the undefined values cannot be written."))
+end
+
 #  The stored values (value - TZERO)/TSCAL of the physical values of floating-point or complex values (Eq. 7), whose undefined values are missing
 function invertscale(values, type::Type, scale::Real, zero::Real)
     scale == 0 && throw(ArgumentError("The values cannot be written as stored values, since TSCAL is 0."))
@@ -870,7 +883,9 @@ function Base.write(io::IO, field::BinaryField, value::U; check::Bool = true, ph
     type <: Bool && return leng == 0 ? 0 : write(io, padelements(encodelogical.(value), leng, 0x00))
     #  The stored values of the physical values, and the undefined values, which are written as TNULLn (Sect. 7.3.2), or NaN for
     #  floating-point data
-    value = unsetmissing(storedcell(field, value; check, physical), field.null, type)
+    value = storedcell(field, value; check, physical)
+    hasmissing(value) && checknull(field)
+    value = unsetmissing(value, field.null, type)
 
     if type <: AbstractString && value isa AbstractArray
         #  The strings of an array of strings are the characters of the field in order, with the number of characters of the first
@@ -1079,6 +1094,11 @@ function verifyfieldkeys(::Type{Bintable}, mankeys::AbstractDict, reskeys::Abstr
             @warn "TSCAL$j and TZERO$j must not be used for a field of type $type (Sect. 7.3.2). They are not used."
         haskey(reskeys, "TNULL$j") && !(type in ("B", "I", "J", "K")) && @warn "TNULL$j must not be used for a field of type " *
             "$type (Sect. 7.3.2), which is not an integer. It is not used."
+        nulltype = get(NULLTYPES, type, nothing)
+        null = get(reskeys, "TNULL$j", nothing)
+        !isnothing(nulltype) && null isa Integer && !(typemin(nulltype) <= null <= typemax(nulltype)) && @warn "TNULL$j, $null, " *
+            "is not a value of the $nulltype of its field, from $(typemin(nulltype)) to $(typemax(nulltype)) (Sect. 7.3.2), so no " *
+            "value is undefined. The undefined values cannot be written."
         disp = get(reskeys, "TDISP$j", nothing)
         disp isa AbstractString && !occursin(TDISPFORM, strip(disp)) && @warn "TDISP$j must be a display format of Table 20 " *
             "(Sect. 7.3.2), but its value is $(repr(disp)). It is read as it is."
@@ -1098,4 +1118,7 @@ function verifyfieldkeys(::Type{Bintable}, mankeys::AbstractDict, reskeys::Abstr
 end
 
 #  The display formats of Table 20: Aw, Lw, Iw.m, Bw.m, Ow.m, Zw.m, Fw.d, Ew.dEe, ENw.d, ESw.d, Gw.dEe, and Dw.dEe, in upper case
+#  The types of the stored values of the fields that have an integer TNULLn, B, I, J, and K
+const NULLTYPES = Dict("B" => UInt8, "I" => Int16, "J" => Int32, "K" => Int64)
+
 const TDISPFORM = r"^(A\d+|L\d+|[IBOZ]\d+(\.\d+)?|F\d+\.\d+|(E|EN|ES|G|D)\d+\.\d+(E\d+)?)$"
