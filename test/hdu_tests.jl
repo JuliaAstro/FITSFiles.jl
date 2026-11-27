@@ -285,7 +285,7 @@
 
         #  the types of HDU: the first card is SIMPLE or XTENSION, and the random group cards are in order
         fmt = FITSFiles.DataFormat(Int16, 6, (2, 3), 0, 1, 0)
-        for (type, field, first) in ((Primary, FITSFiles.ImageField(Int16, 0f0, 1f0, nothing, nothing, nothing), "SIMPLE"),
+        for (type, field, first) in ((Primary, FITSFiles.PrimaryField(Int16, 0f0, 1f0, nothing, nothing, nothing), "SIMPLE"),
             (Image, FITSFiles.ImageField(Int16, 0f0, 1f0, nothing, nothing, nothing), "XTENSION"),
             (FITSFiles.Conform, FITSFiles.ConformField(), "SIMPLE"))
             kards = FITSFiles.createcards!(type, fmt, field, Card{<:Any}[])
@@ -350,15 +350,19 @@
         field = FITSFiles.FieldFormat(Image, format, mankeys(), missing)
         @test (field.type, field.zero, field.scale, field.miss, field.dmin, field.dmax) ==
             (Int16, 0, 1, nothing, nothing, nothing)
-        field = FITSFiles.FieldFormat(Primary, format, mankeys("BZERO" => 32768, "BSCALE" => 2.5, "BLANK" => -32768,
-            "DATAMIN" => 1.5, "DATAMAX" => 9.5), ones(Int16, 3, 4))
-        @test (field.zero, field.scale, field.miss, field.dmin, field.dmax) == (32768, 2.5, -32768, 1.5, 9.5)
+        for type in (Primary, Image)
+            field = FITSFiles.FieldFormat(type, format, mankeys("BZERO" => 32768, "BSCALE" => 2.5, "BLANK" => -32768,
+                "DATAMIN" => 1.5, "DATAMAX" => 9.5), ones(Int16, 3, 4))
+            @test (field.zero, field.scale, field.miss, field.dmin, field.dmax) == (32768, 2.5, -32768, 1.5, 9.5)
+            @test field isa (type === Primary ? FITSFiles.PrimaryField : FITSFiles.ImageField)
+        end
         format = FITSFiles.DataFormat(Image, missing, mankeys("BITPIX" => -32))
         @test isnothing(FITSFiles.FieldFormat(Image, format, mankeys("BITPIX" => -32, "BLANK" => 0), missing).miss)
 
         #  the data of a header is zeros, or missing if there are no axes
         @test FITSFiles.zerosarray(formats[1]) == zeros(Int16, 3, 4)
-        @test FITSFiles.createdata(Image, formats[1], field) == zeros(Int16, 3, 4)
+        @test FITSFiles.createdata(Image, formats[1], FITSFiles.FieldFormat(Image, formats[1], mankeys(), missing)) == zeros(Int16, 3, 4)
+        @test FITSFiles.createdata(Primary, formats[1], FITSFiles.FieldFormat(Primary, formats[1], mankeys(), missing)) == zeros(Int16, 3, 4)
         @test ismissing(FITSFiles.zerosarray(FITSFiles.DataFormat(Int16, 1, (), 0, 1, 0)))
     end
 

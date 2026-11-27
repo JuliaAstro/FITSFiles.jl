@@ -101,6 +101,10 @@ const RESERVEDKEYS = String["DATE", "DATE-OBS", "ORIGIN", "AUTHOR", "REFERENC", 
 
 #  Check for header missing END card
 
+#  The scale and the zero cards of data that are the physical values of floating-point stored values, which a type of HDU defines
+#  (see `ScaledArray`)
+scalecards!(::Type, cards::Cards, data) = cards
+
 function HDU(data::D = missing, cards::C = missing; record::B = false,
 	scale::B = true, append::B = false, fixed::B = true, slash::I = 32, lpad::I = 1,
 	rpad::I = 1, upad::I = 1, truncate::B = true) where
