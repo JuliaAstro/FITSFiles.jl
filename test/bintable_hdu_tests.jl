@@ -1077,10 +1077,10 @@
             "TTYPE1  = 'a       '", tdim, "END"]
         bytes(tdim) = rpad(join(card.(header)), 2880) * rpad(join(card.(hdr(tdim))), 2880) *
             String(zeros(UInt8, 2880))
-        for tdim in ("TDIM1   = '(3)     '", "TDIM1   = '(3,1)   '")
+        for (tdim, shape) in (("TDIM1   = '(3)     '", (1, 3)), ("TDIM1   = '(3,1)   '", (1, 3, 1)))
             buffer = IOBuffer(bytes(tdim)); read(buffer, HDU)
             hdu = read(buffer, HDU)
-            @test hdu.data.a == zeros(Int16, 1, 3)
+            @test hdu.data.a == zeros(Int16, shape)
             io = IOBuffer(); write(io, hdu)
             @test take!(io) == codeunits(bytes(tdim))[2881:end]
         end
@@ -1244,5 +1244,68 @@
         #  an Int16 and a Float32 scale are a Float32
         hdu = HDU(Bintable, (a = Int16[1, 2],), Card{<:Any}[Card("TSCAL1", 0.5f0)])
         @test eltype(reread(hdu).data.a) === Float32 && reread(hdu).data.a == Float32[0.5, 1]
+    end
+
+    ####    Test the arrays of the fields that have more than one dimension (TDIMn, Sect. 7.3.2)    ####
+
+    @testset "multi-dimensional fields" begin
+        written(hdu) = (io = IOBuffer(); write(io, hdu); take!(io))
+        reread(hdu; kwds...) = read(IOBuffer(written(hdu)), HDU; kwds...)
+        card(s) = rpad(s, 80)
+        #  the bytes of a Bintable HDU of one field that has the cards after TFIELDS
+        function tablebytes(cards, naxis1, naxis2, data)
+            header = vcat(["XTENSION= 'BINTABLE'", "BITPIX  =                    8", "NAXIS   =                    2",
+                "NAXIS1  =                    $naxis1", "NAXIS2  =                    $naxis2",
+                "PCOUNT  =                    0", "GCOUNT  =                    1", "TFIELDS =                    1"], cards, ["END"])
+            vcat(collect(codeunits(rpad(join(card.(header)), 2880 * cld(80 * length(header), 2880)))),
+                data, zeros(UInt8, mod(-length(data), 2880)))
+        end
+
+        #  the arrays of the cells that have more than one dimension have the dimensions in TDIMn, and are read with them: the rows are
+        #  the first dimension of the column
+        cells = [Float32[1 2; 3 4; 5 6], Float32[7 8; 9 10; 11 12]]
+        for hdu in (HDU(Bintable, (a = cells,)), HDU(Bintable, [(a = cell,) for cell in cells]))
+            @test hdu.cards["TFORM1"] == "6E" && hdu.cards["TDIM1"] == "(3,2)"
+            again = reread(hdu)
+            @test size(again.data.a) == (2, 3, 2) && again.data.a[1, :, :] == cells[1] && again.data.a[2, :, :] == cells[2]
+            @test written(again) == written(hdu)
+            records = reread(hdu; record = true).data
+            @test [r.a for r in records] == cells
+        end
+        #  a column of two or more dimensions is the array of each row
+        column = reshape(Int16.(1:12), 2, 3, 2)
+        hdu = HDU(Bintable, (a = column,))
+        @test hdu.cards["TFORM1"] == "6I" && hdu.cards["TDIM1"] == "(3,2)" && hdu.cards["NAXIS2"] == 2
+        @test reread(hdu).data.a == column
+        hdu = HDU(Bintable, (a = Int16[1 2 3; 4 5 6],))
+        @test hdu.cards["TFORM1"] == "3I" && !haskey(hdu.cards, "TDIM1") && reread(hdu).data.a == Int16[1 2 3; 4 5 6]
+
+        #  the dimensions of TDIMn hold no more elements than TFORMn has, and the elements that are not in the array are not read
+        data = vcat(reinterpret(UInt8, hton.(Int16[1, 2, 3, 4, 5, 6, 7, 8])))
+        bytes = tablebytes(["TFORM1  = '4I      '", "TDIM1   = '(3,1)   '"], 8, 2, data)
+        hdu = read(IOBuffer(bytes), HDU)
+        @test hdu.data.column1 == reshape(Int16[1, 5, 2, 6, 3, 7], 2, 3, 1)
+        #  and more elements than TFORMn has are ignored with a warning
+        bytes = tablebytes(["TFORM1  = '4I      '", "TDIM1   = '(3,2)   '"], 8, 2, data)
+        hdu = @test_logs (:warn, r"TDIM of field column1, 3 × 2, has 6 elements, more than the 4 of its TFORM") read(IOBuffer(bytes), HDU)
+        @test hdu.data.column1 == Int16[1 2 3 4; 5 6 7 8]
+
+        #  arrays of strings, whose first dimension is the number of characters of a string
+        text = collect(codeunits("abcdef" * "ghijkl"))
+        bytes = tablebytes(["TFORM1  = '6A      '", "TDIM1   = '(2,3)   '"], 6, 2, text)
+        strings = read(IOBuffer(bytes), HDU).data.column1
+        @test strings == ["ab" "cd" "ef"; "gh" "ij" "kl"] && size(strings) == (2, 3)
+        #  a single dimension is a string
+        bytes = tablebytes(["TFORM1  = '6A      '", "TDIM1   = '(6)     '"], 6, 2, text)
+        @test read(IOBuffer(bytes), HDU).data.column1 == ["abcdef", "ghijkl"]
+        records = read(IOBuffer(tablebytes(["TFORM1  = '6A      '", "TDIM1   = '(2,3)   '"], 6, 2, text)), HDU; record = true).data
+        @test records[2].column1 == ["gh", "ij", "kl"]
+
+        #  the arrays of variable-length arrays, and of bits
+        bytes = tablebytes(["TFORM1  = '1PI(6)  '", "TDIM1   = '(2,2)   '"], 8, 2,
+            vcat(reinterpret(UInt8, hton.(Int32[4, 0, 6, 8])), reinterpret(UInt8, hton.(Int16[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]))))
+        header = replace(String(copy(bytes)), "PCOUNT  =                    0" => "PCOUNT  =                   20")
+        hdu = read(IOBuffer(codeunits(header)), HDU)
+        @test hdu.data.column1 == [Int16[1 3; 2 4], Int16[5 7; 6 8]]
     end
 end

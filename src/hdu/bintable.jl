@@ -130,15 +130,16 @@ end
 
 #  The value of a field in the record `j` from its column, which has the values of a row in its second and later dimensions if it has
 #  two or more, and is nothing for a field that has no elements
-recordcell(field::BinaryField, column, j::Integer) = field.leng == 0 && isnothing(field.pntr) ? nothing :
-    ndims(column) >= 2 ? column[j, :] : column[j]
+recordcell(field::BinaryField, column, j::Integer) = field.leng == 0 && isnothing(field.pntr) ? nothing : cellof(column, j)
+
+#  The cell in row `j` of a column, which is an element of a vector, or the array of the other dimensions of an array
+cellof(column::AbstractArray, j::Integer) = ndims(column) >= 2 ? copy(selectdim(column, 1, j)) : column[j]
 
 #  The value of a field in row `j` of the data, which is a vector of records or a named tuple of columns,
 #  where a column of two or more dimensions has the values of a row in its second and later dimensions.
 getcell(::Type{Bintable}, data::AbstractArray, field, j::Integer) = data[j][Symbol(field.name)]
 function getcell(::Type{Bintable}, data::NamedTuple, field, j::Integer)
-    column = data[Symbol(field.name)]
-    ndims(column) >= 2 ? column[j, :] : column[j]
+    cellof(data[Symbol(field.name)], j)
 end
 
 #  An array is written as a vector, and any other value as it is.
@@ -298,13 +299,14 @@ function FieldFormat(::Type{Bintable}, mankey::DataFormat, reskeys::Dict{S, V},
     for j = 1:N
         name = typeof(data[1]) <: NamedTuple ? rstrip(String(keys(data[1])[j])) :
             rstrip(get(reskeys, "TTYPE$j", "field$j"))
-        type, leng, byts, pntr, supp = columndescriptor(record[j] for record in data)
+        type, leng, byts, pntr, supp, _, shape = columndescriptor(record[j] for record in data)
         type, offset = rawtype(type), offsetof(type)
         # unit_ = unit(data[1][j]) != NoUnits ? unit(data[1][j]) :
         #     get(reskeys, "TUNIT$j", "")
         unit_ = get(reskeys, "TUNIT$j", "")
         disp  = get(reskeys, "TDISP$j", "")
         dims  = parsedims(get(reskeys, "TDIM$j", nothing), j)
+        dims  = isnothing(dims) ? shape : dims
         zero_ = leastfloat(get(reskeys, "TZERO$j",
             type <: Union{Bool, BitVector, String} ? nothing : offset))
         scale = leastfloat(get(reskeys, "TSCAL$j",
@@ -325,7 +327,7 @@ end
 function DataFormat(::Type{Bintable}, data::U, mankeys::Dict{S, V}) where
     {U <: Union{Tuple, NamedTuple}, S <: AbstractString, V <: ValueType}
 
-    heapformat(data, length(data[1]))
+    heapformat(data, size(data[1], 1))
 end
 
 function FieldFormat(::Type{Bintable}, mankey::DataFormat, reskeys::Dict{S, V},
@@ -338,13 +340,14 @@ function FieldFormat(::Type{Bintable}, mankey::DataFormat, reskeys::Dict{S, V},
     for j = 1:N
         name  = typeof(data) <: NamedTuple ? rstrip(String(keys(data)[j])) :
             rstrip(get(reskeys, "TTYPE$j", "column$j"))
-        type, leng, byts, pntr, supp = columndescriptor(data[j])
+        type, leng, byts, pntr, supp, _, shape = columndescriptor(data[j])
         type, offset = rawtype(type), offsetof(type)
         # unit_ = unit(data[j]) != NoUnits ? unit(data[j]) :
         #     get(reskeys, "TUNIT$j", "")
         unit_ = get(reskeys, "TUNIT$j", "")
         disp  = get(reskeys, "TDISP$j", "")
         dims  = parsedims(get(reskeys, "TDIM$j", nothing), j)
+        dims  = isnothing(dims) ? shape : dims
         zero_ = leastfloat(get(reskeys, "TZERO$j",
             type <: Union{Bool, BitVector, String} ? nothing : offset))
         scale = leastfloat(get(reskeys, "TSCAL$j",
@@ -380,6 +383,14 @@ heapelementsize(type::Type) = type <: Bool ? 1 : sizeof(type)
 #  is too large for them (Sect. 7.3.5), and the other cells are an array, a string, or a number, of the size of the first value that
 #  is not missing.
 function columndescriptor(values)
+    #  A column of two or more dimensions has the values of a row in its second and later dimensions, which are the dimensions TDIMn
+    #  of an array of the field that has more than one (Sect. 7.3.2)
+    if values isa AbstractArray && ndims(values) >= 2
+        type = nonmissingtype(eltype(values))
+        shape = size(values)[2:end]
+        leng = prod(shape)
+        return (type, leng, leng*heapelementsize(type), nothing, "", 0, length(shape) > 1 ? shape : nothing)
+    end
     value = fieldvalue(values)
     if value isa AbstractArray && !(value isa BitVector)
         lengths = [length(cell) for cell in values if !ismissing(cell)]
@@ -387,11 +398,11 @@ function columndescriptor(values)
             type = nonmissingtype(eltype(value))
             heap = sum(lengths) * heapelementsize(type)
             pntr = heap > typemax(Int32) ? Int64 : Int32
-            return (type, 1, 2sizeof(pntr), pntr, string(maximum(lengths)), heap)
+            return (type, 1, 2sizeof(pntr), pntr, string(maximum(lengths)), heap, nothing)
         end
     end
     type, leng, byts = fielddescriptor(value)
-    (type, leng, byts, nothing, "", 0)
+    (type, leng, byts, nothing, "", 0, value isa AbstractArray && ndims(value) > 1 ? size(value) : nothing)
 end
 
 #  The data format of data of `nrows` rows: the bytes of a row and the rows, which are followed by the heap of the variable-length
@@ -456,6 +467,10 @@ function createcards!(::Type{Bintable}, format::DataFormat,
         push!(required, "TFORM$j" => isnothing(field.pntr) ? "$(field.leng)$(BINARYTYPE[field.type])" :
             "$(field.leng)$(POINTERTYPE[field.pntr])$(BINARYTYPE[field.type])($(field.supp))")
         named && push!(required, "TTYPE$j" => field.name)
+    end
+    #  The dimensions of an array of a field that has more than one dimension are its TDIMn (Sect. 7.3.2)
+    for (j, field) in enumerate(fields)
+        !isnothing(field.dims) && length(field.dims) > 1 && push!(required, "TDIM$j" => "(" * join(field.dims, ",") * ")")
     end
     #  The offset of the physical type of a field is its TZERO (Table 19)
     for (j, field) in enumerate(fields)
@@ -545,10 +560,20 @@ function Base.read(io::IO, field::BinaryField, format::DataFormat,
             column[j] = read(io, type, leng)
         end
     elseif type <: AbstractString
-        column = Array{String}(undef, N)
+        #  The strings of an array of strings, whose first dimension is the number of characters of each, are the characters of the field in
+        #  order (Sect. 7.3.2)
+        dims = stringdims(field)
+        column = isnothing(dims) ? Array{String}(undef, N) : Array{String}(undef, (N, dims[2:end]...))
         for j = 1:N
             seek(io, begpos + L*(j-1) + M)
-            column[j] = decodestring(read(io, length(field.slice)))
+            bytes = read(io, length(field.slice))
+            if isnothing(dims)
+                column[j] = decodestring(bytes)
+            else
+                for k = 1:prod(dims[2:end])
+                    column[j + N*(k-1)] = decodestring(bytes[dims[1]*(k-1)+1:dims[1]*k])
+                end
+            end
         end
     elseif leng == 1
         column = Array{type}(undef, N)
@@ -567,7 +592,34 @@ function Base.read(io::IO, field::BinaryField, format::DataFormat,
         column = setmissing(column, field.null)
         column = scale ? physical(column, type, field.scale, field.zero) : column
     end
-    column
+    applydims(column, field)
+end
+
+#  The dimensions of an array of strings, which are the dimensions TDIMn if there is more than one and they hold no more characters
+#  than the field has, or nothing (Sect. 7.3.2)
+function stringdims(field::BinaryField)
+    dims = field.dims
+    (isnothing(dims) || length(dims) < 2 || prod(dims) > field.leng || dims[1] == 0) && return nothing
+    dims
+end
+
+#  The array of each row of the column has the dimensions TDIMn of the field, which are the first elements of the array of the row, so
+#  that the unused elements at the end of the array are not read (Sect. 7.3.2). The dimensions are not used if they have more
+#  elements than the field has, with a warning, and the elements of a row are a vector for a field of no more than one dimension.
+function applydims(column, field::BinaryField)
+    dims = field.dims
+    (isnothing(dims) || length(dims) < 2 || field.type <: AbstractString) && return column
+    n = prod(dims)
+    if column isa AbstractVector
+        #  The cells of a variable-length array, or of a bit array, are the elements of the arrays that are the rows
+        return map(cell -> n <= length(cell) ? reshape(cell[1:n], dims) : cell, column)
+    end
+    if n > field.leng
+        @warn "TDIM of field $(field.name), $(join(dims, " × ")), has $n elements, more than the $(field.leng) of its TFORM " *
+            "(Sect. 7.3.2), so it is not used."
+        return column
+    end
+    reshape(column[:, 1:n], (size(column, 1), dims...))
 end
 
 #  The elements of the variable-length array of the descriptor (`K`, `beg`) of row `j`, which are read from the heap that begins at the
