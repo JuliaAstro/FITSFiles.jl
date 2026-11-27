@@ -183,18 +183,18 @@ verifybitpix(mankeys::AbstractDict) = verifyvalue(mankeys, "BITPIX", BITPIXVALUE
 	"one of $(join(BITPIXVALUES[1:end-1], ", ")), or $(BITPIXVALUES[end])")
 
 """
-	verifyaxes(mankeys; first = 1)
+	verifyaxes(mankeys)
 
-Verify the NAXISn keywords of an HDU, from the index `first` to NAXIS, in the dictionary `mankeys` of the
+Verify the NAXISn keywords of an HDU, from NAXIS1 to NAXIS, in the dictionary `mankeys` of the
 mandatory keywords. It is an error, since the size of the data cannot be determined, if NAXISn is missing for
-an n from `first` to NAXIS, or if it is negative. It is a warning, since the extra keywords are not used, if
-NAXISn is present for an n greater than NAXIS. A header with no NAXIS is not verified. `first` is 2 for random
-groups, where NAXIS1 is 0 (Sects. 4.4.1.1, 6.1.1, 7.1.1, 7.2.1, and 7.3.1).
+an n from 1 to NAXIS, or if it is negative. It is a warning, since the extra keywords are not used, if
+NAXISn is present for an n greater than NAXIS. A header with no NAXIS is not verified. Random groups, whose
+NAXIS1 is 0, have their own method (Sects. 4.4.1.1, 7.1.1, 7.2.1, and 7.3.1).
 """
-function verifyaxes(mankeys::AbstractDict; first::Integer = 1)
+function verifyaxes(mankeys::AbstractDict)
 	N = get(mankeys, "NAXIS", nothing)
 	isnothing(N) && return nothing
-	for j = first:N
+	for j = 1:N
 		haskey(mankeys, "NAXIS$j") || throw(ArgumentError("NAXIS$j is missing, but NAXIS is $N."))
 		verifyvalue(mankeys, "NAXIS$j", 0:typemax(Int), "non-negative")
 	end

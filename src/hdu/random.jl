@@ -339,7 +339,7 @@ function verify!(::Type{Random}, cards::Cards, mankeys::AbstractDict, reskeys::A
     verifybitpix(mankeys)
     verifyvalue(mankeys, "NAXIS", 1:MAXAXES, "an integer from 1 to $MAXAXES")
     verifyvalue(mankeys, "NAXIS1", 0:0, "the integer 0")
-    verifyaxes(mankeys; first = 2)
+    verifyaxes(Random, mankeys)
     verifyvalue(mankeys, "PCOUNT", 0:typemax(Int), "non-negative")
     verifyvalue(mankeys, "GCOUNT", 0:typemax(Int), "non-negative")
     created || verifygroupsize(mankeys)
@@ -355,6 +355,21 @@ function verify!(::Type{Random}, cards::Cards, mankeys::AbstractDict, reskeys::A
     verifyparamkeys(reskeys, get(mankeys, "PCOUNT", 0))
     verifyparams(reskeys, get(mankeys, "PCOUNT", 0))
     cards
+end
+
+#  Verify the NAXISn keywords of the shape of the data, which begin at NAXIS2, since NAXIS1 of random groups is 0 (Sect. 6.1.1)
+function verifyaxes(::Type{Random}, mankeys::AbstractDict)
+    N = get(mankeys, "NAXIS", nothing)
+    isnothing(N) && return nothing
+    for j = 2:N
+        haskey(mankeys, "NAXIS$j") || throw(ArgumentError("NAXIS$j is missing, but NAXIS is $N."))
+        verifyvalue(mankeys, "NAXIS$j", 0:typemax(Int), "non-negative")
+    end
+    for key in sort!(collect(keys(mankeys)))
+        m = match(r"^NAXIS(\d+)$", key)
+        !isnothing(m) && Base.parse(Int, m[1]) > max(N, 0) && @warn "$key is beyond NAXIS $N, and is not used."
+    end
+    nothing
 end
 
 #  Correct BITPIX and the NAXIS keywords to match the data format. NAXIS1 of random groups is 0, and the shape of the data begins at NAXIS2.
