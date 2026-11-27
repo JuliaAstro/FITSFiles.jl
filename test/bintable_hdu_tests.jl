@@ -1984,4 +1984,48 @@
         @test size(lazy) == (14, 3) && getfield(lazy, :data) isa FITSFiles.LazyArray
     end
 
+    ####    Test the reading of the columns of fixed-width values, a chunk of rows at a time    ####
+
+    @testset "chunked reads" begin
+        #  the bytes of a field of each row are those of the row, whatever the number of rows of a chunk is, and the table is read from the position
+        L, M, w, N = 7, 2, 3, 10
+        table = UInt8[10j + k for k = 1:L, j = 1:N]
+        io = IOBuffer(vcat(zeros(UInt8, 5), vec(table), UInt8[99, 99]))
+        expected = table[M+1:M+w, :]
+        for chunk in (1, L - 1, L, 2L, 2L + 1, 3L, 9L, 10L, 11L, 1 << 23)
+            @test FITSFiles.fieldbytes(io, 5, L, M, w, N; chunk) == expected
+        end
+        @test FITSFiles.fieldbytes(io, 5, L, 0, L, N; chunk = 3L) == table && FITSFiles.fieldbytes(io, 5, L, L - 1, 1, N) == table[L:L, :]
+        #  a field with no bytes, or a table with no rows, has no bytes, and does not read
+        @test size(FITSFiles.fieldbytes(io, 5, L, M, 0, N)) == (0, N) && size(FITSFiles.fieldbytes(io, 5, L, M, w, 0)) == (w, 0)
+        #  a file that ends before the rows do is an error
+        @test_throws ArgumentError("The file has fewer bytes than the header of the HDU says.") FITSFiles.fieldbytes(
+            IOBuffer(vec(table)[1:end-1]), 0, L, M, w, N)
+        @test_throws ArgumentError FITSFiles.fieldbytes(IOBuffer(vec(table)[1:end-1]), 0, L, M, w, N; chunk = 2L)
+
+        #  the values of every type of field of fixed-width values are those that were written
+        n = 20
+        data = (a = Int32.(1:n), b = collect(1.5:n + 0.5), c = Float32[j + k/4 for j = 1:n, k = 1:3], d = rand(Bool, n),
+            e = [BitVector([isodd(j), true, j > 5, false, isodd(j >> 1), true, false, true, isodd(j)]) for j = 1:n], f = string.(1:n),
+            g = [Complex(Float32(j), -j) for j = 1:n], h = UInt16.(40000:40000+n-1))
+        hdu = HDU(Bintable, data)
+        io = IOBuffer()
+        write(io, [HDU(Primary), hdu])
+        bytes = take!(io)
+        read_ = fits(IOBuffer(bytes))[2].data
+        @test read_.a == data.a && read_.b == data.b && read_.c == data.c && read_.d == data.d && read_.e == data.e
+        @test read_.f == data.f && read_.g == data.g && read_.h == data.h
+        @test fits(IOBuffer(bytes); record = true)[2].data[7] == (; (name => (column isa AbstractMatrix ? column[7, :] : column[7]) for (name, column) in pairs(data))...)
+
+        #  a table of more bytes than a chunk of rows is read in more than one chunk, and has the values of all of the rows
+        n = 301_000
+        large = (a = Int32.(1:n), b = Float64.(n:-1:1), c = Float64.(1:n) ./ 7, d = Float64.(1:n) .* 3)
+        hdu = HDU(Bintable, large)
+        @test n * getfield(hdu, :cards)["NAXIS1"] > FITSFiles.ROWCHUNKBYTES
+        io = IOBuffer()
+        write(io, [HDU(Primary), hdu])
+        read_ = fits(IOBuffer(take!(io)))[2].data
+        @test read_.a == large.a && read_.b == large.b && read_.c == large.c && read_.d == large.d
+    end
+
 end
