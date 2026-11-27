@@ -169,10 +169,18 @@
         end
         #  the row is the row of the value
         @test_throws ArgumentError r"in row 2 is not an integer" reread(tablebytes(fieldcards(["I4"], [1]), ["   1", "  x1"]))
-        #  a number that an Int64 or a Float64 cannot hold is an error that says so, and not a Julia error
-        @test_throws ArgumentError r"is not in the range of an Int64" value("I25", "12345678901234567890123  ")
+        #  an integer that an Int64 does not hold is a BigInt, which the integers of the field are if one is, and a real number that a Float64 cannot
+        #  hold is an error that says so, and not a Julia error
+        @test value("I25", "12345678901234567890123  ") == big"12345678901234567890123" && value("I25", "12345678901234567890123  ") isa BigInt
+        @test value("I20", "-9223372036854775809") isa BigInt && value("I20", "-9223372036854775808") === typemin(Int64)
+        @test value("I20", "9223372036854775807     ") === typemax(Int64)
+        data = reread(tablebytes(fieldcards(["I25"], [1]), [lpad("12", 25), lpad("-12345678901234567890123", 25)])).data.column1
+        @test data isa Vector{BigInt} && data == [12, big"-12345678901234567890123"]
+        data = reread(tablebytes(fieldcards(["I25"], [1]; extra = [sk("TNULL1", "NULL")]), [rpad("NULL", 25), lpad("12345678901234567890123", 25)])).data.column1
+        @test data isa Vector{Union{BigInt, Missing}} && isequal(data, [missing, big"12345678901234567890123"])
+        @test reread(tablebytes(fieldcards(["I25"], [1]), [lpad("12", 25), lpad("12", 25)])).data.column1 isa Vector{Int64}
+        @test reread(tablebytes(fieldcards(["I25"], [1]), [lpad("12345678901234567890123", 25)]); record = true).data[1].column1 isa BigInt
         @test_throws ArgumentError r"is not in the range of a Float64" value("E10.1", "1.5E+400  ")
-        @test value("I20", "-9223372036854775808    ") === typemin(Int64)
         #  a row has the same value in a record and in a column
         bytes = tablebytes(fieldcards(["I4", "F6.2"], [1, 5]), ["   1  1234", "  -2 -0123"])
         @test reread(bytes; record = true).data == [(column1 = 1, column2 = 12.34), (column1 = -2, column2 = -1.23)]
@@ -285,21 +293,24 @@
         cards(zero, form = "I20") = fieldcards([form], [1]; extra = [kw("TZERO1", zero)])
         bytes(zero, values; form = "I20") = tablebytes(cards(zero, form), [lpad(value, parse(Int, form[2:end])) for value in values])
         #  the physical values are integers if TSCALn is 1 and TZEROn is an integer, which a floating-point number of a whole number is, and
-        #  they are the first type of Int64, UInt64, and Int128 that holds them
+        #  they are Int64, or BigInt if an Int64 does not hold them, as the integers of the other fields are
         column = reread(bytes("100", [1, 2, -3])).data.column1
         @test column isa FITSFiles.ScaledArray{Int64} && column == [101, 102, 97] && (column.scale, column.zero) == (1, 100)
         @test reread(bytes("100.0", [1, 2, -3])).data.column1 isa FITSFiles.ScaledArray{Int64}
         @test reread(bytes("100.5", [1, 2, -3])).data.column1 isa Vector{Float64}
         @test reread(tablebytes(fieldcards(["I4"], [1]; extra = [kw("TZERO1", "100"), kw("TSCAL1", "2")]), ["   1"])).data.column1 isa Vector{Float64}
-        #  an offset that is 2^63 gives the 64-bit unsigned integers, which a 64-bit float does not hold
+        #  an offset that is 2^63 gives the 64-bit unsigned integers, as BigInt if they do not fit an Int64, which a 64-bit float does not hold
         values = [typemin(Int64), typemin(Int64) + 5, typemax(Int64)]
         column = reread(bytes(zero2, values)).data.column1
-        @test column isa FITSFiles.ScaledArray{UInt64} && column == UInt64[0, 5, 18446744073709551615]
+        @test column isa FITSFiles.ScaledArray{BigInt} && column == BigInt[0, 5, 18446744073709551615] && column[3] isa BigInt
         column = reread(bytes(zero2, values[1:2])).data.column1
         @test column isa FITSFiles.ScaledArray{Int64} && column == [0, 5]
-        #  an offset beyond 64 bits gives 128-bit integers, and one that is not a number of Int128 is a floating-point number
+        #  an offset beyond 64 bits gives BigInt integers if the sums do not fit an Int64, and one that is a whole floating-point number beyond 2^53 is a
+        #  floating-point number
         column = reread(bytes("-9223372036854775809", [typemin(Int64), 5])).data.column1
-        @test column isa FITSFiles.ScaledArray{Int128} && column == Int128[-18446744073709551617, -9223372036854775804]
+        @test column isa FITSFiles.ScaledArray{BigInt} && column == BigInt[-18446744073709551617, -9223372036854775804]
+        column = reread(bytes("-9223372036854775809", [typemax(Int64), 5])).data.column1
+        @test column isa FITSFiles.ScaledArray{Int64} && column == [-2, -9223372036854775804]
         @test reread(bytes("1.0E40", [1, 2])).data.column1 isa Vector{Float64}
         #  an undefined entry stays in place, and the columns of no values have the type of the others
         cards2 = fieldcards(["I4"], [1]; extra = [kw("TZERO1", "100"), sk("TNULL1", "  -9")])
@@ -332,8 +343,15 @@
         @test_throws ArgumentError r"The value 101.5 of field a is not an integer, but the field has the format I4" rowsof(hdu)
         hdu = HDU(Table, (a = FITSFiles.ScaledArray(UInt64[18446744073709551615], 1, parse(Int128, zero2)),), Card{<:Any}[Card("TFORM1", "I20")])
         @test strip(rowsof(hdu)[1:20]) == "9223372036854775807"
-        hdu = HDU(Table, (a = FITSFiles.ScaledArray(Int128[Int128(2)^100], 1, parse(Int128, zero2)),), Card{<:Any}[Card("TFORM1", "I20")])
-        @test_throws ArgumentError r"is the stored value .* with TZERO 9223372036854775808, which is not in the range of an Int64" rowsof(hdu)
+        #  a stored value that an Int64 does not hold is written, and is read as a BigInt, whose physical values are BigInt
+        hdu = HDU(Table, (a = FITSFiles.ScaledArray(Int128[Int128(2)^100], 1, parse(Int128, zero2)),), Card{<:Any}[Card("TFORM1", "I40")])
+        @test strip(rowsof(hdu)[1:40]) == string(Int128(2)^100 - parse(Int128, zero2))
+        again = roundtrip(hdu).data.a
+        @test again isa FITSFiles.ScaledArray{BigInt} && again == [big(2)^100]
+        #  a TZEROn that no Int128 of at most 2^100 holds, and stored values that are BigInt, have BigInt physical values
+        big_zero = string(big(2)^120)
+        column = reread(tablebytes(fieldcards(["I4"], [1]; extra = [kw("TZERO1", big_zero[1:20])]), ["   1"])).data.column1
+        @test column isa FITSFiles.ScaledArray
         hdu = HDU(Table, (a = FITSFiles.ScaledArray([1], 1, 5),), Card{<:Any}[Card("TFORM1", "I4"), Card("TZERO1", 6)])
         @test getfield(hdu, :cards)["TZERO1"] == 5
         #  the integers of a field of the header are the stored values
@@ -509,6 +527,19 @@
         @test row("I4", Int8(-5))[1:4] == "  -5"
         @test row("E16.8", 0.1f0)[1:16] == "  1.00000001E-01"
         @test row("D12.3", 1.5e100)[1:12] == "  1.500D+100"
+        #  the digits that a number has are written if the field has room, and the fewest more than the digits of the format, so that what is read
+        #  is written again (the formats of Table 15 are input formats), and the number that needs more digits than the field has is rounded
+        for (form, text) in ["F10.3" => "1.23456789", "F8.1" => "  0.1234", "E12.3" => "1.234567E+00", "D12.3" => "1.234567D+00",
+            "F10.3" => "     2.500", "E10.3" => " 1.500E+00", "F12.3" => "  -0.0012345", "E14.3" => " 1.2345678E-05"]
+            bytes = tablebytes(fieldcards([form], [1]), [lpad(text, parse(Int, match(r"\d+", form).match))])
+            @test written(bytes) == codeunits(bytes)
+            @test reread(written(bytes)).data == reread(bytes).data
+        end
+        @test row("F8.3", 0.1 + 0.2)[1:8] == "   0.300" && row("F10.3", 2.5)[1:10] == "     2.500"
+        @test row("F25.3", 0.1 + 0.2)[1:25] == lpad("0.30000000000000004", 25)
+        @test row("E10.3", 1.23456789e-5)[1:10] == " 1.235E-05" && row("E20.3", 1.23456789e-5)[1:20] == lpad("1.23456789E-05", 20)
+        @test row("D25.16", 0.1 + 0.2)[1:25] == lpad("3.0000000000000004D-01", 25)
+        @test row("E10.3", 100.0)[1:10] == " 1.000E+02" && row("F8.3", -1e-10)[1:8] == "  -0.000"
         #  a value that does not fit the field, or that the field does not hold, is an error, and does not shift the fields after it
         for (form, value, message) in [("I2", 12345, "The value 12345 of field a has 5 characters, but the format I2 has 2"),
             ("A3", "abcdefgh", "has 8 characters, but the format A3 has 3"), ("F6.3", 123456.789, "has 10 characters, but the format F6.3 has 6"),
@@ -519,6 +550,16 @@
             ("A4", 1, "is not a string"), ("A3", "é", "not ASCII text characters, from 32 to 126"), ("A3", "a\tb", "not ASCII text characters")]
             @test_throws ArgumentError Regex(message) row(form, value)
         end
+        #  the integers that an Int64 does not hold are BigInt, which are written and read, with the integers of the other types
+        for values in ([big(10)^30, 5], UInt64[18446744073709551615, 1], BigInt[-5, 7], Int128[2^100, -1])
+            data = roundtrip(HDU(Table, (a = values,))).data.a
+            @test data isa Vector{BigInt} || data isa Vector{Int64}
+            @test data == values
+        end
+        @test roundtrip(HDU(Table, (a = UInt64[18446744073709551615, 1],))).data.a isa Vector{BigInt}
+        @test roundtrip(HDU(Table, (a = [1, 2],))).data.a isa Vector{Int64}
+        @test row("I31", big(10)^30)[1:31] == lpad(string(big(10)^30), 31)
+        @test_throws ArgumentError r"has 31 characters, but the format I30 has 30" row("I30", big(10)^30)
         #  fields that overlap are written at their columns, and the characters between the fields are spaces
         hdu = HDU(Table, (a = [1], b = [2]), Card{<:Any}[Card("TFORM1", "I4"), Card("TBCOL1", 1), Card("TFORM2", "I4"), Card("TBCOL2", 3)])
         @test rowsof(hdu)[1:6] == "     2"
@@ -601,15 +642,65 @@
         #  the minimum and maximum values have the data type of the physical values: integers for an integer field that is not scaled to
         #  floating-point numbers, and floating-point numbers for the others
         for key in ("TDMIN", "TDMAX", "TLMIN", "TLMAX")
-            @test_logs read1([kw("$(key)1", 5)])
-            @test_logs (:warn, Regex("$(key)1 must be an integer, since the values of field 1 are integers \\(Sect. 7.2.2\\), but its value is 1.5")) read1(
-                [kw("$(key)1", "1.5")])
-            @test_logs read1([kw("$(key)1", "1.5")]; forms = ["F5.1"], rows = ["  1.5"])
-            @test_logs (:warn, Regex("$(key)1 must be a floating-point number, since the values of field 1 are floating-point numbers.*is 5")) read1(
-                [kw("$(key)1", 5)]; forms = ["F5.1"], rows = ["  1.5"])
+            low = key in ("TDMIN", "TLMIN")
+            whole, part = low ? ("0", "0.5") : ("5", "5.5")
+            @test_logs read1([kw("$(key)1", whole)])
+            @test_logs (:warn, Regex("$(key)1 must be an integer, since the values of field 1 are integers \\(Sect. 7.2.2\\), but its value is $part")) read1(
+                [kw("$(key)1", part)])
+            @test_logs read1([kw("$(key)1", part)]; forms = ["F5.1"], rows = ["  1.5"])
+            @test_logs (:warn, Regex("$(key)1 must be a floating-point number, since the values of field 1 are floating-point numbers.*is $whole")) read1(
+                [kw("$(key)1", whole)]; forms = ["F5.1"], rows = ["  1.5"])
         end
-        @test_logs (:warn, r"TDMIN1 must be a floating-point number") read1([kw("TDMIN1", 5), kw("TSCAL1", "2.0")])
-        @test_logs read1([kw("TDMIN1", "5.5"), kw("TSCAL1", "2.0")])
+        @test_logs (:warn, r"TDMIN1 must be a floating-point number") read1([kw("TDMIN1", 1), kw("TSCAL1", "2.0")])
+        @test_logs read1([kw("TDMIN1", "1.5"), kw("TSCAL1", "2.0")])
+    end
+
+    ####    Test the minimum and maximum values of the columns (Sect. 7.2.2)    ####
+
+    @testset "minimum and maximum values" begin
+        read1(extra; forms = ["I4"], rows = ["   1", "   2", "   3"]) = reread(tablebytes(fieldcards(forms, [1]; extra), rows); scale = true)
+        #  TDMINn is not more than the smallest value of the column and TDMAXn is not less than the largest, whose undefined values are not in them
+        @test_logs read1([kw("TDMIN1", 1), kw("TDMAX1", 3)])
+        @test_logs read1([kw("TDMIN1", 0), kw("TDMAX1", 9)])
+        @test_logs (:warn, r"TDMIN of field column1, 2, is more than the smallest value of the field, 1, but TDMIN is the minimum physical value of the column \(Sect. 7.2.2\)\. It is read as it is\.") read1([kw("TDMIN1", 2)])
+        @test_logs (:warn, r"TDMAX of field column1, 2, is less than the largest value of the field, 3, but TDMAX is the maximum physical value of the column") read1([kw("TDMAX1", 2)])
+        @test_logs (:warn, r"TDMIN of field column1, 2") (:warn, r"TDMAX of field column1, 2") read1([kw("TDMIN1", 2), kw("TDMAX1", 2)])
+        @test_logs read1([kw("TDMIN1", 1), kw("TDMAX1", 3), sk("TNULL1", "  -9")]; rows = ["   1", "  -9", "   3"])
+        @test_logs read1([kw("TDMIN1", 1), kw("TDMAX1", 1), sk("TNULL1", "   2")]; rows = ["   1", "   2", "   2"])
+        #  the values are the physical values, which the scale and the zero make of the stored values, whichever way they are read
+        scaled = [kw("TSCAL1", "2.0"), kw("TZERO1", "10.0")]
+        for kwds in ((;), (; scale = false), (; record = true))
+            @test_logs reread(tablebytes(fieldcards(["I4"], [1]; extra = [scaled; kw("TDMIN1", "12.0"); kw("TDMAX1", "16.0")]), ["   1", "   3"]); kwds...)
+            @test_logs (:warn, r"TDMIN of field column1, 13.0, is more than the smallest value of the field, 12.0") reread(
+                tablebytes(fieldcards(["I4"], [1]; extra = [scaled; kw("TDMIN1", "13.0")]), ["   1", "   3"]); kwds...)
+        end
+        @test_logs reread(tablebytes(fieldcards(["I4"], [1]; extra = [kw("TSCAL1", "-1.0"), kw("TDMIN1", "-3.0"), kw("TDMAX1", "-1.0")]), ["   1", "   3"]))
+        @test_logs (:warn, r"TDMAX of field column1, -2.0, is less than the largest value of the field, -1.0") reread(
+            tablebytes(fieldcards(["I4"], [1]; extra = [kw("TSCAL1", "-1.0"), kw("TDMAX1", "-2.0")]), ["   1", "   3"]))
+        #  the exact integers have exact minimum and maximum values, and a real number is compared to within a millionth of its size
+        exact = [kw("TZERO1", "100"), kw("TDMIN1", "101"), kw("TDMAX1", "102")]
+        @test_logs reread(tablebytes(fieldcards(["I4"], [1]; extra = exact), ["   1", "   2"]))
+        @test_logs (:warn, r"TDMIN of field column1, 102, is more than the smallest value of the field, 101") reread(
+            tablebytes(fieldcards(["I4"], [1]; extra = [kw("TZERO1", "100"), kw("TDMIN1", "102")]), ["   1", "   2"]))
+        @test_logs read1([kw("TDMIN1", "1.5"), kw("TDMAX1", "1.5")]; forms = ["F5.1"], rows = ["  1.5", "  1.5"])
+        @test_logs read1([kw("TDMIN1", "1.5000001")]; forms = ["F9.7"], rows = ["1.5000000"])
+        @test_logs read1([kw("TDMIN1", "0.1"), kw("TDMAX1", "0.1")]; forms = ["F12.9"], rows = [" 0.100000000"])
+        @test_logs (:warn, r"TDMIN of field column1, 1.51, is more than the smallest value of the field, 1.5,") read1(
+            [kw("TDMIN1", "1.51")]; forms = ["F5.1"], rows = ["  1.5"])
+        #  a column of characters, of no values, or of undefined values has no minimum or maximum
+        @test_logs read1([kw("TDMIN1", 5)]; forms = ["A4"], rows = ["abcd"])
+        @test_logs (:warn, r"TDMIN1, 5, is more than TDMAX1, 1") read1([sk("TNULL1", "  -9"), kw("TDMIN1", 5), kw("TDMAX1", 1)]; rows = ["  -9"])
+        @test_logs reread(tablebytes(fieldcards(["I4"], [1]; extra = [kw("TDMIN1", 5), kw("TDMAX1", 7)]), String[]; rowlen = 4, nrows = 0))
+        #  a BigInt column has the minimum and maximum of its integers
+        @test_logs reread(tablebytes(fieldcards(["I25"], [1]; extra = [kw("TDMIN1", "12"), kw("TDMAX1", "12345678901234567890")]),
+            [lpad("12", 25), lpad("12345678901234567890", 25)]))
+        #  the minimum is not more than the maximum, and the minimum valid value is not more than the maximum valid value
+        @test_logs (:warn, r"TDMIN1, 5, is more than TDMAX1, 1, but TDMIN1 is the minimum and TDMAX1 is the maximum \(Sect. 7.2.2\)") (:warn, r"TDMIN of field column1, 5") read1(
+            [kw("TDMIN1", 5), kw("TDMAX1", 1)]; rows = ["   1"])
+        @test_logs (:warn, r"TLMIN1, 5, is more than TLMAX1, 1, but TLMIN1 is the minimum and TLMAX1 is the maximum") read1([kw("TLMIN1", 5), kw("TLMAX1", 1)])
+        @test_logs read1([kw("TLMIN1", 5), kw("TLMAX1", 5)])
+        #  the valid values are limits of the meaning, which the column may be outside of
+        @test_logs read1([kw("TLMIN1", 2), kw("TLMAX1", 2)])
     end
 
     ####    Test the mandatory keywords (Sects. 4.4.1.2 and 7.2.1)    ####
@@ -668,6 +759,13 @@
         @test_logs @test names([sk("TTYPE1", "x"), sk("TTYPE2", "y")]; forms = ["I4", "I4"], rows = ["   1   2"]) == (:x, :y)
         #  the name of a field that has none is the number of its column, and the field of an empty name has the default
         @test_logs @test names([sk("TTYPE1", ""), sk("TTYPE3", "z")]) == (:column1, :column2, :z)
+        #  the name of a field of the data has a character and no space at its end, since the data are matched to the fields by name
+        for name in ("", " ", "a ", "ab  ")
+            @test_throws ArgumentError Regex("The name of field 1 of the data, $(repr(name)), is empty or has a space at its end") HDU(
+                Table, NamedTuple{(Symbol(name),)}(([1],)))
+        end
+        @test_throws ArgumentError r"The name of field 2 of the data, \"\", is empty" HDU(Table, [(a = 1, var"" = 2)])
+        @test HDU(Table, NamedTuple{(Symbol(" a"),)}(([1],))) isa HDU
         #  a name has at most 68 characters, which is the most that a string of a card has, and has the characters that are recommended for a name
         @test HDU(Table, NamedTuple{(Symbol(repeat("x", 68)),)}(([1],))) isa HDU
         @test_throws ArgumentError r"The name of field 1, \"xxxxxxxxxxxxxxxxxxxx\"\.\.\., has 69 characters, but the value of a TTYPEn keyword has at most 68 \(Sect. 4.2.1.1\)" HDU(
