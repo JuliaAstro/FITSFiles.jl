@@ -724,8 +724,14 @@ function Base.write(io::IO, field::BinaryField, value::U; check::Bool = true, kw
     U <: Union{AbstractArray, AbstractString, BitVector, Real, Complex, Missing}
 
     type, leng = field.type, field.leng
+    #  The elements of an array are written, and the elements of the field that follow them, which are the elements that TDIMn does not
+    #  use, are zeros, so that the field has its bytes in every row. An array that has more elements than the field has would shift the
+    #  fields after it.
+    n = value isa AbstractArray ? length(value) : 1
+    type <: AbstractString || n <= leng || throw(ArgumentError("The array of field $(field.name) has $n elements, " *
+        "but the field has $leng (Sect. 7.3.1)."))
     #  A logical value is written as T or F, and an undefined value as a 0 byte (Sect. 7.3.3.1)
-    type <: Bool && return leng == 0 ? 0 : write(io, encodelogical.(value))
+    type <: Bool && return leng == 0 ? 0 : write(io, padelements(encodelogical.(value), leng, 0x00))
     #  The stored values of the physical values, and the undefined values, which are written as TNULLn (Sect. 7.3.2), or NaN for
     #  floating-point data
     value = unsetmissing(storedcell(field, value; check), field.null, type)
@@ -733,15 +739,19 @@ function Base.write(io::IO, field::BinaryField, value::U; check::Bool = true, kw
     if type <: AbstractString
         write(io, padstring(value, field.leng))
     elseif type <: BitVector
-        write(io, type, value)
+        write(io, type, BitVector(padelements(value, leng, false)))
     elseif leng == 0
         0
     elseif leng == 1
         write(io, hton(value))
     else
-        write(io, hton.(value))
+        write(io, hton.(padelements(value, leng, zero(type))))
     end
 end
+
+#  The elements of an array and the `pad` elements that follow them up to `leng` elements
+padelements(values::AbstractArray, leng::Integer, pad) = length(values) < leng ? vcat(values, fill(pad, leng - length(values))) : values
+padelements(value, leng::Integer, pad) = value
 
 #  The string of the bytes of a field of characters, which ends at the first ASCII NULL, since the characters after it are not defined, and
 #  without the spaces that fill the field (Sect. 7.3.3.1)

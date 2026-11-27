@@ -1481,4 +1481,43 @@
         @test hdu.cards["TFORM1"] == "9X"
         @test read(IOBuffer(written(hdu)), HDU).data.b == [BitVector([1, 0, 0, 0, 0, 0, 0, 1, 1]), BitVector([0, 1, 0, 0, 0, 0, 0, 0, 0])]
     end
+
+    ####    Test the width of the fields that are written (Sect. 7.3.1)    ####
+
+    @testset "width of fields" begin
+        written(hdu) = (io = IOBuffer(); write(io, hdu); take!(io))
+        card(s) = rpad(s, 80)
+        function tablebytes(cards, naxis1, naxis2, data)
+            header = vcat(["XTENSION= 'BINTABLE'", "BITPIX  =                    8", "NAXIS   =                    2",
+                "NAXIS1  = " * lpad(naxis1, 20), "NAXIS2  = " * lpad(naxis2, 20), "PCOUNT  =                    0",
+                "GCOUNT  =                    1", "TFIELDS =                    1"], cards, ["END"])
+            vcat(collect(codeunits(rpad(join(card.(header)), 2880 * cld(80 * length(header), 2880)))),
+                data, zeros(UInt8, mod(-length(data), 2880)))
+        end
+
+        #  the elements of the field that TDIMn does not use are written as zeros, so the rows have the same bytes
+        data = collect(reinterpret(UInt8, hton.(Int16[1, 2, 3, 4, 5, 6, 7, 8])))
+        bytes = tablebytes(["TFORM1  = '4I      '", "TDIM1   = '(3,1)   '"], 8, 2, data)
+        hdu = read(IOBuffer(bytes), HDU)
+        @test size(hdu.data.column1) == (2, 3, 1)
+        again = written(hdu)
+        @test length(again) == length(bytes) && again[2881:2880 + 16] == collect(reinterpret(UInt8, hton.(Int16[1, 2, 3, 0, 5, 6, 7, 0])))
+        @test read(IOBuffer(again), HDU).data.column1 == hdu.data.column1
+        #  the same for the bits, the logical values, and the array of a record
+        for (form, dim, nbytes, unused) in (("10X", "(3,1)", 2, UInt8[0]), ("5L", "(2,2)", 5, UInt8[0]))
+            data = form == "10X" ? UInt8[0xff, 0xff, 0xff, 0xff] : collect(codeunits("TFTFTFTFTF"))
+            hdu = read(IOBuffer(tablebytes(["TFORM1  = '$form'", "TDIM1   = '$dim'"], nbytes, 2, data)), HDU)
+            again = written(hdu)
+            @test length(again) == 5760 && read(IOBuffer(again), HDU).data.column1 == hdu.data.column1
+        end
+        bytes = written(HDU(Bintable, (b = [BitVector([1, 0, 0, 0, 0, 0, 0, 1, 1]), BitVector([0, 1])], n = Int16[5, 6])))
+        @test bytes[2881:2888] == UInt8[0b10000001, 0b10000000, 0, 5, 0b01000000, 0, 0, 6]
+
+        #  an array that has more elements than the field has is an error, since it would shift the fields after it
+        hdu = HDU(Bintable, (a = [Int16[1, 2, 3], Int16[4, 5, 6]], n = Int16[7, 8]))
+        hdu.data.a[2] = Int16[1, 2, 3, 4]
+        @test_throws ArgumentError("The array of field a has 4 elements, but the field has 3 (Sect. 7.3.1).") written(hdu)
+        hdu.data.a[2] = Int16[1, 2]
+        @test read(IOBuffer(written(hdu)), HDU).data.n == Int16[7, 8]
+    end
 end
