@@ -167,6 +167,10 @@ function HDU(type::Type, ::Missing = missing, cards::C = missing; kwds...) where
 end
 
 
+#  The cards of the keywords of an HDU that is made from data, which override the cards that are given: a type of HDU whose keywords give cards
+#  defines its own (see `HDU(Table, data; columns, formats)`)
+keywordcards!(::Type{<:AbstractHDU}, cards::Cards, data; kwds...) = cards
+
 #  Name the data that is given as tuples. A type of HDU that has data in records of tuples defines its own
 namedata(::Type{<:AbstractHDU}, data, fields, format) = data
 
@@ -180,6 +184,9 @@ function HDU(type::Type, data::AbstractArray, cards::C = missing; kwds...) where
 	if !ismissing(kards)
 		popat!(kards, "END")
 	end
+
+	#  The cards of the keywords of the type of HDU, which override the cards that are given
+	kards = keywordcards!(type, kards, data; kwds...)
 
 	#  Create dictionaries of mandatory and reserved keywords
 	mankeys, reskeys = getreservedkeys(kards)
@@ -206,6 +213,9 @@ function HDU(type::Type, data::U, cards::C = missing; kwds...) where
 	if !ismissing(kards)
 		popat!(kards, "END")
 	end
+
+	#  The cards of the keywords of the type of HDU, which override the cards that are given
+	kards = keywordcards!(type, kards, data; kwds...)
 
 	#  Create dictionaries of mandatory and reserved keywords
 	mankeys, reskeys = getreservedkeys(kards)
