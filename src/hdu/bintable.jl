@@ -153,6 +153,8 @@ function Base.write(io::IO, ::Type{Bintable}, data::Union{AbstractArray, NamedTu
     M, N = format.shape[1], format.shape[2]
     if N > 0
         heap = IOBuffer()
+        #  The bytes of a row that no field has are written as zeros
+        unused = zeros(UInt8, M - sum(length(field.slice) for field in fields; init = 0))
         for j=1:N
             for field in fields
                 cell = getcell(Bintable, data, field, j)
@@ -162,6 +164,7 @@ function Base.write(io::IO, ::Type{Bintable}, data::Union{AbstractArray, NamedTu
                     writearray(io, heap, field, cell; check = get(kwds, :check, true))
                 end
             end
+            write(io, unused)
         end
         bytes = take!(heap)
         gap = max(format.heap - M*N, 0)
@@ -204,6 +207,14 @@ function verifydata(::Type{Bintable}, data::Union{NamedTuple, AbstractVector{<:N
 end
 
 function verify!(::Type{Bintable}, cards::Cards, mankeys::AbstractDict, reskeys::AbstractDict)
+    #  A header that is being created does not have the keywords yet, and is arranged when it is created.
+    created = !haskey(mankeys, "XTENSION")
+    #  The data cannot be read without BITPIX and NAXIS, which say how many axes there are (Sect. 7.3.1). A header with no TFIELDS has no
+    #  fields.
+    for key in ("BITPIX", "NAXIS")
+        created || haskey(mankeys, key) || throw(ArgumentError(
+            "$key is missing, but it is a mandatory keyword of a BINTABLE extension (Sect. 7.3.1)."))
+    end
     cards = invoke(verify!, Tuple{Type{<:AbstractHDU}, Cards, AbstractDict, AbstractDict}, Bintable, cards,
         mankeys, reskeys)
     verifyrows(Bintable, mankeys)
@@ -215,6 +226,37 @@ function verify!(::Type{Bintable}, cards::Cards, mankeys::AbstractDict, reskeys:
     verifyinteger(reskeys, r"^TNULL\d+$")
     verifyfields!(Bintable, cards, mankeys)
     verifyheap!(cards, mankeys)
+    created && return cards
+    verifykeys(Bintable, cards, mankeys, reskeys)
+end
+
+#  The keywords that are in order and in fixed format, and the keywords of the fields (Sects. 4.4.1.2, 7.3.1, and 7.3.2)
+function verifykeys(::Type{Bintable}, cards::Cards, mankeys::AbstractDict, reskeys::AbstractDict)
+    #  PCOUNT and GCOUNT have the values 0 and 1 if they are missing, so the data can be read without them
+    for (key, value) in ("PCOUNT" => 0, "GCOUNT" => 1)
+        haskey(mankeys, key) || @warn "$key is missing, but it is a mandatory keyword of a BINTABLE extension " *
+            "(Sect. 7.3.1), and has the value $value. It is read as $value."
+    end
+    #  The mandatory keywords are the first keywords, in order and in fixed format
+    required = filter(key -> haskey(mankeys, key), ["XTENSION", "BITPIX", "NAXIS", "NAXIS1", "NAXIS2", "PCOUNT", "GCOUNT", "TFIELDS"])
+    verifyorder(cards, required; section = "Sects. 4.4.1.2 and 7.3.1",
+        names = "XTENSION, BITPIX, NAXIS, NAXIS1, NAXIS2, PCOUNT, GCOUNT, and TFIELDS")
+    verifyfixed(cards, required)
+    #  The keywords of the primary header, and of the physical blocks, are not in an extension (Sects. 4.4.1.1, 4.4.2.1, and 7.3.2)
+    haskey(mankeys, "SIMPLE") && @warn "SIMPLE must not appear in an extension header (Sect. 4.4.1.1). It is read as it is."
+    for key in ("EXTEND", "BLOCKED")
+        haskey(reskeys, key) && @warn "$key must not appear in a BINTABLE extension header (Sects. 4.4.2.1 and 7.3.2). " *
+            "It is read as it is."
+    end
+    #  INHERIT is a logical that is immediately after the mandatory keywords (Sect. 4.4.2.6 and Appendix K)
+    verifylogical(reskeys, r"^INHERIT$")
+    j = Base.findfirst("INHERIT", cards)
+    if !ismissing(j) && j != length(required) + 1
+        @warn "INHERIT must be the keyword immediately after the mandatory keywords, keyword $(length(required) + 1) " *
+            "of this header (Sect. 4.4.2.6 and Appendix K), but it is keyword $j. It is read as it is."
+    end
+    verifyfieldkeys(Bintable, mankeys, reskeys)
+    cards
 end
 
 function verify!(::Type{Bintable}, cards::Cards, format::DataFormat,
@@ -245,7 +287,7 @@ function FieldFormat(::Type{Bintable}, mankeys::DataFormat, reskeys::Dict{S, V},
     N = get(reskeys, "TFIELDS", 0)
     k, fields = 0, Vector{BinaryField}(undef, N)
     for j = 1:N
-        name  = rstrip(get(reskeys, "TTYPE$j", record ? "field$j" : "column$j"))
+        name  = stringkey(reskeys, "TTYPE$j", record ? "field$j" : "column$j")
         form  = match(BINARYFMT, reskeys["TFORM$j"])
         pntr  = !isempty(form[:p]) ? POINTERTYPE[form[:p]] : nothing
         type  = BINARYTYPE[form[:t]]
@@ -255,7 +297,7 @@ function FieldFormat(::Type{Bintable}, mankeys::DataFormat, reskeys::Dict{S, V},
                 leng = 1
                 @warn "TFORM$j repeat value set to 1."
             end
-            byts = 2*sizeof(pntr)
+            byts = leng*2*sizeof(pntr)
         elseif type <: BitVector
             byts = sizeofbitvector(leng)
         elseif type <: AbstractString
@@ -264,14 +306,12 @@ function FieldFormat(::Type{Bintable}, mankeys::DataFormat, reskeys::Dict{S, V},
             byts = leng*sizeof(type)
         end
         supp  = form[:a]
-        unit_ = get(reskeys, "TUNIT$j", "")
-        disp  = get(reskeys, "TDISP$j", "")
+        unit_ = stringkey(reskeys, "TUNIT$j", "")
+        disp  = stringkey(reskeys, "TDISP$j", "")
         dims  = parsedims(get(reskeys, "TDIM$j", nothing), j)
-        zero_ = leastfloat(get(reskeys, "TZERO$j",
-            type <: Union{Bool, BitVector, String} ? nothing : 0.0f0))
-        scale = leastfloat(get(reskeys, "TSCAL$j",
-            type <: Union{Bool, BitVector, String} ? nothing : 1.0f0))
-        null  = get(reskeys, "TNULL$j", nothing)
+        zero_ = scalekey(reskeys, "TZERO$j", type, 0.0f0)
+        scale = scalekey(reskeys, "TSCAL$j", type, 1.0f0)
+        null  = nullkey(reskeys, "TNULL$j", type)
         dmin  = parsestring(get(reskeys, "TDMIN$j", nothing))
         dmax  = parsestring(get(reskeys, "TDMAX$j", nothing))
         lmin  = parsestring(get(reskeys, "TLMIN$j", nothing))
@@ -283,6 +323,19 @@ function FieldFormat(::Type{Bintable}, mankeys::DataFormat, reskeys::Dict{S, V},
     end
     fields
 end
+
+#  The string of a keyword of a field without the spaces at its end, or the default if the header does not have it or it is not a string
+stringkey(reskeys::AbstractDict, key::AbstractString, default::AbstractString) =
+    get(reskeys, key, default) isa AbstractString ? rstrip(get(reskeys, key, default)) : default
+
+#  The scale or the zero of a field, which the header has or the default is, and nothing for the fields of type A, L, and X, which do not have
+#  them (Sect. 7.3.2)
+scalekey(reskeys::AbstractDict, key::AbstractString, type::Type, default) =
+    type <: Union{Bool, BitVector, AbstractString} ? nothing : leastfloat(get(reskeys, key, default))
+
+#  The integer of a field that stands for an undefined value, which only the fields of type B, I, J, and K have (Sect. 7.3.2)
+nullkey(reskeys::AbstractDict, key::AbstractString, type::Type) =
+    type <: Union{UInt8, Int16, Int32, Int64} ? get(reskeys, key, nothing) : nothing
 
 function DataFormat(::Type{Bintable}, data::AbstractArray,
     mankeys::Dict{S, V}) where {S <: AbstractString, V <: ValueType}
@@ -298,20 +351,18 @@ function FieldFormat(::Type{Bintable}, mankey::DataFormat, reskeys::Dict{S, V},
     k, fields = 0, Vector{BinaryField}(undef, N)
     for j = 1:N
         name = typeof(data[1]) <: NamedTuple ? rstrip(String(keys(data[1])[j])) :
-            rstrip(get(reskeys, "TTYPE$j", "field$j"))
+            stringkey(reskeys, "TTYPE$j", "field$j")
         type, leng, byts, pntr, supp, _, shape = columndescriptor(record[j] for record in data)
         type, offset = rawtype(type), offsetof(type)
         # unit_ = unit(data[1][j]) != NoUnits ? unit(data[1][j]) :
         #     get(reskeys, "TUNIT$j", "")
-        unit_ = get(reskeys, "TUNIT$j", "")
-        disp  = get(reskeys, "TDISP$j", "")
+        unit_ = stringkey(reskeys, "TUNIT$j", "")
+        disp  = stringkey(reskeys, "TDISP$j", "")
         dims  = parsedims(get(reskeys, "TDIM$j", nothing), j)
         dims  = isnothing(dims) ? shape : dims
-        zero_ = leastfloat(get(reskeys, "TZERO$j",
-            type <: Union{Bool, BitVector, String} ? nothing : offset))
-        scale = leastfloat(get(reskeys, "TSCAL$j",
-            type <: Union{Bool, BitVector, String} ? nothing : 1.0f0))
-        null  = get(reskeys, "TNULL$j", nothing)
+        zero_ = scalekey(reskeys, "TZERO$j", type, offset)
+        scale = scalekey(reskeys, "TSCAL$j", type, 1.0f0)
+        null  = nullkey(reskeys, "TNULL$j", type)
         dmin  = get(reskeys, "TDMIN$j", nothing)
         dmax  = get(reskeys, "TDMAX$j", nothing)
         lmin  = get(reskeys, "TLMIN$j", nothing)
@@ -339,20 +390,18 @@ function FieldFormat(::Type{Bintable}, mankey::DataFormat, reskeys::Dict{S, V},
     k, fields = 0, Vector{BinaryField}(undef, N)
     for j = 1:N
         name  = typeof(data) <: NamedTuple ? rstrip(String(keys(data)[j])) :
-            rstrip(get(reskeys, "TTYPE$j", "column$j"))
+            stringkey(reskeys, "TTYPE$j", "column$j")
         type, leng, byts, pntr, supp, _, shape = columndescriptor(data[j])
         type, offset = rawtype(type), offsetof(type)
         # unit_ = unit(data[j]) != NoUnits ? unit(data[j]) :
         #     get(reskeys, "TUNIT$j", "")
-        unit_ = get(reskeys, "TUNIT$j", "")
-        disp  = get(reskeys, "TDISP$j", "")
+        unit_ = stringkey(reskeys, "TUNIT$j", "")
+        disp  = stringkey(reskeys, "TDISP$j", "")
         dims  = parsedims(get(reskeys, "TDIM$j", nothing), j)
         dims  = isnothing(dims) ? shape : dims
-        zero_ = leastfloat(get(reskeys, "TZERO$j",
-            type <: Union{Bool, BitVector, String} ? nothing : offset))
-        scale = leastfloat(get(reskeys, "TSCAL$j",
-            type <: Union{Bool, BitVector, String} ? nothing : 1.0f0))
-        null  = get(reskeys, "TNULL$j", nothing)
+        zero_ = scalekey(reskeys, "TZERO$j", type, offset)
+        scale = scalekey(reskeys, "TSCAL$j", type, 1.0f0)
+        null  = nullkey(reskeys, "TNULL$j", type)
         dmin  = get(reskeys, "TDMIN$j", nothing)
         dmax  = get(reskeys, "TDMAX$j", nothing)
         lmin  = get(reskeys, "TLMIN$j", nothing)
@@ -438,7 +487,7 @@ function fieldvalue(values)
     value
 end
 
-sizeofbitvector(len::Integer)::Integer = (len-1)÷8 + 1
+sizeofbitvector(len::Integer)::Integer = len <= 0 ? 0 : (len-1)÷8 + 1
 
 function fielddescriptor(field)
     if typeof(field) <: AbstractString
@@ -791,3 +840,74 @@ function tablekeys(::Type{Bintable}, format::DataFormat, nfields::Integer)
 	Pair{String, Any}["XTENSION" => "BINTABLE", "BITPIX" => 8, "NAXIS" => 2, "NAXIS1" => M,
 		"NAXIS2" => N, "PCOUNT" => format.param, "GCOUNT" => 1, "TFIELDS" => nfields]
 end
+
+#  The form of the value of TFORMn: a repeat count, the data type of Table 18 in upper case, and the characters that follow, which are
+#  the type of the elements and the largest number of them of a variable-length array (Sect. 7.3.1)
+const TFORMFORM = r"^(\d*)([PQ]?)([LXBIJKAEDCM])(.*)$"
+
+#  The number of bytes of a field in a row of the table from the value of its TFORMn, which must be of the form rTa
+function tformbytes(key::AbstractString, value)
+    value isa AbstractString || throw(ArgumentError("$key must be a character string of the form rTa, but its value is $(repr(value))."))
+    m = match(TFORMFORM, rstrip(value))
+    if isnothing(m)
+        case = occursin(r"^\d*[PQ]?[a-z]", value) ? ", and the format codes must be upper case" : ""
+        throw(ArgumentError("$key must be of the form rTa, with a data type of Table 18: L, X, B, I, J, K, A, E, D, C, M, P, or Q" *
+            "$case (Sect. 7.3.1), but its value is $(repr(value))."))
+    end
+    r = isempty(m[1]) ? 1 : Base.parse(Int, m[1])
+    isempty(m[2]) || return min(r, 1)*2*sizeof(POINTERTYPE[m[2]])
+    type = BINARYTYPE[m[3]]
+    type <: BitVector ? sizeofbitvector(r) : type <: AbstractString ? r : r*sizeof(type)
+end
+
+#  The number of bytes of a row is the sum of the bytes of the fields (Eq. 8 of the standard), and is the value of NAXIS1. The fields
+#  do not fit in a row that has fewer bytes, so the table cannot be read. The bytes of a row that no field has are not read, and are written
+#  as zeros.
+function verifyrowbytes(mankeys::AbstractDict, reskeys::AbstractDict)
+    N = get(mankeys, "TFIELDS", 0)
+    N isa Integer && N > 0 || return
+    all(j -> haskey(reskeys, "TFORM$j"), 1:N) || return
+    nbytes = sum(tformbytes("TFORM$j", reskeys["TFORM$j"]) for j = 1:N)
+    row = get(mankeys, "NAXIS1", nbytes)
+    row < nbytes && throw(ArgumentError("NAXIS1 is $row, but the fields of TFORMn have $nbytes bytes in a row, " *
+        "which is the value that NAXIS1 must have (Eq. 8, Sect. 7.3.1)."))
+    row > nbytes && @warn "NAXIS1 is $row, but the fields of TFORMn have $nbytes bytes in a row, which is the value that NAXIS1 " *
+        "must have (Eq. 8, Sect. 7.3.1). The $(row - nbytes) bytes after the fields of a row are not read, and are written as zeros."
+    nothing
+end
+
+#  The keywords that describe the fields (Sect. 7.3.2): TFORMn is of the form rTa, TTYPEn and TUNITn are character strings, TUNITn is a
+#  units string, the names of the fields are unique without regard to the case, TSCALn and TZEROn are numbers that are not used for
+#  the fields of type A, L, or X, TNULLn is an integer that is used only for the fields of type B, I, J, or K, TDISPn is a display format
+#  of Table 20, and the minimum and maximum values are numbers.
+function verifyfieldkeys(::Type{Bintable}, mankeys::AbstractDict, reskeys::AbstractDict)
+    N = get(mankeys, "TFIELDS", 0)
+    N isa Integer || return
+    verifyrowbytes(mankeys, reskeys)
+    verifystring(reskeys, r"^(TTYPE|TUNIT|TDISP)\d+$")
+    verifyunit(reskeys, r"^TUNIT\d+$")
+    verifynumber(reskeys, r"^(TSCAL|TZERO|TDMIN|TDMAX|TLMIN|TLMAX)\d+$")
+    names = Dict{String, Int}()
+    for j = 1:N
+        form = get(reskeys, "TFORM$j", nothing)
+        isnothing(form) && continue
+        type = match(TFORMFORM, rstrip(form))[3]
+        (haskey(reskeys, "TSCAL$j") || haskey(reskeys, "TZERO$j")) && type in ("A", "L", "X") &&
+            @warn "TSCAL$j and TZERO$j must not be used for a field of type $type (Sect. 7.3.2). They are not used."
+        haskey(reskeys, "TNULL$j") && !(type in ("B", "I", "J", "K")) && @warn "TNULL$j must not be used for a field of type " *
+            "$type (Sect. 7.3.2), which is not an integer. It is not used."
+        disp = get(reskeys, "TDISP$j", nothing)
+        disp isa AbstractString && !occursin(TDISPFORM, strip(disp)) && @warn "TDISP$j must be a display format of Table 20 " *
+            "(Sect. 7.3.2), but its value is $(repr(disp)). It is read as it is."
+        name = get(reskeys, "TTYPE$j", nothing)
+        if name isa AbstractString && !isempty(strip(name))
+            other = get(names, lowercase(rstrip(name)), 0)
+            other > 0 ? @warn("TTYPE$j and TTYPE$other have the same name, $(repr(rstrip(name))), without regard to the case, " *
+                "but the names of the fields should be unique (Sect. 7.3.2).") : names[lowercase(rstrip(name))] = j
+        end
+    end
+    nothing
+end
+
+#  The display formats of Table 20: Aw, Lw, Iw.m, Bw.m, Ow.m, Zw.m, Fw.d, Ew.dEe, ENw.d, ESw.d, Gw.dEe, and Dw.dEe, in upper case
+const TDISPFORM = r"^(A\d+|L\d+|[IBOZ]\d+(\.\d+)?|F\d+\.\d+|(E|EN|ES|G|D)\d+\.\d+(E\d+)?)$"

@@ -987,8 +987,8 @@
             primary = ["SIMPLE  =                    T", "BITPIX  =                    8",
                 "NAXIS   =                    0", "END"]
             header = vcat(["XTENSION= 'BINTABLE'", "BITPIX  =                    8", "NAXIS   =                    2",
-                "NAXIS1  =                    $naxis1", "NAXIS2  =                    $naxis2",
-                "PCOUNT  =                    $pcount", "GCOUNT  =                    1"], cards, ["END"])
+                "NAXIS1  = " * lpad(naxis1, 20), "NAXIS2  = " * lpad(naxis2, 20),
+                "PCOUNT  = " * lpad(pcount, 20), "GCOUNT  =                    1"], cards, ["END"])
             rpad(join(card.(primary)), 2880) * rpad(join(card.(header)), 2880) *
                 String(vcat(data, zeros(UInt8, 2880 - length(data))))
         end
@@ -1130,8 +1130,8 @@
         #  the bytes of a Bintable HDU, which has the cards after TFIELDS
         function tablebytes(cards, naxis1, naxis2, data; pcount = 0)
             header = vcat(["XTENSION= 'BINTABLE'", "BITPIX  =                    8", "NAXIS   =                    2",
-                "NAXIS1  =                    $naxis1", "NAXIS2  =                    $naxis2",
-                "PCOUNT  =                    $pcount", "GCOUNT  =                    1", "TFIELDS =                    1"], cards, ["END"])
+                "NAXIS1  = " * lpad(naxis1, 20), "NAXIS2  = " * lpad(naxis2, 20),
+                "PCOUNT  = " * lpad(pcount, 20), "GCOUNT  =                    1", "TFIELDS =                    1"], cards, ["END"])
             body = vcat(data, zeros(UInt8, mod(-length(data), 2880)))
             vcat(collect(codeunits(rpad(join(card.(header)), 2880 * cld(80 * length(header), 2880)))), body)
         end
@@ -1255,7 +1255,7 @@
         #  the bytes of a Bintable HDU of one field that has the cards after TFIELDS
         function tablebytes(cards, naxis1, naxis2, data)
             header = vcat(["XTENSION= 'BINTABLE'", "BITPIX  =                    8", "NAXIS   =                    2",
-                "NAXIS1  =                    $naxis1", "NAXIS2  =                    $naxis2",
+                "NAXIS1  = " * lpad(naxis1, 20), "NAXIS2  = " * lpad(naxis2, 20),
                 "PCOUNT  =                    0", "GCOUNT  =                    1", "TFIELDS =                    1"], cards, ["END"])
             vcat(collect(codeunits(rpad(join(card.(header)), 2880 * cld(80 * length(header), 2880)))),
                 data, zeros(UInt8, mod(-length(data), 2880)))
@@ -1307,5 +1307,125 @@
         header = replace(String(copy(bytes)), "PCOUNT  =                    0" => "PCOUNT  =                   20")
         hdu = read(IOBuffer(codeunits(header)), HDU)
         @test hdu.data.column1 == [Int16[1 3; 2 4], Int16[5 7; 6 8]]
+    end
+
+    ####    Test the verification of the header (Sects. 4.4.1.2, 7.3.1, and 7.3.2)    ####
+
+    @testset "header verification" begin
+        written(hdu) = (io = IOBuffer(); write(io, hdu); take!(io))
+        card(s) = rpad(s, 80)
+        kw(key, value) = key * repeat(" ", 8 - length(key)) * "= " * lpad(value isa AbstractString ? "'" * rpad(value, 8) * "'" : string(value),
+            value isa AbstractString ? 10 : 20)
+        #  the bytes of a Bintable HDU of the keywords, which are the mandatory ones and the others, and the bytes of the table
+        function tablebytes(others, data; naxis1 = 2, naxis2 = 2, tfields = 1, mandatory = nothing)
+            header = something(mandatory, [kw("XTENSION", "BINTABLE"), kw("BITPIX", 8), kw("NAXIS", 2), kw("NAXIS1", naxis1),
+                kw("NAXIS2", naxis2), kw("PCOUNT", 0), kw("GCOUNT", 1), kw("TFIELDS", tfields)])
+            header = vcat(header, others, ["END"])
+            vcat(collect(codeunits(rpad(join(card.(header)), 2880 * cld(80 * length(header), 2880)))),
+                data, zeros(UInt8, mod(-length(data), 2880)))
+        end
+        reading(bytes) = read(IOBuffer(bytes), HDU)
+        stored = collect(reinterpret(UInt8, hton.(Int16[1, 2])))
+        tform = kw("TFORM1", "I")
+
+        #  a header that conforms is read without a warning
+        @test @test_logs(reading(tablebytes([tform], stored))).data.column1 == Int16[1, 2]
+
+        #  the number of bytes of a row is the sum of the bytes of the fields (Eq. 8)
+        @test_throws ArgumentError("NAXIS1 is 1, but the fields of TFORMn have 2 bytes in a row, which is the value that NAXIS1 must have " *
+            "(Eq. 8, Sect. 7.3.1).") reading(tablebytes([tform], stored; naxis1 = 1))
+        #  the bytes after the fields are not read, and are written as zeros
+        padded = vcat(stored[1:2], UInt8[7, 7, 7, 7], stored[3:4], UInt8[8, 8, 8, 8])
+        hdu = @test_logs (:warn, r"NAXIS1 is 6, but the fields of TFORMn have 2 bytes in a row") reading(
+            tablebytes([tform], padded; naxis1 = 6))
+        @test hdu.data.column1 == Int16[1, 2] && hdu.cards["NAXIS1"] == 6
+        again = reading(written(hdu))
+        @test again.data.column1 == Int16[1, 2] && again.cards["NAXIS1"] == 6
+        #  the written rows have zeros after the fields
+        @test written(hdu)[2881:2880 + 12] == UInt8[0, 1, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0]
+        #  the fields of the sum of bytes include arrays, bits, strings, complex values, and array descriptors
+        forms = ["3I", "9X", "4A", "2C", "1PJ(3)", "0PI", "1QD(2)", "0I", "0X"]
+        sizes = [6, 2, 4, 16, 8, 0, 16, 0, 0]
+        for (form, nbytes) in zip(forms, sizes)
+            @test FITSFiles.tformbytes("TFORM1", form) == nbytes
+        end
+        @test FITSFiles.tformbytes("TFORM1", "B") == 1 && FITSFiles.tformbytes("TFORM1", "2M") == 32
+
+        #  TFORMn is of the form rTa, with a data type of Table 18 in upper case
+        for value in ("e", "5i", "1pj(3)", "5Z", "", "x", "3")
+            @test_throws ArgumentError reading(tablebytes([kw("TFORM1", value)], stored))
+        end
+        err = try reading(tablebytes([kw("TFORM1", "e")], stored)) catch e e end
+        @test occursin("must be upper case", err.msg) && occursin("Sect. 7.3.1", err.msg)
+        err = try reading(tablebytes([kw("TFORM1", "5Z")], stored)) catch e e end
+        @test occursin("data type of Table 18", err.msg) && !occursin("upper case", err.msg)
+        @test_throws ArgumentError reading(tablebytes([kw("TFORM1", 5)], stored))
+
+        #  the mandatory keywords are in order and in fixed format
+        swapped = [kw("XTENSION", "BINTABLE"), kw("BITPIX", 8), kw("NAXIS", 2), kw("NAXIS2", 2), kw("NAXIS1", 2), kw("PCOUNT", 0),
+            kw("GCOUNT", 1), kw("TFIELDS", 1)]
+        @test_logs (:warn, r"Keyword 4 of the header is NAXIS2, but the Standard requires NAXIS1") reading(
+            tablebytes([tform], stored; mandatory = swapped))
+        free = [kw("XTENSION", "BINTABLE"), kw("BITPIX", 8), kw("NAXIS", 2), "NAXIS1  = 2", kw("NAXIS2", 2), kw("PCOUNT", 0),
+            kw("GCOUNT", 1), kw("TFIELDS", 1)]
+        @test_logs (:warn, r"The value of NAXIS1 is not in fixed format") reading(tablebytes([tform], stored; mandatory = free))
+        #  PCOUNT and GCOUNT have the values 0 and 1, and BITPIX and NAXIS are needed
+        nocounts = [kw("XTENSION", "BINTABLE"), kw("BITPIX", 8), kw("NAXIS", 2), kw("NAXIS1", 2), kw("NAXIS2", 2), kw("TFIELDS", 1)]
+        @test_logs (:warn, r"PCOUNT is missing, but it is a mandatory keyword") (:warn, r"GCOUNT is missing") reading(
+            tablebytes([tform], stored; mandatory = nocounts))
+        @test_throws ArgumentError("BITPIX is missing, but it is a mandatory keyword of a BINTABLE extension (Sect. 7.3.1).") reading(
+            tablebytes([tform], stored; mandatory = [kw("XTENSION", "BINTABLE"), kw("NAXIS", 0)]))
+        #  the keywords of the primary header, and of the physical blocks, are not in an extension
+        for key in ("EXTEND", "BLOCKED")
+            @test_logs (:warn, Regex("$key must not appear in a BINTABLE extension header")) reading(
+                tablebytes([tform, "$key  =                    T"], stored))
+        end
+        @test_logs (:warn, r"SIMPLE must not appear") reading(tablebytes([tform, "SIMPLE  =                    T"], stored))
+        #  INHERIT is a logical, immediately after the mandatory keywords
+        @test_logs (:warn, r"INHERIT must be the keyword immediately after the mandatory keywords, keyword 9") reading(
+            tablebytes([tform, "INHERIT =                    T"], stored))
+        @test @test_logs(reading(tablebytes(["INHERIT =                    T", tform], stored))).data.column1 == Int16[1, 2]
+        @test_logs (:warn, r"INHERIT must be a logical") reading(tablebytes(["INHERIT =                    1", tform], stored))
+
+        #  TSCALn and TZEROn are for the fields that are not of type A, L, or X, and TNULLn is for the fields of type B, I, J, or K
+        for form in ("A", "L", "X")
+            @test_logs (:warn, Regex("TSCAL1 and TZERO1 must not be used for a field of type $form")) reading(
+                tablebytes([kw("TFORM1", form), kw("TSCAL1", 2.0)], UInt8[0x54, 0x46]; naxis1 = 1))
+        end
+        @test_logs (:warn, r"TNULL1 must not be used for a field of type E") reading(
+            tablebytes([kw("TFORM1", "E"), kw("TNULL1", 5)], zeros(UInt8, 8); naxis1 = 4))
+        #  and the keywords are not used for those fields
+        hdu = @test_logs (:warn, r"TSCAL1 and TZERO1 must not") reading(
+            tablebytes([kw("TFORM1", "L"), kw("TSCAL1", 2.0)], UInt8[0x54, 0x46]; naxis1 = 1))
+        @test hdu.data.column1 == [true, false]
+        for form in ("B", "I", "J", "K", "1PI(2)", "1QB(2)")
+            @test_logs reading(tablebytes([kw("TFORM1", form), kw("TNULL1", 5)], zeros(UInt8, 32); naxis1 = FITSFiles.tformbytes("TFORM1", form), naxis2 = 1))
+        end
+
+        #  TTYPEn and TUNITn are character strings, TUNITn is a units string, and TDISPn is a display format of Table 20
+        hdu = @test_logs (:warn, r"TTYPE1 must be a character string") reading(tablebytes([tform, kw("TTYPE1", 5)], stored))
+        @test hdu.data.column1 == Int16[1, 2]
+        @test_logs (:warn, r"TUNIT1 must be a character string") reading(tablebytes([tform, kw("TUNIT1", 5)], stored))
+        @test_logs (:warn, r"TDISP1 must be a character string") reading(tablebytes([tform, kw("TDISP1", 5)], stored))
+        @test_logs (:warn, r"TUNIT1 must be a units string") reading(tablebytes([tform, kw("TUNIT1", "bogus unit!")], stored))
+        @test @test_logs(reading(tablebytes([tform, kw("TUNIT1", "km/s")], stored))).data.column1 == Int16[1, 2]
+        for disp in ("A5", "L1", "I6", "I6.3", "B8.8", "O5", "Z4.2", "F8.3", "E12.4", "E12.4E3", "EN12.3", "ES12.3", "G10.2", "G10.2E2", "D12.4")
+            @test_logs reading(tablebytes([tform, kw("TDISP1", disp)], stored))
+        end
+        for disp in ("Q9.9", "i6", "F8", "E12", "I", "A", "F8.3.1", "Iw.m", " ", "e12.4")
+            isempty(strip(disp)) && continue
+            @test_logs (:warn, r"TDISP1 must be a display format of Table 20") reading(tablebytes([tform, kw("TDISP1", disp)], stored))
+        end
+        #  the numbers
+        @test_throws ArgumentError reading(tablebytes([tform, kw("TSCAL1", "two")], stored))
+        @test_throws ArgumentError reading(tablebytes([tform, kw("TDMIN1", "low")], stored))
+        @test @test_logs(reading(tablebytes([tform, kw("TDMIN1", 1), kw("TDMAX1", 2.5), kw("TLMIN1", -1), kw("TLMAX1", 3)], stored))).data.column1 == Int16[1, 2]
+
+        #  the names of the fields are unique without regard to the case
+        two = [kw("TFORM1", "I"), kw("TTYPE1", "Flux"), kw("TFORM2", "I"), kw("TTYPE2", "FLUX")]
+        @test_logs (:warn, r"TTYPE2 and TTYPE1 have the same name, \"FLUX\", without regard to the case") reading(
+            tablebytes(two, vcat(stored, stored); naxis1 = 4, tfields = 2))
+        @test @test_logs(reading(tablebytes([kw("TFORM1", "I"), kw("TTYPE1", "Flux"), kw("TFORM2", "I"), kw("TTYPE2", "Error")],
+            vcat(stored, stored); naxis1 = 4, tfields = 2))).data.Error == Int16[2, 2]
     end
 end
