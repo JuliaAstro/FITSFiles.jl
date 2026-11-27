@@ -670,6 +670,27 @@ function bintabzeros(f, n)
     end
 end
 
+#  The number of bytes of the rows of a table that are read at a time
+const ROWCHUNKBYTES = 1 << 23
+
+#  The `w` bytes of a field, which begin after the `M` bytes of the fields before it, of each of the `N` rows of `L` bytes of the table that begins
+#  at `begpos`, as a matrix of `w` rows and `N` columns, one column for each row of the table. The rows are read a chunk of about
+#  `ROWCHUNKBYTES` at a time, so that a column is read with a few reads and not a seek and a read for each row, and the bytes of the table are not
+#  in memory at once.
+function fieldbytes(io::IO, begpos::Integer, L::Integer, M::Integer, w::Integer, N::Integer; chunk::Integer = ROWCHUNKBYTES)
+    bytes = Matrix{UInt8}(undef, w, N)
+    (w == 0 || N == 0) && return bytes
+    nrows = max(1, chunk ÷ L)
+    buffer = Vector{UInt8}(undef, min(N, nrows) * L)
+    for first = 1:nrows:N
+        n = min(nrows, N - first + 1)
+        seek(io, begpos + L*(first - 1))
+        readbytes!(io, buffer, n*L) == n*L || throw(ArgumentError("The file has fewer bytes than the header of the HDU says."))
+        copyto!(bytes, CartesianIndices((1:w, first:first+n-1)), reshape(view(buffer, 1:n*L), L, n), CartesianIndices((M+1:M+w, 1:n)))
+    end
+    bytes
+end
+
 function Base.read(io::IO, field::BinaryField, format::DataFormat,
     begpos::Integer; scale::Bool = true)
 
@@ -696,49 +717,30 @@ function Base.read(io::IO, field::BinaryField, format::DataFormat,
         column = map(identity, column)
     elseif type <: Bool
         #  The bytes of the N rows, which are T, F, or 0 for undefined (Sect. 7.3.3.1)
-        bytes = Array{UInt8}(undef, (N, leng))
-        for j = 1:N
-            seek(io, begpos + L*(j-1) + M)
-            bytes[j,:] .= read(io, leng)
-        end
-        column = decodelogical(bytes)
+        column = decodelogical(permutedims(fieldbytes(io, begpos, L, M, length(field.slice), N)))
         column = leng == 1 ? reshape(column, :) : column
     elseif type <: BitVector
-        column = Array{type}(undef, N)
-        for j = 1:N
-            seek(io, begpos + L*(j-1) + M)
-            column[j] = read(io, type, leng)
-        end
+        bytes = fieldbytes(io, begpos, L, M, length(field.slice), N)
+        column = BitVector[decodebits(view(bytes, :, j), leng) for j = 1:N]
     elseif type <: AbstractString
         #  The strings of an array of strings, whose first dimension is the number of characters of each, are the characters of the field in
         #  order (Sect. 7.3.2)
         dims = stringdims(field)
         column = isnothing(dims) ? Array{String}(undef, N) : Array{String}(undef, (N, dims[2:end]...))
+        bytes = fieldbytes(io, begpos, L, M, length(field.slice), N)
         for j = 1:N
-            seek(io, begpos + L*(j-1) + M)
-            bytes = read(io, length(field.slice))
             if isnothing(dims)
-                column[j] = decodestring(bytes)
+                column[j] = decodestring(view(bytes, :, j))
             else
                 for k = 1:prod(dims[2:end])
-                    column[j + N*(k-1)] = decodestring(bytes[dims[1]*(k-1)+1:dims[1]*k])
+                    column[j + N*(k-1)] = decodestring(bytes[dims[1]*(k-1)+1:dims[1]*k, j])
                 end
             end
         end
-    elseif leng == 1
-        column = Array{type}(undef, N)
-        for j = 1:N
-            seek(io, begpos + L*(j-1) + M)
-            column[j] = ntoh(read(io, type))
-        end
-        column = nullcomplex(setmissing(column, field.null))
-        column = scale ? physical(column, type, field.scale, field.zero) : column
     else
-        column = Array{type}(undef, (N, leng))
-        for j = 1:N
-            seek(io, begpos + L*(j-1) + M)
-            column[j,:] .= ntoh.([read(io, type) for k=1:leng])
-        end
+        #  The numbers of the N rows, which are the values of a row in the second dimension if there are more than one (Sect. 7.3.3)
+        values = ntoh.(reinterpret(type, fieldbytes(io, begpos, L, M, length(field.slice), N)))
+        column = leng == 1 ? vec(values) : permutedims(values)
         column = nullcomplex(setmissing(column, field.null))
         column = scale ? physical(column, type, field.scale, field.zero) : column
     end
@@ -978,9 +980,11 @@ encodelogical(::Missing) = 0x00
 #  The bits of a bit array are in order from the most significant bit of the first byte to the least significant bit of the last byte,
 #  and the bits after the end of the array are zeros (Sect. 7.3.3.1)
 function Base.read(io::IO, ::Type{BitVector}, len)
-    bytes = read(io, sizeofbitvector(len))
-    BitVector([bytes[(j-1) >> 3 + 1] & (0x80 >> ((j-1) & 7)) != 0 for j = 1:len])
+    decodebits(read(io, sizeofbitvector(len)), len)
 end
+
+decodebits(bytes::AbstractVector{UInt8}, len::Integer) =
+    BitVector([bytes[(j-1) >> 3 + 1] & (0x80 >> ((j-1) & 7)) != 0 for j = 1:len])
 
 function Base.write(io::IO, ::Type{BitVector}, value)
     bytes = zeros(UInt8, sizeofbitvector(value))
