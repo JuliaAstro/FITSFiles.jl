@@ -69,9 +69,9 @@ function formathierarch(key::K, value::V, units, comment::C,
 	elseif format.vbeg > format.ampr && !ismissing(value)
 		#  The value begins at the index of the image.
 		text = " "^(format.vbeg-format.ampr-1) *
-			(isempty(format.vfmt) ? valueimage(value) : printfmt(format.vfmt, value))
+			(isempty(format.vfmt) ? valueimage(value, format.expn) : printfmt(format.vfmt, value))
 	else
-		text = lpad(isempty(format.vfmt) ? valueimage(value) : printfmt(format.vfmt, value),
+		text = lpad(isempty(format.vfmt) ? valueimage(value, format.expn) : printfmt(format.vfmt, value),
 			format.vend-format.ampr)
 	end
 	valu = rpad(key, format.ampr-1) * "=" * text
@@ -181,14 +181,14 @@ function formatvalue(key::K, value::V, units, comment::C,
 	C <: AbstractString, F <: CardFormat}
 
 	#  Fixed format float value ends at index 30
-	#  Replace (lowercase) 'e' with (uppercase) 'D'.
+	#  Replace (lowercase) 'e' with the exponent letter of the format.
 	units = formunit(units, format.ufmt)
 	isempty(format.vfmt) || return rpadimage(key, alignnumber(printfmt(format.vfmt, value), format),
 		units, comment, format)
-	value = replace(string(value), "e" => "D")
+	value = replace(string(value), "e" => string(format.expn))
 	#  Truncate mantissa, so value contains 20 characters.
 	if format.fixd && length(value) > FIXEDINDEX
-		n = something(findfirst('D', value), length(value)+1)
+		n = something(findfirst(format.expn, value), length(value)+1)
 		value = value[1:(n-1-length(value)+FIXEDINDEX)] * value[n:end]
 	end
 	padlen = max(0, FIXEDINDEX - length(value))
@@ -236,12 +236,12 @@ function formatvalue(key::K, value::V, units, comment::C,
 	C <: AbstractString, F <: CardFormat}
 
 	#  Fixed format complex values do not exist.
-	#  Replace (lowercase) 'e' with (uppercase) 'D'.
+	#  Replace (lowercase) 'e' with the exponent letter of the format.
 	units = formunit(units, format.ufmt)
 	isempty(format.vfmt) || return rpadimage(key, alignnumber(printfmt(format.vfmt, value), format),
 		units, comment, format)
-	real_ = replace(string(real(value)), "e" => "D")
-	imag_ = replace(string(imag(value)), "e" => "D")
+	real_ = replace(string(real(value)), "e" => string(format.expn))
+	imag_ = replace(string(imag(value)), "e" => string(format.expn))
 	#  Add parentheses.
 	value = "($real_, $imag_)"
 	rpadimage(key, value, units, comment, format)
