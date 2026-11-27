@@ -99,11 +99,18 @@ end
 #  An N-dimensional array of zeros of the type of BITPIX, or missing if the data has no axes.
 zerosarray(format::DataFormat) = length(format.shape) > 0 ? zeros(format.type, format.shape) : missing
 
-#  The physical values of the stored values `data` of the type `type`, which are scaled, or the values of the offset convention of Table 11
-#  of the standard.
+#  The physical values of the stored values `data` of the type `type`, which are the values of the offset convention of Table 11 of the
+#  standard, or the stored values if the scale is 1 and the zero is 0 (Eq. 3 of the standard), so the integers are exact, or the scaled
+#  values. The scaled values of integers of 4 or more bytes have at least the precision of a Float64, since a Float32 holds the integers
+#  exactly up to 2^24 only.
 function physical(data, type::Type, scale::Real, zero::Real)
     T = offsettype(type, scale, zero)
-    isnothing(T) ? scaled(data, scale, zero) : offsetvalue.(data, T)
+    isnothing(T) || return offsetvalue.(data, T)
+    scale == 1 && zero == 0 && return data
+    if type <: Integer && sizeof(type) >= 4
+        scale, zero = convert(promote_type(typeof(scale), Float64), scale), convert(promote_type(typeof(zero), Float64), zero)
+    end
+    scaled(data, scale, zero)
 end
 
 #  The stored value of a physical value, which is (value - BZERO)/BSCALE (Eq. 3 of the standard), rounded to the

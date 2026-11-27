@@ -92,7 +92,8 @@ The default data structure for Random and Bintable HDUs is a named tuple of arra
 - `checksum::Bool=false`: verify the DATASUM and CHECKSUM keywords of each HDU, with a warning if a sum is not the sum
   of the data or of the HDU (Sect. 4.4.2.7 of the standard)
 - `record::Bool=false`: structure the data as a list of records
-- `scale::Bool=true`: apply the scale and zero keywords to the data; an image of the offsets of Table 11 of the
+- `scale::Bool=true`: apply the scale and zero keywords to the data; the data of a BSCALE of 1 and a BZERO of 0 are the stored
+  values, e.g., the integers of an integer image, and the scaled values of 32- and 64-bit integers are `Float64`; an image of the offsets of Table 11 of the
   standard (BSCALE of 1 and BZERO of 2^15, 2^31, or 2^63 for 16-, 32-, or 64-bit integers, or -128 for bytes) is
   an array of `UInt16`, `UInt32`, `UInt64`, or `Int8`, and so is the array of random groups, and a parameter that has
   the PSCALn of 1 and the PZEROn of the offsets; floating-point data with a scale and a zero that are not 1 and 0 are a `FITSFiles.ScaledArray`,

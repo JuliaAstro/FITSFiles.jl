@@ -144,7 +144,7 @@
                     "BSCALE  =                  0.1                                                  ")])
 
     @test (ndims(hdu.data) == 2 && size(hdu.data) == (3, 3) && length(hdu.data) == 9 &&
-           eltype(hdu.data) == Float32 && all(hdu.data .== 1.1f0))
+           eltype(hdu.data) == Float64 && all(isapprox.(hdu.data, 1.1f0)))
 
     #  test Primary type with scale == false
     data = ones(Int32, (3,3))
@@ -214,7 +214,7 @@
                     "BSCALE  =                  0.1                                                  ")])
 
     @test (ndims(hdu.data) == 2 && size(hdu.data) == (3, 3) && length(hdu.data) == 9 &&
-           eltype(hdu.data) == Float32 && all(hdu.data .== 1.1f0))
+           eltype(hdu.data) == Float64 && all(isapprox.(hdu.data, 1.1f0)))
 
     rm(temppath)
 
@@ -423,7 +423,8 @@
         cards = [simple, bitpix, naxis, naxis1]
         @test eltype(scaledreading(filebytes([cards; "BZERO   = 32768.0"], data)).data) === UInt16
         @test eltype(scaledreading(filebytes([cards; kw("BZERO", 100)], data)).data) <: AbstractFloat
-        @test eltype(scaledreading(filebytes(cards, data)).data) <: AbstractFloat
+        #  the data of a BSCALE of 1 and a BZERO of 0 are the stored values
+        @test eltype(scaledreading(filebytes(cards, data)).data) === Int16
         #  the undefined values of the stored values are undefined in the physical values
         hdu = scaledreading(filebytes([cards; kw("BZERO", 32768); kw("BLANK", -32768)], bytesof(Int16[-32768, 0, 32767])))
         @test isequal(hdu.data, [missing, 32768, 65535]) && nonmissingtype(eltype(hdu.data)) === UInt16
@@ -618,14 +619,14 @@
 
         #  the data that are read scaled are written as they were read, whether or not the data are scaled by BSCALE and BZERO
         cases = (
-            "default" => (filebytes(primary, stored), Float32),
+            "default" => (filebytes(primary, stored), Int16),
             "BSCALE and BZERO" => (withcards(kw("BSCALE", 2.5), kw("BZERO", 10)), Float32),
             "BSCALE" => (withcards(kw("BSCALE", 0.5)), Float32),
             "BZERO" => (withcards(kw("BZERO", -7)), Float32),
             "BLANK" => (filebytes([primary; kw("BSCALE", 2.5); kw("BLANK", -32768)], bytesof(Int16[-5, -32768, 300])),
                 Float32),
             "offset of Table 11" => (withcards(kw("BZERO", 32768)), UInt16),
-            "32 bits" => (filebytes([simple(32); kw("BSCALE", 0.5); kw("BZERO", 10)], bytesof(Int32[-5, 0, 3000])), Float32),
+            "32 bits" => (filebytes([simple(32); kw("BSCALE", 0.5); kw("BZERO", 10)], bytesof(Int32[-5, 0, 3000])), Float64),
             "bytes" => (filebytes([simple(8); kw("BSCALE", 2.0); kw("BZERO", -3)], UInt8[0, 7, 255]), Float32),
             "floating-point" => (filebytes(simple(-32), bytesof(Float32[1.5, NaN, -3])), Float32),
             "double precision" => (filebytes(simple(-64), bytesof(Float64[1.5, Inf, -3])), Float64))

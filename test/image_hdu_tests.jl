@@ -157,7 +157,7 @@
                     "BSCALE  =                  0.1                                                  ")])
 
     @test (ndims(hdu.data) == 2 && size(hdu.data) == (3, 3) && length(hdu.data) == 9 &&
-           eltype(hdu.data) == Float32 && all(hdu.data .== 1.1f0))
+           eltype(hdu.data) == Float64 && all(isapprox.(hdu.data, 1.1f0)))
 
     #  test Image type with scale == false
     data = ones(Int32, (3,3))
@@ -236,7 +236,7 @@
                     "BSCALE  =                  0.1                                                  ")])
 
     @test (ndims(hdu.data) == 2 && size(hdu.data) == (3, 3) && length(hdu.data) == 9 &&
-           eltype(hdu.data) == Float32 && all(hdu.data .== 1.1f0))
+           eltype(hdu.data) == Float64 && all(isapprox.(hdu.data, 1.1f0)))
 
     rm(temppath)
 
@@ -449,7 +449,8 @@
         #  a floating-point BZERO of the offset is the convention, and another offset or no offset is not
         @test eltype(reading(filebytes(header(16, 3, "BZERO   = 32768.0"), stored)).data) === UInt16
         @test eltype(reading(filebytes(header(16, 3, kw("BZERO", 100)), stored)).data) <: AbstractFloat
-        @test eltype(reading(filebytes(header(16, 3), stored)).data) <: AbstractFloat
+        #  the data of a BSCALE of 1 and a BZERO of 0 are the stored values
+        @test eltype(reading(filebytes(header(16, 3), stored)).data) === Int16
         #  the undefined values of the stored values are undefined in the physical values
         bytes = filebytes(header(16, 3, kw("BZERO", 32768), kw("BLANK", -32768)), bytesof(Int16[-32768, 0, 32767]))
         hdu = reading(bytes)
@@ -489,13 +490,13 @@
         ####    The scaled data are written as the stored values (Eq. 3 of the standard)
 
         cases = (
-            "default" => (filebytes(header(), stored), Float32),
+            "default" => (filebytes(header(), stored), Int16),
             "BSCALE and BZERO" => (filebytes(header(16, 3, kw("BSCALE", 2.5), kw("BZERO", 10)), stored), Float32),
             "BSCALE" => (filebytes(header(16, 3, kw("BSCALE", 0.5)), stored), Float32),
             "BZERO" => (filebytes(header(16, 3, kw("BZERO", -7)), stored), Float32),
             "BLANK" => (filebytes(header(16, 3, kw("BSCALE", 2.5), kw("BLANK", -32768)), bytesof(Int16[-5, -32768, 300])), Float32),
             "offset of Table 11" => (filebytes(header(16, 3, kw("BZERO", 32768)), stored), UInt16),
-            "32 bits" => (filebytes(header(32, 3, kw("BSCALE", 0.5), kw("BZERO", 10)), bytesof(Int32[-5, 0, 3000])), Float32),
+            "32 bits" => (filebytes(header(32, 3, kw("BSCALE", 0.5), kw("BZERO", 10)), bytesof(Int32[-5, 0, 3000])), Float64),
             "bytes" => (filebytes(header(8, 3, kw("BSCALE", 2.0), kw("BZERO", -3)), UInt8[0, 7, 255]), Float32),
             "floating-point" => (filebytes(header(-32), bytesof(Float32[1.5, NaN, -3])), Float32),
             "double precision" => (filebytes(header(-64), bytesof(Float64[1.5, Inf, -3])), Float64))
@@ -504,6 +505,27 @@
             @test hdu isa HDU{Image} && nonmissingtype(eltype(hdu.data)) === type
             @test @test_logs(written(hdu)) == codeunits(bytes)
         end
+
+        ####    The data of a BSCALE of 1 and a BZERO of 0 are the stored integers, which are exact (Eq. 3 of the standard)
+
+        for (bitpix, values) in ((16, Int16[32767, -32768, 1]), (32, Int32[16777217, 2147483647, -2147483648]),
+                                 (64, Int64[2^40 + 1, 2^62 + 1, typemin(Int64)]))
+            bytes = filebytes(header(bitpix, 3), bytesof(values))
+            hdu = reading(bytes)
+            @test hdu.data == values && eltype(hdu.data) === eltype(values)
+            @test written(hdu) == codeunits(bytes)
+            #  the defaults of the header are the same as no keywords
+            same = reading(filebytes(header(bitpix, 3, kw("BSCALE", 1.0), kw("BZERO", 0.0)), bytesof(values)))
+            @test same.data == values && eltype(same.data) === eltype(values)
+        end
+        @test eltype(reading(filebytes(header(8, 3), UInt8[0, 7, 255])).data) === UInt8
+        #  the scaled values of 32- and 64-bit integers are at least Float64, since a Float32 holds integers to 2^24 only
+        for (bitpix, values) in ((32, Int32[16777217, -5, 3]), (64, Int64[2^40 + 1, -5, 3]))
+            hdu = reading(filebytes(header(bitpix, 3, kw("BSCALE", 0.5f0), kw("BZERO", 1.0f0)), bytesof(values)))
+            @test eltype(hdu.data) === Float64 && hdu.data == 1.0 .+ 0.5 .* Float64.(values)
+        end
+        #  and those of 8- and 16-bit integers are Float32 for a Float32 scale
+        @test eltype(reading(filebytes(header(16, 3, kw("BSCALE", 0.5f0)), bytesof(Int16[1, 2, 3]))).data) === Float32
         bytes = filebytes(header(16, 3, kw("BSCALE", 2.5), kw("BZERO", 10)), stored)
         hdu = reading(bytes)
         @test hdu.data == Float32[-2.5, 10, 760]
