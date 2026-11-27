@@ -146,9 +146,9 @@ function Base.read(io::IO, ::Type{Random}, format::DataFormat,
     values = reshape(ntoh.(reinterpret(format.type, readbytes(io, nbytes))), P + prod(shape), G)
     #  The physical values of a field are the values of the offset convention of Table 11 of the standard (Sect. 5.2.5, which
     #  Sect. 6.3 gives to the parameters and the array) or are scaled (Eqs. 3 and 5)
-    images = [ImageField(field.type, field.zero, field.scale, field.miss, nothing, nothing) for field in fields]
     #  The undefined elements of the array are missing, with and without the scale
-    apply(value, k) = (value = setmissing(value, images[k].miss); scale ? physical(value, images[k]) : value)
+    apply(value, k) = (value = setmissing(value, fields[k].miss);
+        scale ? physical(value, fields[k].type, fields[k].scale, fields[k].zero) : value)
     names = [field.name for field in fields]
     ndxs = [name => findall(x -> x == name, names) for name in unique(names)]
     if record
@@ -201,7 +201,6 @@ function Base.write(io::IO, ::Type{Random}, data::Union{AbstractArray, NamedTupl
     N = format.group
     if N > 0
         #  The stored values of the physical values (Eqs. 3 and 5), which are the values that are of the type of BITPIX
-        images = [ImageField(field.type, field.zero, field.scale, field.miss, nothing, nothing) for field in fields]
         #  The parameters of a name are one value of the data, which is found by its position, whatever its name is
         names = unique(field.name for field in fields[1:format.param])
         positions = [findfirst(==(field.name), names) for field in fields[1:format.param]]
@@ -218,13 +217,13 @@ function Base.write(io::IO, ::Type{Random}, data::Union{AbstractArray, NamedTupl
         scaled = .!isnothing.(scaled)
         for j=1:N
             for (k, field) in enumerate(fields[1:format.param])
-                write(io, hton(storedparam(getparam(data, field, j, positions[k]), field, images[k], k, j; check,
+                write(io, hton(storedparam(getparam(data, field, j, positions[k]), field, k, j; check,
                     scaled = scaled[k])))
             end
-            stored = storedgroup(getgroup(data, fields[end], j, format), fields[end], images[end], j; check,
+            stored = storedgroup(getgroup(data, fields[end], j, format), fields[end], j; check,
                 scaled = scaled[end])
             #  The undefined values are written as BLANK, or NaN for floating-point data
-            write(io, hton.(unsetmissing(stored, images[end].miss, images[end].type)))
+            write(io, hton.(unsetmissing(stored, fields[end].miss, fields[end].type)))
         end
         #  Pad last block with zeros
         padblock(io, format)
@@ -250,27 +249,28 @@ end
 
 #  The stored value of the value of a parameter, which is the value as it is if it is of the type of BITPIX, and
 #  otherwise is the value without PZEROn and PSCALn (see `storedvalue`), or the value of the offset convention.
-function storedparam(value, field::RandomField, image::ImageField, k::Integer, j::Integer; check::Bool = true,
+function storedparam(value, field::RandomField, k::Integer, j::Integer; check::Bool = true,
     scaled::Bool = false)
 
     typeof(value) == field.type && !scaled && return value
     #  The value of the offset convention of Table 11 is the stored value with the offset
     typeof(value) == offsettype(field.type, field.scale, field.zero) && return offsetvalue(value, field.type)
-    image.scale == 0 && throw(ArgumentError(
+    field.scale == 0 && throw(ArgumentError(
         "The parameter $(field.name) of group $j cannot be written as a stored value, since its PSCAL$k is 0."))
     try
-        storedvalue(value, image, check; keys = ("PSCAL$k", "PZERO$k"))
+        storedvalue(value, field.type, field.scale, field.zero, field.miss, check; keys = ("PSCAL$k", "PZERO$k"))
     catch e
         e isa ArgumentError ? throw(storeerror(e, field, j)) : rethrow()
     end
 end
 
 #  The stored values of the values of the array of a group (see `storedvalues`).
-function storedgroup(values::AbstractArray, field::RandomField, image::ImageField, j::Integer; check::Bool = true,
+function storedgroup(values::AbstractArray, field::RandomField, j::Integer; check::Bool = true,
     scaled::Bool = false)
 
     try
-        storedvalues(scaled ? ScaledArray(values, image.scale, image.zero) : values, image; check)
+        storedvalues(scaled ? ScaledArray(values, field.scale, field.zero) : values, field.type, field.scale, field.zero,
+            field.miss; check)
     catch e
         e isa ArgumentError ? throw(storeerror(e, field, j)) : rethrow()
     end
@@ -310,7 +310,7 @@ function verify!(::Type{Random}, cards::Cards, mankeys::AbstractDict, reskeys::A
         mankeys, reskeys)
     #  The keywords that describe the array of a group (Sect. 4.4.2.5), and the keywords of the primary header, which is the
     #  header of random groups
-    verifyarraykeys(mankeys, reskeys)
+    verifyarraykeys(Random, mankeys, reskeys)
     verifyrandomkeys(reskeys)
     verifylogical(mankeys, r"^GROUPS$")
     #  BITPIX, NAXIS, PCOUNT, and GCOUNT give the size of the data (Eq. 4 of the standard), which cannot be read
@@ -581,4 +581,20 @@ end
 function verifyrandomkeys(reskeys::AbstractDict)
     verifylogical(reskeys, r"^(EXTEND|BLOCKED)$")
     haskey(reskeys, "INHERIT") && @warn "INHERIT must not appear in the primary header (Appendix K). It is read as it is."
+end
+
+#  The keywords that describe the array of a group (Sect. 4.4.2.5): BLANK, BSCALE, BZERO, DATAMIN, DATAMAX, and BUNIT.
+function verifyarraykeys(::Type{Random}, mankeys::AbstractDict, reskeys::AbstractDict)
+    verifyblank(Random, mankeys, reskeys)
+    verifynumber(reskeys, r"^(BSCALE|BZERO|DATAMIN|DATAMAX)$")
+    verifyfloat(reskeys, r"^(DATAMIN|DATAMAX)$")
+    verifystring(reskeys, r"^BUNIT$")
+    verifyunit(reskeys, r"^BUNIT$")
+end
+
+#  The BLANK keyword of the array of a group is an integer, and is for integer data only (Sect. 4.4.2.5).
+function verifyblank(::Type{Random}, mankeys::AbstractDict, reskeys::AbstractDict)
+    verifyinteger(reskeys, r"^BLANK$")
+    haskey(reskeys, "BLANK") && get(mankeys, "BITPIX", 8) < 0 && @warn "BLANK is for integer data " *
+        "(a positive BITPIX) only (Sect. 4.4.2.5), so it is not used."
 end
