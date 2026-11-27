@@ -226,6 +226,7 @@ function verify!(::Type{Table}, cards::Cards, mankeys::AbstractDict, reskeys::Ab
     cards = invoke(verify!, Tuple{Type{<:AbstractHDU}, Cards, AbstractDict, AbstractDict}, Table, cards,
         mankeys, reskeys)
     verifyrows(Table, mankeys)
+    verifysize(Table, mankeys)
     #  An ASCII table has a single table and no heap (Sect. 7.2.1)
     verifyvalue(mankeys, "PCOUNT", 0:0, "the integer 0")
     verifyvalue(mankeys, "GCOUNT", 1:1, "the integer 1")
@@ -280,6 +281,13 @@ function verifyrows(::Type{Table}, mankeys::AbstractDict)
 	verifyvalue(mankeys, "BITPIX", 8:8, "the integer 8")
 	verifyvalue(mankeys, "NAXIS", 2:2, "the integer 2")
 	verifyaxes(mankeys)
+end
+
+#  The bytes of the table, NAXIS1 × NAXIS2, are at most the largest integer, so that the data can be read and indexed (Sect. 7.2.1)
+function verifysize(::Type{Table}, mankeys::AbstractDict)
+	nbytes = BigInt(get(mankeys, "NAXIS1", 0)) * BigInt(get(mankeys, "NAXIS2", 0))
+	nbytes > typemax(Int) && throw(ArgumentError("The table is too large: NAXIS1 × NAXIS2, $(get(mankeys, "NAXIS1", 0)) × " *
+		"$(get(mankeys, "NAXIS2", 0)) bytes, is more than $(typemax(Int)) bytes."))
 end
 
 """
