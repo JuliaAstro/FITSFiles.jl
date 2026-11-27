@@ -1869,4 +1869,28 @@
         err = try HDU(Bintable, fill((a = Int16(1),), 2)) catch e e end
         @test !(err isa ArgumentError)
     end
+
+    ####    Test the largest number of elements of the variable-length arrays (Sect. 7.3.5)    ####
+
+    @testset "emax of arrays" begin
+        written(hdu) = (io = IOBuffer(); write(io, hdu); take!(io))
+        be(type, values) = collect(reinterpret(UInt8, hton.(type.(values))))
+        card(s) = rpad(s, 80)
+        header = ["XTENSION= 'BINTABLE'", "BITPIX  =                    8", "NAXIS   =                    2", "NAXIS1  =                    8",
+            "NAXIS2  =                    2", "PCOUNT  =                   14", "GCOUNT  =                    1", "TFIELDS =                    1",
+            "TFORM1  = '1PI(3)  '", "END"]
+        bytes = vcat(collect(codeunits(rpad(join(card.(header)), 2880))), be(Int32, [3, 0, 2, 6]), be(Int16, [1, 2, 3, 4, 5, 0, 0]), zeros(UInt8, 2880 - 30))
+        hdu = read(IOBuffer(bytes), HDU)
+        #  the arrays that are not longer than emax are written without a warning
+        @test @test_logs(written(hdu)) == bytes
+        hdu.data.column1[2] = Int16[7, 8, 9]
+        @test length(@test_logs(written(hdu))) == length(bytes) && read(IOBuffer(@test_logs(written(hdu))), HDU).data.column1[2] == Int16[7, 8, 9]
+        #  an array that is longer is written, with a warning, since the header is written before the data
+        hdu.data.column1[2] = Int16[1, 2, 3, 4]
+        w = @test_logs (:warn, r"The longest array of field column1 has 4 elements, more than the largest number of elements, 3, that its TFORM says") written(hdu)
+        @test read(IOBuffer(w), HDU).cards["TFORM1"] == "1PI(3)" && read(IOBuffer(w), HDU).data.column1[2] == Int16[1, 2, 3, 4]
+        #  the emax of a table that is created is the length of the longest array, and strings and bits have their own
+        created = HDU(Bintable, (v = [Int16[1, 2], Int16[3, 4, 5]],))
+        @test created.cards["TFORM1"] == "1PI(3)" && length(@test_logs(written(created))) == 5760
+    end
 end

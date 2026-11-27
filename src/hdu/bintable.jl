@@ -223,6 +223,16 @@ function verifydata(::Type{Bintable}, data::Union{NamedTuple, AbstractVector{<:N
     M, N = format.shape[1], format.shape[2]
     variable = [field for field in fields if !isnothing(field.pntr)]
     isempty(variable) && return
+    #  The largest number of elements of the arrays of a field is at most the emax of its TFORMn, which is guaranteed to be the
+    #  largest (Sect. 7.3.5)
+    for field in variable
+        emax = tryparse(Int, field.supp)
+        isnothing(emax) && continue
+        longest = maximum((field.type <: AbstractString ? ncodeunits(cell) : length(cell)
+            for j = 1:N for cell in (getcell(Bintable, data, field, j),)); init = 0)
+        longest > emax && @warn "The longest array of field $(field.name) has $longest elements, more than the largest number of " *
+            "elements, $emax, that its TFORM says (Sect. 7.3.5). The TFORM is written as it is."
+    end
     needed = sum(heapbytes(field, getcell(Bintable, data, field, j)) for j = 1:N for field in variable; init = 0)
     available = format.param - max(format.heap - M*N, 0)
     needed > available && throw(ArgumentError("The variable-length arrays of the data have $needed bytes, but PCOUNT " *
