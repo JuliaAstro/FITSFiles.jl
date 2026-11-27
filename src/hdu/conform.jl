@@ -2,6 +2,13 @@
 
 struct Conform <: AbstractHDU end
 
+#  A Conform HDU is the type of the data and the header that no other type is, so it is the last to be tried. Its header begins with
+#  SIMPLE = F, or has an XTENSION that no other type has.
+detectpriority(::Type{Conform}) = -1
+fromdata(::Type{Conform}, data) = true
+frommandatory(::Type{Conform}, mankeys) = haskey(mankeys, "XTENSION") || get(mankeys, "SIMPLE", nothing) === false
+registerhdu!(Conform)
+
 #  The mandatory and reserved keywords of the HDU (see `getreservedkeys`)
 union!(MANDATORYKEYS, ["SIMPLE", "XTENSION", "PCOUNT", "GCOUNT"])
 union!(RESERVEDKEYS, ["INHERIT", "EXTEND", "BLOCKED", "BSCALE", "BZERO", "BUNIT", "BLANK", "DATAMAX", "DATAMIN"])

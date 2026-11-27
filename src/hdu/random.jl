@@ -31,6 +31,19 @@ The elements of the array of integers that are the stored value of BLANK are `mi
 """
 struct Random <: AbstractHDU end
 
+#  Random groups are tried before the Primary HDU and the Bintable HDU, whose data and header they also fit. The data are records
+#  whose last element, the data of a group, is an array of 2 or more dimensions, and the header has GROUPS = T and NAXIS1 = 0.
+detectpriority(::Type{Random}) = 1
+function fromdata(::Type{Random}, data)
+    record = firstrecord(data)
+    record !== nothing && record[end] isa AbstractArray && ndims(record[end]) >= 2
+end
+function frommandatory(::Type{Random}, mankeys)
+    !haskey(mankeys, "XTENSION") && get(mankeys, "SIMPLE", nothing) === true &&
+        get(mankeys, "GROUPS", false) === true && haskey(mankeys, "NAXIS1") && mankeys["NAXIS1"] == 0
+end
+registerhdu!(Random)
+
 #  The mandatory and reserved keywords of the HDU (see `getreservedkeys`)
 union!(MANDATORYKEYS, ["SIMPLE", "GROUPS", "PCOUNT", "GCOUNT"])
 union!(RESERVEDKEYS, ["PTYPE", "PSCAL", "PZERO", "EXTEND", "BLOCKED", "BSCALE", "BZERO", "BUNIT", "BLANK", "DATAMAX",

@@ -8,6 +8,11 @@ array (<=999 dimensions). The Primary HDU is the first HDU in a vector of HDUs.
 """
 struct Primary <: AbstractHDU end
 
+#  The data of a Primary HDU are an array of numbers, or are missing, and its header begins with SIMPLE = T
+fromdata(::Type{Primary}, data) = ismissing(data) || nonmissingtype(eltype(data)) <: Real
+frommandatory(::Type{Primary}, mankeys) = !haskey(mankeys, "XTENSION") && get(mankeys, "SIMPLE", nothing) === true
+registerhdu!(Primary)
+
 #  The mandatory and reserved keywords of the HDU (see `getreservedkeys`)
 union!(MANDATORYKEYS, ["SIMPLE"])
 union!(RESERVEDKEYS, ["EXTEND", "BLOCKED", "BSCALE", "BZERO", "BUNIT", "BLANK", "DATAMAX", "DATAMIN"])

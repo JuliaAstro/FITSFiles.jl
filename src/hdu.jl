@@ -73,8 +73,36 @@ const INFOLTYPLEN = 8
     #  significant, so the keys are not padded.
 #  The XTENSION value is padded to 8 characters.
 const XTENSIONLENGTH = 8
-#  The HDU type of the value of XTENSION, which each type of extension adds to when it is defined
-const XTENSIONTYPE = Dict{String, Type}()
+
+#  The types of HDUs that are detected from the data or from the mandatory keywords, in the order in which they are tried. Each type
+#  of HDU adds itself when it is defined (see `registerhdu!`), and says whether it is the type of some data (`fromdata`) or of some
+#  mandatory keywords (`frommandatory`), so the detection does not know any type of HDU.
+const HDUTYPES = Type[]
+
+#  The priority of a type for detection, where the types of higher priority are tried first, and those of the same priority in the
+#  order in which they are defined
+detectpriority(::Type{<:AbstractHDU}) = 0
+fromdata(::Type{<:AbstractHDU}, data) = false
+frommandatory(::Type{<:AbstractHDU}, mankeys) = false
+
+function registerhdu!(type::Type{<:AbstractHDU})
+	index = findfirst(other -> detectpriority(other) < detectpriority(type), HDUTYPES)
+	index === nothing ? push!(HDUTYPES, type) : insert!(HDUTYPES, index, type)
+	type
+end
+
+#  The value of XTENSION without its trailing spaces, which are not significant, or missing if there is none
+function xtensionvalue(mankeys)
+	value = get(mankeys, "XTENSION", missing)
+	value isa AbstractString ? rstrip(value) : value
+end
+
+#  The first record of data that are a tuple, a named tuple, or an array of them, and nothing for other data
+function firstrecord(data)
+	data isa Union{Tuple, NamedTuple} && return data
+	data isa AbstractArray && eltype(data) <: Union{Tuple, NamedTuple} && return data[1]
+	nothing
+end
 
 #  The roots of the keywords of the mandatory keywords and of the reserved keywords (see `getreservedkeys`), each root once. The
 #  keywords that are common to the HDUs are here, and each type of HDU adds those of its own, which are in its file, when it is defined.
@@ -483,74 +511,37 @@ both.
 function typeofhdu(data::U) where
 	U <: Union{AbstractArray, Tuple, NamedTuple, Missing}
 
-	if !ismissing(data)
-		#  An array of numbers with undefined (missing) values is an image
-		if nonmissingtype(eltype(data)) <: Real
-			type = Primary
-		elseif eltype(data) <: AbstractString
-			type = Table
-		elseif typeof(data) <: Union{Tuple, NamedTuple}
-			type = typeof(data[end]) <: AbstractArray &&
-				   ndims(data[end]) >= 2 ? Random : Bintable
-		elseif basetype(eltype(data)) in (Tuple, NamedTuple)
-			type = typeof(data[1][end]) <: AbstractArray &&
-				   ndims(data[1][end]) >= 2 ? Random : Bintable
-		else
-			type = Conform
-		end
-	else
-		type = missing
+	ismissing(data) && return missing
+	for type in HDUTYPES
+		fromdata(type, data) && return type
 	end
-	type
+	error("Unknown HDU")
 end
 
 function typeofhdu(mankeys::Dict{S, V}) where {S <: AbstractString, V <: ValueType}
-	#  Determine HDU type from mandatory keys
-	exval = get(mankeys, "XTENSION", missing)
-	if !ismissing(exval)
-		type = get(XTENSIONTYPE, exval isa AbstractString ? rstrip(exval) : exval, Conform)
-		if type == Bintable
-			if get(mankeys, "ZIMAGE", false)
-				type = ZImage
-			elseif get(mankeys, "ZTABLE", false)
-				type = ZTable
-			end
-		end
-	elseif haskey(mankeys, "SIMPLE")
-		#  SIMPLE is T if the file conforms to the Standard, and F if it does not (Sect. 4.4.1.1). The primary
-		#  HDU of a file that does not conform is a Conform HDU, if its other mandatory keywords conform, which
-		#  its verify! method checks.
+	#  SIMPLE is T if the file conforms to the Standard, and F if it does not (Sect. 4.4.1.1)
+	if !haskey(mankeys, "XTENSION") && haskey(mankeys, "SIMPLE")
 		simple = mankeys["SIMPLE"]
 		simple isa Bool ||
 			throw(ArgumentError("SIMPLE must be a logical, T or F, but its value is $(repr(simple))."))
-		if !simple
-			type = Conform
-		elseif get(mankeys, "GROUPS", false) === true &&
-		   haskey(mankeys, "NAXIS1") && mankeys["NAXIS1"] == 0
-			type = Random
-		else
-			type = Primary
-		end
-	else
-		error("Unknown HDU")
 	end
-	type
+	for type in HDUTYPES
+		frommandatory(type, mankeys) && return type
+	end
+	error("Unknown HDU")
 end
 
 function typeofhdu(data::U, mankeys::Dict{S, V}) where
 {U <: Union{AbstractArray, Tuple, NamedTuple, Missing},
 	S <: AbstractString, V <: ValueType}
 
-	type = Primary
-	if !ismissing(data)
-		type = typeofhdu(data)
+	#  The mandatory keywords, if there are any, take precedence over the data
+	isempty(mankeys) || return typeofhdu(mankeys)
+	for type in HDUTYPES
+		fromdata(type, data) && return type
 	end
-	if !isempty(mankeys)
-		type = typeofhdu(mankeys)
-	end
-	type
+	error("Unknown HDU")
 end
-basetype(T) = Base.typename(T).wrapper
 
 parsestring(value) = value isa String ? parsenumber(value) : value
 

@@ -7,7 +7,11 @@ A Bintable HDU consists of a vector of cards and optionally a 2-dimensional
 array of binary data structured as a vector of records.
 """
 struct Bintable <: AbstractHDU end
-XTENSIONTYPE["BINTABLE"] = Bintable
+
+#  The data of a Bintable HDU are tuples, or named tuples, of the fields
+fromdata(::Type{Bintable}, data) = firstrecord(data) !== nothing
+frommandatory(::Type{Bintable}, mankeys) = isequal(xtensionvalue(mankeys), "BINTABLE")
+registerhdu!(Bintable)
 
 #  The maximum number of fields of the table (Sect. 7.3.1)
 const MAXBINTABLEFIELDS = 999

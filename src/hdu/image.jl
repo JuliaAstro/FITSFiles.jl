@@ -7,7 +7,9 @@ An Image HDU consists of a vector of cards and optionally a multidimensional arr
 (<=999 dimensions).
 """
 struct Image <: AbstractHDU end
-XTENSIONTYPE["IMAGE"] = Image
+
+frommandatory(::Type{Image}, mankeys) = isequal(xtensionvalue(mankeys), "IMAGE")
+registerhdu!(Image)
 
 #  The mandatory and reserved keywords of the HDU (see `getreservedkeys`)
 union!(MANDATORYKEYS, ["XTENSION", "PCOUNT", "GCOUNT"])

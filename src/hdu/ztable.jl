@@ -2,6 +2,11 @@
 
 struct ZTable <: AbstractHDU end
 
+#  A compressed table is a binary table, so it is tried before the Bintable HDU
+detectpriority(::Type{ZTable}) = 1
+frommandatory(::Type{ZTable}, mankeys) = isequal(xtensionvalue(mankeys), "BINTABLE") && get(mankeys, "ZTABLE", false) === true
+registerhdu!(ZTable)
+
 #  The mandatory and reserved keywords of the HDU (see `getreservedkeys`)
 union!(MANDATORYKEYS, ["ZTABLE", "ZNAXIS", "ZPCOUNT", "ZFORM", "ZCTYP", "ZTILELEN"])
 union!(RESERVEDKEYS, ["FZTILELN", "FZALGOR", "FZALG", "ZTHEAP", "ZHECKSUM", "ZDATASUM"])

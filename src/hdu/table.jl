@@ -14,7 +14,11 @@ A Table HDU consists of a vector of cards and optionally a 2-dimensional array
 of ASCII data structured as vector of records.
 """
 struct Table <: AbstractHDU end
-XTENSIONTYPE["TABLE"] = Table
+
+#  The data of a Table HDU are strings
+fromdata(::Type{Table}, data) = eltype(data) <: AbstractString
+frommandatory(::Type{Table}, mankeys) = isequal(xtensionvalue(mankeys), "TABLE")
+registerhdu!(Table)
 
 #  The maximum number of fields of the table (Sect. 7.2.1)
 const MAXTABLEFIELDS = 999
