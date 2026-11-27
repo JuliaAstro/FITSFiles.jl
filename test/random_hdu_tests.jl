@@ -1388,4 +1388,25 @@
         end
     end
 
+    ####    Test the size of the HDU, which is the groups and the NAXISn of the header    ####
+
+    @testset "size" begin
+        #  the size is the number of groups and the axes of the array of a group, which is the size of the array of the data
+        data = (a = Int16[1, 3], data = Int16[10 11 12; 20 21 22])
+        @test size(HDU(Random, data)) == (2, 3) && size(HDU(Random, data)) == size(HDU(Random, data).data.data)
+        data = (p = Float32[1, 2, 3, 4], data = reshape(Float32[1:96;], 4, 3, 2, 4))
+        @test size(HDU(Random, data)) == (4, 3, 2, 4) && size(HDU(Random, data)) == size(HDU(Random, data).data.data)
+        #  a group that has no axes has one value, and the size is the number of groups
+        @test size(HDU(Random, (a = Int16[1, 3, 5], b = Int16[2, 4, 6]))) == (3,)
+        #  the records have the same size
+        records = [(a = Int16(1), data = Int16[10, 11, 12]), (a = Int16(3), data = Int16[20, 21, 22])]
+        @test size(HDU(Random, records)) == (2, 3)
+        #  the size of an HDU whose data are not read, which a file has, is known without reading them
+        path = joinpath(mktempdir(), "size.fits")
+        write(path, [HDU(Random, (a = Int16[1, 3], data = Int16[10 11 12; 20 21 22]))])
+        lazy = fits(path)[1]
+        @test getfield(lazy, :data) isa FITSFiles.LazyArray
+        @test size(lazy) == (2, 3) && getfield(lazy, :data) isa FITSFiles.LazyArray
+    end
+
 end

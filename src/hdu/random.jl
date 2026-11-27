@@ -425,6 +425,16 @@ function verify!(::Type{Random}, cards::Cards, format::DataFormat,
     verifycounts!(cards, mankeys, format)
 end
 
+"""
+	Base.size(hdu::HDU{Random})
+
+The dimensions of the array of the groups of an HDU of random groups, which are the GCOUNT groups of the first dimension and the NAXISn
+of the array of a group (NAXIS2 to NAXIS), so that the size of an HDU whose data are not read yet (see [`fits`](@ref)) is known without reading
+them. It is the size of the `data` array of the data. A group that has no axes, which a header with a NAXIS of 1 has, has one value, and the size
+is the number of groups, `(GCOUNT,)`.
+"""
+Base.size(hdu::HDU{Random}) = (get(getfield(hdu, :cards), "GCOUNT", 0), datasize(getfield(hdu, :cards), 2)...)
+
 function DataFormat(::Type{Random}, data::Missing, mankeys::Dict{S, V}) where
     {S<:AbstractString, V<:ValueType}
 

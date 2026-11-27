@@ -530,6 +530,16 @@ function tablelayout(columns, keys::AbstractDict)
     (forms, starts)
 end
 
+"""
+	Base.size(hdu::HDU{Table})
+
+The size of the two-dimensional array of characters of an ASCII table extension, which is the number of characters in a row and the number of
+rows, the NAXIS1 and the NAXIS2 of its header (Sect. 7.2.3 of the standard), so that the size of an HDU whose data are not read yet (see
+[`fits`](@ref)) is known without reading them. The number of rows is also the number of values of each column of the data, and TFIELDS is the
+number of columns. A header that does not have them has none, `(0, 0)`.
+"""
+Base.size(hdu::HDU{Table}) = (get(getfield(hdu, :cards), "NAXIS1", 0), get(getfield(hdu, :cards), "NAXIS2", 0))
+
 function DataFormat(::Type{Table}, data::Missing, mankeys::Dict{S, V}) where
     {S<:AbstractString, V<:ValueType}
 

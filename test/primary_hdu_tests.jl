@@ -261,27 +261,27 @@
         for cards in ([simplef, bitpix, naxis, naxis1], [simplef, bitpix, naxis, naxis1, kw("BSCALE", "2.0")])
             bytes = filebytes(cards, data)
             hdu = @test_logs (:warn, r"SIMPLE is F, so the file does not conform") reading(bytes)
-            @test hdu isa HDU{Conform} && hdu.data == Int16[1, 2, 3]
+            @test hdu isa HDU{Conform} && hdu.data == Int16[1, 2, 3] && size(hdu) == (3,)
             @test @test_logs((:warn, r"SIMPLE is F"), written(hdu)) == codeunits(bytes)
         end
         hdu = @test_logs (:warn, r"SIMPLE is F") reading(filebytes(
             [simplef, bitpix, kw("NAXIS", 2), kw("NAXIS1", 2), kw("NAXIS2", 2)], UInt8[0, 1, 0, 2, 0, 3, 0, 4]))
-        @test hdu.data == Int16[1 3; 2 4]
+        @test hdu.data == Int16[1 3; 2 4] && size(hdu) == (2, 2)
         hdu = @test_logs (:warn, r"SIMPLE is F") reading(filebytes([simplef, bitpix, kw("NAXIS", 0)]))
-        @test hdu isa HDU{Conform} && ismissing(hdu.data)
+        @test hdu isa HDU{Conform} && ismissing(hdu.data) && size(hdu) == ()
         #  an axis of length 0 has no data blocks, and the data are an empty array of the axes, written as it was read
         for (bits, shape, type) in ((16, (3, 0), Int16), (-32, (0, 3), Float32), (8, (0, 2, 2), UInt8), (64, (0,), Int64))
             cards = [simplef, kw("BITPIX", bits), kw("NAXIS", length(shape)), [kw("NAXIS$j", n) for (j, n) in enumerate(shape)]...]
             bytes = filebytes(cards, UInt8[])
             hdu = @test_logs (:warn, r"SIMPLE is F") reading(bytes)
-            @test hdu isa HDU{Conform} && hdu.data isa Array{type, length(shape)} && size(hdu.data) == shape
+            @test hdu isa HDU{Conform} && hdu.data isa Array{type, length(shape)} && size(hdu.data) == shape && size(hdu) == shape
             @test @test_logs((:warn, r"SIMPLE is F"), written(hdu)) == codeunits(bytes)
         end
         #  a conforming extension that is not implemented is read the same way
         extension = ["XTENSION= 'FOREIGN '", kw("BITPIX", 16), kw("NAXIS", 2), kw("NAXIS1", 3), kw("NAXIS2", 0),
             kw("PCOUNT", 0), kw("GCOUNT", 1)]
         hdu = reading(filebytes(extension, UInt8[]))
-        @test hdu isa HDU{Conform} && hdu.data isa Matrix{Int16} && size(hdu.data) == (3, 0)
+        @test hdu isa HDU{Conform} && hdu.data isa Matrix{Int16} && size(hdu.data) == (3, 0) && size(hdu) == (3, 0)
         #  no groups have no data
         nogroups = ["XTENSION= 'FOREIGN '", kw("BITPIX", 16), kw("NAXIS", 1), kw("NAXIS1", 3), kw("PCOUNT", 0), kw("GCOUNT", 0)]
         @test ismissing(reading(filebytes(nogroups, UInt8[])).data)
@@ -733,6 +733,28 @@
             hdu = HDU(Primary, data)
             @test @test_logs(scaledreading(written(hdu))).data == data
         end
+    end
+
+    ####    Test the size of the HDU, which is the NAXISn of its header    ####
+
+    @testset "size" begin
+        data = reshape(Float32[1:100;], 5, 20)
+        cards = Card{<:Any}[Card("FLTKEY", 1.0, "floating point keyword")]
+        #  the size is the NAXISn of the header, whether the data are made or not, and is the size of the data
+        @test size(HDU(data, cards)) == (5, 20) && size(HDU(Primary, data)) == (5, 20) && size(HDU(Primary, data)) == size(HDU(Primary, data).data)
+        @test size(HDU(Primary, zeros(UInt8, 3))) == (3,) && size(HDU(Primary, zeros(Int16, 2, 3, 4))) == (2, 3, 4)
+        #  an HDU that has no data has no dimensions
+        @test size(HDU(Primary)) == () && size(HDU(Primary, zeros(UInt8, 0))) == (0,)
+        #  the size of an HDU whose data are not read, which a file has, is known without reading them
+        path = joinpath(mktempdir(), "size.fits")
+        write(path, [HDU(data, cards)])
+        lazy = fits(path)[1]
+        @test getfield(lazy, :data) isa FITSFiles.LazyArray
+        @test size(lazy) == (5, 20) && getfield(lazy, :data) isa FITSFiles.LazyArray
+        #  the size is that of the data of the HDUs of a file that is read from a buffer, where the data are read
+        io = IOBuffer()
+        write(io, [HDU(data, cards)])
+        @test size(fits(IOBuffer(take!(io)))[1]) == (5, 20)
     end
 
 end

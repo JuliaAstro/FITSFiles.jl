@@ -135,6 +135,15 @@ function verifysize(::Type{Conform}, mankeys::AbstractDict)
         "$(abs(bits) ÷ 8) bytes × $(join(sizes, " × ")) values is more than $(typemax(Int)) bytes."))
 end
 
+"""
+	Base.size(hdu::HDU{Conform})
+
+The dimensions of the data array of a conforming HDU, which are the NAXISn of its header, so that the size of an HDU whose data are
+not read yet (see [`fits`](@ref)) is known without reading them. An HDU that has no data has no dimensions, `()`. The data of an HDU that
+has a heap or groups (PCOUNT and GCOUNT) are a vector, which does not have the size of the NAXISn.
+"""
+Base.size(hdu::HDU{Conform}) = datasize(getfield(hdu, :cards))
+
 #  The data format of the array from the mandatory keywords
 function DataFormat(::Type{Conform}, data::Missing, mankeys::Dict{S, V}) where
     {S<:AbstractString, V<:ValueType}

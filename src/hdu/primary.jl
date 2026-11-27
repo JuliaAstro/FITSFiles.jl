@@ -51,6 +51,14 @@ function verifygroups(mankeys::AbstractDict)
     end
 end
 
+"""
+	Base.size(hdu::HDU{Primary})
+
+The dimensions of the data array of a primary HDU, which are the NAXISn of its header, so that the size of an HDU whose data are
+not read yet (see [`fits`](@ref)) is known without reading them. A primary HDU that has no data has no dimensions, `()`.
+"""
+Base.size(hdu::HDU{Primary}) = datasize(getfield(hdu, :cards))
+
 #  A primary array has the NAXISn values, and not the PCOUNT parameters and the GCOUNT groups of an extension or of random
 #  groups, which the primary header does not have (Sect. 4.4.1.1).
 function DataFormat(::Type{Primary}, data::Missing, mankeys::Dict{S, V}) where

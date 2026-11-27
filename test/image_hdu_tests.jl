@@ -675,4 +675,22 @@
         end
     end
 
+    ####    Test the size of the HDU, which is the NAXISn of its header    ####
+
+    @testset "size" begin
+        data = reshape(Float32[1:100;], 5, 20)
+        #  the size is the NAXISn of the header, and is the size of the data
+        @test size(HDU(Image, data)) == (5, 20) && size(HDU(Image, data)) == size(HDU(Image, data).data)
+        @test size(HDU(Image, zeros(Int16, 2, 3, 4))) == (2, 3, 4)
+        #  an IMAGE extension that has no data has no dimensions
+        @test size(HDU(Image)) == ()
+        #  the size of an HDU whose data are not read, which a file has, is known without reading them
+        path = joinpath(mktempdir(), "size.fits")
+        write(path, [HDU(Primary), HDU(Image, data)])
+        lazy = fits(path)[2]
+        @test getfield(lazy, :data) isa FITSFiles.LazyArray
+        @test size(lazy) == (5, 20) && getfield(lazy, :data) isa FITSFiles.LazyArray
+        @test size(fits(path)[1]) == ()
+    end
+
 end
