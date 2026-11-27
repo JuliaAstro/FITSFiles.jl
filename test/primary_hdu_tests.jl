@@ -269,6 +269,22 @@
         @test hdu.data == Int16[1 3; 2 4]
         hdu = @test_logs (:warn, r"SIMPLE is F") reading(filebytes([simplef, bitpix, kw("NAXIS", 0)]))
         @test hdu isa HDU{Conform} && ismissing(hdu.data)
+        #  an axis of length 0 has no data blocks, and the data are an empty array of the axes, written as it was read
+        for (bits, shape, type) in ((16, (3, 0), Int16), (-32, (0, 3), Float32), (8, (0, 2, 2), UInt8), (64, (0,), Int64))
+            cards = [simplef, kw("BITPIX", bits), kw("NAXIS", length(shape)), [kw("NAXIS$j", n) for (j, n) in enumerate(shape)]...]
+            bytes = filebytes(cards, UInt8[])
+            hdu = @test_logs (:warn, r"SIMPLE is F") reading(bytes)
+            @test hdu isa HDU{Conform} && hdu.data isa Array{type, length(shape)} && size(hdu.data) == shape
+            @test @test_logs((:warn, r"SIMPLE is F"), written(hdu)) == codeunits(bytes)
+        end
+        #  a conforming extension that is not implemented is read the same way
+        extension = ["XTENSION= 'FOREIGN '", kw("BITPIX", 16), kw("NAXIS", 2), kw("NAXIS1", 3), kw("NAXIS2", 0),
+            kw("PCOUNT", 0), kw("GCOUNT", 1)]
+        hdu = reading(filebytes(extension, UInt8[]))
+        @test hdu isa HDU{Conform} && hdu.data isa Matrix{Int16} && size(hdu.data) == (3, 0)
+        #  no groups have no data
+        nogroups = ["XTENSION= 'FOREIGN '", kw("BITPIX", 16), kw("NAXIS", 1), kw("NAXIS1", 3), kw("PCOUNT", 0), kw("GCOUNT", 0)]
+        @test ismissing(reading(filebytes(nogroups, UInt8[])).data)
 
         #  but the other mandatory keywords must conform
         @test_throws ArgumentError("BITPIX must be one of 8, 16, 32, 64, -32, or -64, but its value is 12.") reading(
