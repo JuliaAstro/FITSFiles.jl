@@ -761,19 +761,18 @@ end
 
 ####    The data of a binary table that is mapped    ####
 
-#  The data of a binary table that is read from a file, memory-mapped (see `mapdata`): the fields of numbers of a fixed number of elements, which are
-#  the bytes of the rows of the table in the file, are mapped, and the other fields, which are logicals, bits, characters, variable-length arrays, and
-#  complex numbers, are read at once. The records (`record = true`) are not mapped.
+#  The data of a binary table that is read from a file, memory-mapped (see `mapdata`): the fields of a fixed number of elements, which are the bytes of
+#  the rows of the table in the file, are mapped, and the fields of variable-length arrays, which are in the heap, are read at once. The records
+#  (`record = true`) are not mapped.
 mappable(::Type{Bintable}) = true
 mappable(::Type{Bintable}, keywds::NamedTuple) = !get(keywds, :record, false)
 
-#  Is a field mapped? It has a fixed number of numbers that are not complex, whose physical values are known without reading the data.
-mappedfield(field::BinaryField) = isnothing(field.pntr) && field.type <: Union{Integer, AbstractFloat} && !(field.type <: Bool)
+#  Is a field mapped? It has a fixed number of elements, which are in the row of the table, and not an array in the heap.
+mappedfield(field::BinaryField) = isnothing(field.pntr)
 
 function mapdata(::Type{Bintable}, data::LazyArray)
     get(data.keywds, :record, false) && throw(ArgumentError("The data of a binary table that are records cannot be mapped."))
     format, fields, scale = data.format, data.fields, get(data.keywds, :scale, true)
-    L, N = format.shape[1], format.shape[2]
     mapped = any(mappedfield, fields)
     bytes = mapped ? (format.leng == 0 ? UInt8[] : mappedvalues(data)) : UInt8[]
     columns = Any[]
@@ -789,47 +788,92 @@ function mapdata(::Type{Bintable}, data::LazyArray)
     (; [Symbol(field.name) => column for (field, column) in zip(fields, columns)]...)
 end
 
+#  The undefined value of a logical is a 0 byte, and the value of the others is whether the byte is a T (Sect. 7.3.3.1), and the value of a complex
+#  number is undefined if its real or its imaginary part is a NaN. The values of an array of them are always of the type that has `missing`, since
+#  the data would have to be read to know that none of them is undefined.
+logicalvalue(byte::UInt8) = byte == 0x00 ? missing : byte == UInt8('T')
+logicalvalues(raw::AbstractArray{UInt8}) = (out = Array{Union{Missing, Bool}}(undef, size(raw)); out .= logicalvalue.(raw); out)
+undefinedcomplex(value::Complex) = isnan(real(value)) || isnan(imag(value))
+function nullcomplexes(raw::AbstractArray{C}) where C<:Complex
+    out = Array{Union{Missing, C}}(raw)
+    out[undefinedcomplex.(raw)] .= missing
+    out
+end
+
 function mappedcolumn(bytes::Vector{UInt8}, field::BinaryField, format::DataFormat, scale::Bool, source::LazyArray)
     type, leng = field.type, field.leng
     N = format.shape[2]
     scale = scale && !isnothing(field.scale)
-    #  The values of a row are in the second and later dimensions if there are more than one: the dimensions TDIMn, or the elements
-    dims = arraydims(field)
-    shape = !isnothing(dims) ? (N, dims...) : leng == 1 ? (N,) : (N, leng)
-    #  The values that are read: the undefined values are the raw ones equal to TNULLn (Sect. 7.3.2), and the scaled values are the physical values (Eq. 7)
-    decode(raw) = (values = setmissing(raw, field.null); scale ? physical(values, type, field.scale, field.zero) : values)
-    probe = field.null isa Integer && typemin(type) <= field.null <= typemax(type) ? type[0, field.null] : zeros(type, 1)
-    scaled1 = scale ? physicalfunction(type, field.scale, field.zero) : identity
-    value = isnothing(field.null) ? scaled1 : x -> x == field.null ? missing : scaled1(x)
-    column = MappedColumn(bytes, format.shape[1], first(field.slice) - 1, shape, decode, value, probe, source)
+    offset = first(field.slice) - 1
+    if type <: Bool
+        #  The values of a row are in the second and later dimensions if there are more than one: the dimensions TDIMn, or the elements
+        dims = leng == 1 ? nothing : arraydims(field)
+        shape = !isnothing(dims) ? (N, dims...) : leng == 1 ? (N,) : (N, leng)
+        column = MappedColumn(bytes, format.shape[1], offset, shape, 1, 1, logicalvalues, logicalvalue, zeros(UInt8, 1), source)
+    elseif type <: BitVector
+        #  The bits of a row are a vector, or an array of the dimensions TDIMn if there are two or more and they have no more elements
+        dims = field.dims
+        n = isnothing(dims) || length(dims) < 2 ? nothing : prod(dims)
+        cell(bits) = isnothing(n) || n > length(bits) ? bits : reshape(bits[1:n], dims)
+        column = MappedColumn(bytes, format.shape[1], offset, (N,), leng, sizeofbitvector(leng), raw -> map(cell, raw), cell,
+            [falses(leng)], source)
+    elseif type <: AbstractString
+        #  The strings of an array of strings have the characters of the first dimension, and are in the later dimensions (Sect. 7.3.2)
+        dims = stringdims(field)
+        width = isnothing(dims) ? leng : dims[1]
+        shape = isnothing(dims) ? (N,) : (N, dims[2:end]...)
+        column = MappedColumn(bytes, format.shape[1], offset, shape, width, width, identity, identity, [""], source)
+    else
+        #  The numbers are those of the file, with `missing` for the undefined values (Sect. 7.3.2), and are scaled (Eq. 7), with the complex numbers
+        #  that have a NaN undefined (Sect. 7.3.3.1)
+        dims = leng == 1 ? nothing : arraydims(field)
+        shape = !isnothing(dims) ? (N, dims...) : leng == 1 ? (N,) : (N, leng)
+        complex = type <: Complex
+        scaled1 = scale ? physicalfunction(type, field.scale, field.zero) : identity
+        isnull(x) = !isnothing(field.null) && x == field.null
+        value = complex ? x -> undefinedcomplex(x) || isnull(x) ? missing : scaled1(x) :
+            isnothing(field.null) ? scaled1 : x -> isnull(x) ? missing : scaled1(x)
+        function decode(raw)
+            values = setmissing(raw, field.null)
+            values = complex ? nullcomplexes(values) : values
+            scale ? physical(values, type, field.scale, field.zero) : values
+        end
+        probe = complex ? [zero(type), type(NaN, NaN)] : field.null isa Integer && typemin(type) <= field.null <= typemax(type) ?
+            type[0, field.null] : zeros(type, 1)
+        column = MappedColumn(bytes, format.shape[1], offset, shape, 1, sizeof(type), decode, value, probe, source)
+    end
     scalefloats(column, field, scale)
 end
 
 """
-    MappedColumn(bytes, rowlen, offset, size, decode, value, probe, source)
+    MappedColumn(bytes, rowlen, offset, size, count, stride, decode, value, probe, source)
 
-The values of a field of numbers of a fixed number of elements of a binary table that is read in place from its file, which is memory-mapped, so that
-only the values that are indexed are read from the file. The `bytes` are the bytes of the table in the file, whose rows are `rowlen` bytes, and the
-field begins `offset` bytes after the beginning of a row. The first axis of the array is the rows, and the values of a row are the later axes, which
-are `size`. The function `decode` is that of an array of the values of the file to the values of the field, and `value` is that of one value, as
-for a [`FITSFiles.MappedArray`](@ref), and the type of the values is that of `decode` of the values of the `probe`. The `source` is the lazy array of
-the HDU that the values are read from, which the data are copied from when the HDU is written. The array is read-only.
+The values of a field of a fixed number of elements of a binary table that is read in place from its file, which is memory-mapped, so that only the
+values that are indexed are read from the file. The `bytes` are the bytes of the table in the file, whose rows are `rowlen` bytes, and the field begins
+`offset` bytes after the beginning of a row. The first axis of the array is the rows, and the elements of a row are the later axes, which are `size`.
+Each element is `stride` bytes, and has `count` characters of a string or bits of a bit array. The type of the values of the file is that of the
+`probe`, which has values of the file: a number, a byte of a logical, a string, or a bit array. The function `decode` is that of an array of the values
+of the file to the values of the field, and `value` is that of one value, as for a [`FITSFiles.MappedArray`](@ref), and the type of the values is
+that of `decode` of the `probe`. The `source` is the lazy array of the HDU that the values are read from, which the data are copied from when the HDU
+is written. The array is read-only.
 """
 struct MappedColumn{T, N, R, F, G, S} <: AbstractArray{T, N}
     bytes::Vector{UInt8}
     rowlen::Int
     offset::Int
     size::NTuple{N, Int}
+    count::Int
+    stride::Int
     decode::F
     value::G
     source::S
 end
 
-function MappedColumn(bytes::Vector{UInt8}, rowlen::Integer, offset::Integer, size::NTuple{N, Int}, decode, value, probe::AbstractVector{R},
-    source) where {N, R}
+function MappedColumn(bytes::Vector{UInt8}, rowlen::Integer, offset::Integer, size::NTuple{N, Int}, count::Integer, stride::Integer, decode, value,
+    probe::AbstractVector{R}, source) where {N, R}
 
     T = eltype(decode(probe))
-    MappedColumn{T, N, R, typeof(decode), typeof(value), typeof(source)}(bytes, rowlen, offset, size, decode, value, source)
+    MappedColumn{T, N, R, typeof(decode), typeof(value), typeof(source)}(bytes, rowlen, offset, size, count, stride, decode, value, source)
 end
 
 lazysource(column::MappedColumn) = column.source
@@ -839,8 +883,9 @@ Base.IndexStyle(::Type{<:MappedColumn}) = IndexCartesian()
 #  The unsigned integer of the size of a type, whose bytes, which are in the order of the file (big-endian), are the bytes of the value
 unsignedtype(::Type{R}) where R = sizeof(R) == 1 ? UInt8 : sizeof(R) == 2 ? UInt16 : sizeof(R) == 4 ? UInt32 : UInt64
 
-#  The value of the type `R` of the bytes that begin at the place `pos`, which are in the order of the file, so the order of the machine is not used
-@inline function rawelement(::Type{R}, bytes::Vector{UInt8}, pos::Integer) where R
+#  The value of the type `R` of the bytes that begin at the place `pos`, which are in the order of the file, so the order of the machine is not used.
+#  The real and the imaginary part of a complex number are in order, and a string or a bit array has `count` characters or bits.
+@inline function rawelement(::Type{R}, bytes::Vector{UInt8}, pos::Integer, count::Integer) where R<:Union{Integer, AbstractFloat}
     U = unsignedtype(R)
     bits = zero(U)
     @inbounds for i = 0:sizeof(U)-1
@@ -848,10 +893,15 @@ unsignedtype(::Type{R}) where R = sizeof(R) == 1 ? UInt8 : sizeof(R) == 2 ? UInt
     end
     reinterpret(R, bits)
 end
+@inline rawelement(::Type{Complex{F}}, bytes::Vector{UInt8}, pos::Integer, count::Integer) where F =
+    Complex(rawelement(F, bytes, pos, count), rawelement(F, bytes, pos + sizeof(F), count))
+@inline rawelement(::Type{String}, bytes::Vector{UInt8}, pos::Integer, count::Integer) = decodestring(view(bytes, pos:pos + count - 1))
+@inline rawelement(::Type{BitVector}, bytes::Vector{UInt8}, pos::Integer, count::Integer) =
+    decodebits(view(bytes, pos:pos + sizeofbitvector(count) - 1), count)
 
 #  The value of the file of the row `j` and the element `k` of the row
 @inline rawvalue(column::MappedColumn{T, N, R}, j::Integer, k::Integer) where {T, N, R} =
-    rawelement(R, column.bytes, column.offset + (j - 1)*column.rowlen + (k - 1)*sizeof(R) + 1)
+    rawelement(R, column.bytes, column.offset + (j - 1)*column.rowlen + (k - 1)*column.stride + 1, column.count)
 
 #  The element of a row of the indices `I` of the axes after the first
 @inline elementindex(column::MappedColumn, I::Tuple{}) = 1

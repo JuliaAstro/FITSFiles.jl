@@ -92,7 +92,7 @@ The data of the HDUs of a file are not read until they are accessed (`hdu.data`)
 so the file must not have been modified since it was read, which is an `ArgumentError`, and an HDU that is written is written with the data
 as they are in the file (see [`Base.write(io::IO, hdu::HDU)`](@ref)). The keyword `access` chooses how the data of a file are accessed: `:lazy`
 is this default, `:memory` reads all of the data at once, and `:mapped` maps the data of the primary HDU, the IMAGE extensions, the conforming
-HDUs, random groups, and the fixed-width numbers of binary tables, so that `hdu.data` is a read-only array that reads only the values that are indexed (see [`mapdata`](@ref) and [`Base.read(io::IO, ::Type{HDU})`](@ref)).
+HDUs, random groups, and the fixed-width fields of binary tables, so that `hdu.data` is a read-only array that reads only the values that are indexed (see [`mapdata`](@ref) and [`Base.read(io::IO, ::Type{HDU})`](@ref)).
 
 # Keywords
 

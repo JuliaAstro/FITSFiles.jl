@@ -3,9 +3,10 @@
     dir = mktempdir()
     newfile(name, hdus) = (path = joinpath(dir, name); write(path, hdus); path)
     #  the mapped data are the data that are read, of the same type and values, and the slices are those of the data
-    function compare(mapped, eager)
+    function compare(mapped, eager; undefined = false)
         @test (mapped isa FITSFiles.ScaledArray) == (eager isa FITSFiles.ScaledArray) && mapped isa AbstractArray
-        @test eltype(mapped) == eltype(eager) && size(mapped) == size(eager) && ndims(mapped) == ndims(eager)
+        #  the type of the logicals and of the complex numbers of a binary table has `missing` whether or not a value is undefined
+        @test (eltype(mapped) == eltype(eager) || undefined && eltype(mapped) == Union{Missing, eltype(eager)}) && size(mapped) == size(eager) && ndims(mapped) == ndims(eager)
         @test isequal(collect(mapped), collect(eager)) && isequal(Array(mapped), Array(eager))
         for I in (ntuple(_ -> Colon(), ndims(eager)), ntuple(d -> d == 1 ? (1:2) : Colon(), ndims(eager)),
             ntuple(d -> d == ndims(eager) ? size(eager, d) : Colon(), ndims(eager)), ntuple(d -> 1, ndims(eager)),
@@ -359,7 +360,7 @@
             @test mapped isa NamedTuple && keys(mapped) == keys(eager)
             for name in keys(eager)
                 if mapped[name] isa FITSFiles.MappedColumn || mapped[name] isa FITSFiles.ScaledArray
-                    compare(mapped[name], eager[name])
+                    compare(mapped[name], eager[name]; undefined = true)
                 else
                     @test isequal(mapped[name], eager[name]) && typeof(mapped[name]) == typeof(eager[name])
                 end
@@ -398,14 +399,13 @@
         mapped = fits(path; access = :mapped)[2].data
         @test eltype(mapped.c) == Union{Missing, Int16} && ismissing(mapped.c[1]) && mapped.c[2] === Int16(2) && ismissing(mapped.c[1:2][1])
         @test ismissing(mapped.e[2]) && mapped.e[3] === 27.0 && ismissing(mapped.e[1:3][2])
-        #  the fields that are not mapped are read at once: the logicals, the bits, the characters, the arrays of variable length, and the complex numbers
+        #  the logicals, the bits, the characters, and the complex numbers are mapped, and the arrays of variable length, which are in the heap, are read at once
         data = (a = Int32[1, 2, 3, 4], l = [true, false, true, true], bits = [BitVector([1, 0, 1]) for _ in 1:4], name = ["x", "yy", "z", "w"],
             v = [Int16[1], Int16[1, 2], Int16[], Int16[4, 5, 6]], z = ComplexF32[1 + 2im, 3, 4, 5im], b = Float64[1, 2, 3, 4])
         path = newfile("mixed.fits", [HDU(Primary), HDU(Bintable, data)])
         mapped, eager = sametable(path)
-        @test mapped.a isa FITSFiles.MappedColumn && mapped.b isa FITSFiles.MappedColumn
-        @test !(mapped.l isa FITSFiles.MappedColumn) && !(mapped.name isa FITSFiles.MappedColumn) && !(mapped.v isa FITSFiles.MappedColumn) &&
-            !(mapped.z isa FITSFiles.MappedColumn)
+        @test all(name -> mapped[name] isa FITSFiles.MappedColumn, (:a, :b, :l, :bits, :name, :z)) && !(mapped.v isa FITSFiles.MappedColumn)
+        @test eltype(mapped.l) == Union{Missing, Bool} && eltype(mapped.z) == Union{Missing, ComplexF32} && eltype(mapped.name) == String
         #  and then the HDU is written as the values are, and the file that has the mapped fields is not written
         hdus = fits(path; access = :mapped)
         @test isnothing(FITSFiles.lazysource(hdus[2].data)) && FITSFiles.filesource(hdus[2].data) isa FITSFiles.LazyArray
@@ -414,10 +414,43 @@
         other = joinpath(dir, "mixed2.fits")
         write(other, hdus)
         @test bytesof(fits(other; access = :memory)) == bytesof(fits(path; access = :memory))
-        #  a table that has no mapped fields has the fields that are read
-        path = newfile("strings.fits", [HDU(Primary), HDU(Bintable, (name = ["a", "bb"], flag = [true, false]))])
+        #  a table that has only fields of variable length has the fields that are read
+        path = newfile("variable.fits", [HDU(Primary), HDU(Bintable, (v = [Int16[1], Int16[2, 3]], w = [Int32[], Int32[4]]))])
         mapped, eager = sametable(path)
-        @test mapped.name == eager.name && !any(column -> column isa FITSFiles.MappedColumn, values(mapped))
+        @test mapped.v == eager.v && !any(column -> column isa FITSFiles.MappedColumn, values(mapped))
+        #  the logicals have an undefined value that is a 0 byte, and their type has `missing` whether or not there is one
+        data = (l = [true, false, true], u = Union{Missing, Bool}[true, missing, false], m = Union{Missing, Bool}[true missing; false true; missing false])
+        path = newfile("logicals.fits", [HDU(Primary), HDU(Bintable, data)])
+        mapped, eager = sametable(path)
+        @test eltype(mapped.l) == Union{Missing, Bool} && eltype(eager.l) == Bool && eltype(mapped.u) == eltype(eager.u) == Union{Missing, Bool}
+        @test mapped.l[1] === true && mapped.l[2] === false && ismissing(mapped.u[2]) && mapped.u[3] === false && ismissing(mapped.m[3, 1])
+        @test isequal(mapped.m[:, 2], eager.m[:, 2]) && isequal(mapped.u[1:2], eager.u[1:2]) && eltype(mapped.l[1:2]) == Union{Missing, Bool}
+        #  the complex numbers that have a NaN are undefined, and are scaled
+        z = ComplexF32[1 + 2im, NaN + 0im, 3, 4 + NaN * im]
+        cards = Card{<:Any}[Card("TSCAL2", 2.0), Card("TZERO2", 1.0)]
+        data = (z = z, s = ComplexF32[1 + 2im, 3im, 4, 5], d = ComplexF64[1 2; 3 4; 5 6; 7 8])
+        path = newfile("complex.fits", [HDU(Primary), HDU(Bintable, data, cards)])
+        for kwds in ((;), (; scale = false))
+            mapped, eager = sametable(path; kwds...)
+            @test eltype(mapped.z) == Union{Missing, ComplexF32} && ismissing(mapped.z[2]) && ismissing(mapped.z[4]) && mapped.z[3] === 3f0 + 0im
+            @test (mapped.s isa FITSFiles.ScaledArray) == !haskey(kwds, :scale) && mapped.d[2, 2] === 4.0 + 0im && mapped.d[4, :] == [7.0, 8.0] + 0im * [1, 1]
+        end
+        #  and the bytes of the undefined values are those of the file, since all of the fields are mapped and are copied as they are
+        @test bytesof(fits(path; access = :mapped)) == read(path)
+        #  the strings, whose spaces after the characters are not part of the value, and the arrays of strings, which have the characters of the first
+        #  dimension of TDIMn in the field, and are in the later dimensions
+        data = (s = ["a", "bcd", "", "ef"], t = ["ab" "cd" "ef"; "gh" "ij" "kl"; "m" "n" "o"; "" "p" "q"])
+        path = newfile("strings.fits", [HDU(Primary), HDU(Bintable, data)])
+        mapped, eager = sametable(path)
+        @test eltype(mapped.s) == String && size(mapped.s) == (4,) && size(mapped.t) == (4, 3) && mapped.s[2] == "bcd" && mapped.s[3] == "" && mapped.t[4, 1] == ""
+        @test mapped.t[2:3, 2:3] == eager.t[2:3, 2:3] && mapped.t[1, :] == ["ab", "cd", "ef"] && mapped.s[:] == eager.s
+        #  the bits, and the arrays of them that the dimensions TDIMn give, which have no more elements than the bits
+        bits = [BitVector([1, 0, 1, 1, 0, 0]), BitVector([0, 1, 0, 0, 1, 1]), BitVector([1, 1, 1, 0, 0, 0])]
+        for (card, size) in ((Card{<:Any}[], (6,)), (Card{<:Any}[Card("TDIM1", "(2,3)")], (2, 3)), (Card{<:Any}[Card("TDIM1", "(4,3)")], (6,)))
+            path = newfile("bits.fits", [HDU(Primary), HDU(Bintable, (bits = bits,), card)])
+            mapped, eager = @test_logs(match_mode = :any, sametable(path))
+            @test mapped.bits[2] == eager.bits[2] && Base.size(mapped.bits[2]) == size && mapped.bits[2:3] == eager.bits[2:3]
+        end
         #  the dimensions TDIMn that have more elements than the field, which are warned of and not used, as they are read
         path = newfile("dims.fits", [HDU(Primary), HDU(Bintable, (a = Int16.(reshape(1:12, 4, 3)),), Card{<:Any}[Card("TDIM1", "(2,3)")])])
         mapped = @test_logs (:warn, r"TDIM of field a") match_mode = :any mapdata(fits(path)[2])
