@@ -239,6 +239,22 @@
         cards = header(Card("BITPIX", 16), Card("NAXIS", 0))
         @test_logs FITSFiles.verifyshape!(cards, keys(cards), format(Int16, ())) === cards
 
+        #  the keywords that the header does not have, e.g., NAXIS and NAXIS2 when it has NAXIS1, are added
+        cards = header(Card("NAXIS1", 5))
+        @test_logs (:warn, "NAXIS1:2 set to (2, 3)") FITSFiles.verifyshape!(cards, keys(cards), format(Int16, (2, 3)))
+        @test (cards["NAXIS"], cards["NAXIS1"], cards["NAXIS2"]) == (2, 2, 3)
+        cards = header(Card("NAXIS", 2), Card("NAXIS1", 2))
+        @test_logs (:warn, "NAXIS1:2 set to (2, 3)") FITSFiles.verifyshape!(cards, keys(cards), format(Int16, (2, 3)))
+        @test (cards["NAXIS"], cards["NAXIS1"], cards["NAXIS2"]) == (2, 2, 3)
+        cards = header(Card("NAXIS", 2), Card("NAXIS1", 2), Card("NAXIS2", 3))
+        @test_logs FITSFiles.verifyshape!(cards, keys(cards), format(Int16, (2, 3))) === cards
+        #  an HDU that is made from data and a header that has NAXIS1 and not NAXIS has the keywords of the data
+        for (type, data) in (FITSFiles.Primary => Int16[1 2; 3 4], Image => Int16[1 2; 3 4], Table => (a = [1], b = [2]),
+            Bintable => (a = Int16[1], b = Int16[2]))
+            hdu = @test_logs (:warn, r"^NAXIS1:2 set to \(") HDU(type, data, Card{<:Any}[Card("NAXIS1", 1)])
+            @test getfield(hdu, :cards)["NAXIS"] == 2 && getfield(hdu, :cards)["NAXIS1"] != 1
+        end
+
         #  PCOUNT and GCOUNT are set to the format, and only when they are in the header.
         cards = header(Card("PCOUNT", 0), Card("GCOUNT", 1))
         @test_logs (:warn, "PCOUNT set to 7") (:warn, "GCOUNT set to 2") FITSFiles.verifycounts!(

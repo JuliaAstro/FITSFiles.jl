@@ -597,6 +597,7 @@ end
 function createcards!(::Type{Table}, format::DataFormat,
     fields::Vector{TableField}, cards::Cards; kwds...)
 
+    correctfieldcards!(cards, fields)
     required = tablekeys(Table, format, length(fields))
     for (j, field) in enumerate(fields)
         push!(required, "TFORM$j" => field.form, "TBCOL$j" => first(field.slice))
@@ -606,6 +607,24 @@ function createcards!(::Type{Table}, format::DataFormat,
         field.name == "column$j" || push!(required, "TTYPE$j" => field.name)
     end
     arrangecards!(cards, required)
+end
+
+#  The cards TFIELDS and TTYPEn that are given with data are the number of the fields of the data and the names of the fields, which the data are
+#  matched to by name, so that a card that is not is set to what the data have, with a warning, as the NAXISn are (see `verifyshape!`). The cards
+#  of a tuple of columns, which has no names, name its fields, and a blank TTYPEn is the default name.
+function correctfieldcards!(cards::Cards, fields::Vector{TableField})
+    if haskey(cards, "TFIELDS") && cards["TFIELDS"] != length(fields)
+        @warn "TFIELDS set to $(length(fields)), the number of fields of the data."
+        cards["TFIELDS"] = length(fields)
+    end
+    for (j, field) in enumerate(fields)
+        name = haskey(cards, "TTYPE$j") ? cards["TTYPE$j"] : nothing
+        if name isa AbstractString && !isempty(strip(name)) && rstrip(name) != field.name
+            @warn "TTYPE$j set to $(repr(field.name)), the name of field $j of the data, and not $(repr(rstrip(name)))."
+            cards["TTYPE$j"] = field.name
+        end
+    end
+    cards
 end
 
 #  The data of a header that has no data are the blank rows of the table, or missing if the table has no rows
