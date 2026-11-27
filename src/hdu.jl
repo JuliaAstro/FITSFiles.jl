@@ -447,29 +447,6 @@ function Base.write(io::IO, cards::Cards)
     end
 end
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 """
 	arrangecards!(cards, required)
 
@@ -583,8 +560,6 @@ function readbytes(io::IO, n::Integer)
 	length(bytes) < n && throw(short(length(bytes)))
 	bytes
 end
-
-
 
 function padblock(io::IO, format::DataFormat, pad::UInt8 = 0x00)
 	#  Pad remaining data block to BLOCKLEN length (2880 bytes)
