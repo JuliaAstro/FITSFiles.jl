@@ -6,6 +6,7 @@ version = "0.3.2"
 
 [deps]
 CodecZlib = "944b1d66-785c-5afd-91f1-9de20f533193"
+Mmap = "a63ad114-7e13-5084-954f-fe012c677804"
 Printf = "de0858da-6303-5e67-8744-51eddeeeb8d7"
 Unitful = "1986cc42-f94f-5a68-af5c-568840ba703d"
 UnitfulAngles = "6fb2a4bd-7999-5318-a3b2-8ad61056cd98"
@@ -21,6 +22,7 @@ DynamicQuantitiesExt = "DynamicQuantities"
 [compat]
 CodecZlib = "0.7"
 DynamicQuantities = "1.13"
+Mmap = "1"
 Printf = "1.8, < 0.0.1"
 Unitful = "1.22"
 UnitfulAngles = "0.7"

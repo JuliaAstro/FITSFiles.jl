@@ -7,7 +7,7 @@ A FITS file is a vector of header-data units (HDUs), where the header of an HDU 
 
 ```@autodocs
 Modules = [FITSFiles]
-Pages = ["FITSFiles.jl", "fitscore.jl", "hdu.jl", "util/verify.jl", "util/scale.jl", "format.jl", "util/lazyarray.jl", "util/scaledarray.jl", "field.jl",
+Pages = ["FITSFiles.jl", "fitscore.jl", "hdu.jl", "util/verify.jl", "util/scale.jl", "format.jl", "util/lazyarray.jl", "util/scaledarray.jl", "util/mappedarray.jl", "field.jl",
          "hdu/primary.jl", "hdu/conform.jl", "hdu/random.jl", "hdu/image.jl", "hdu/table.jl",
          "hdu/bintable.jl", "hdu/zimage.jl", "hdu/ztable.jl", "card/types.jl", "card/numbers.jl",
          "card/constructor.jl", "card/values.jl", "card/parse.jl", "util/units.jl"]

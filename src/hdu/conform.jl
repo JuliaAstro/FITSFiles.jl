@@ -144,6 +144,14 @@ has a heap or groups (PCOUNT and GCOUNT) are a vector, which does not have the s
 """
 Base.size(hdu::HDU{Conform}) = datasize(getfield(hdu, :cards))
 
+#  The data array of a conforming HDU that is read from a file, memory-mapped (see `mapdata`), whose values are the values of the file, which are
+#  not scaled, as the array that is read is. The data are a vector if the HDU has a heap or groups.
+mappable(::Type{Conform}) = true
+function mapdata(::Type{Conform}, data::LazyArray)
+	format = data.format
+	MappedArray(mappedvalues(data), format.leng == prod(format.shape) ? format.shape : (format.leng,), identity; value = identity, source = data)
+end
+
 #  The data format of the array from the mandatory keywords
 function DataFormat(::Type{Conform}, data::Missing, mankeys::Dict{S, V}) where
     {S<:AbstractString, V<:ValueType}
