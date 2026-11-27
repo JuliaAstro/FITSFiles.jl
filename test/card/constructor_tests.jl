@@ -688,7 +688,7 @@
     @test occursin("/ [m] a comment", repr(card))
     @test occursin("ESO TEL SCALE = 1.489 ", repr(card))
     parsed = parse(Card, repr(card))
-    @test (parsed.value, parsed.units, parsed.comment) == (1.489f0, Unitful.m, "a comment")
+    @test (parsed.value, parsed.units, parsed.comment) == (1.489, Unitful.m, "a comment")
     @test repr(parsed) == repr(card)
 
     #  the units are written without a comment, and a value without units has no units field.

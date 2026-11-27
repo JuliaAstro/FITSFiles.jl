@@ -153,11 +153,11 @@
                     "GCOUNT  =                    1                                                  "),
                    ("BZERO", 1.0f0, "",
                     "BZERO   =                  1.0                                                  "),
-                   ("BSCALE", 0.1f0, "",
+                   ("BSCALE", 0.1, "",
                     "BSCALE  =                  0.1                                                  ")])
 
     @test (ndims(hdu.data) == 2 && size(hdu.data) == (3, 3) && length(hdu.data) == 9 &&
-           eltype(hdu.data) == Float64 && all(isapprox.(hdu.data, 1.1f0)))
+           eltype(hdu.data) == Float64 && all(hdu.data .== 1.1))
 
     #  test Image type with scale == false
     data = ones(Int32, (3,3))
@@ -191,7 +191,7 @@
                     "GCOUNT  =                    1                                                  "),
                    ("BZERO", 1.0f0, "",
                     "BZERO   =                  1.0                                                  "),
-                   ("BSCALE", 0.1f0, "",
+                   ("BSCALE", 0.1, "",
                     "BSCALE  =                  0.1                                                  ")])
 
     @test (ndims(hdu.data) == 2 && size(hdu.data) == (3, 3) && length(hdu.data) == 9 &&
@@ -232,11 +232,11 @@
                     "GCOUNT  =                    1                                                  "),
                    ("BZERO", 1.0f0, "",
                     "BZERO   =                  1.0                                                  "),
-                   ("BSCALE", 0.1f0, "",
+                   ("BSCALE", 0.1, "",
                     "BSCALE  =                  0.1                                                  ")])
 
     @test (ndims(hdu.data) == 2 && size(hdu.data) == (3, 3) && length(hdu.data) == 9 &&
-           eltype(hdu.data) == Float64 && all(isapprox.(hdu.data, 1.1f0)))
+           eltype(hdu.data) == Float64 && all(hdu.data .== 1.1))
 
     rm(temppath)
 
@@ -673,6 +673,24 @@
             @test length(file) == 4 && all(h -> h isa HDU{Image}, file[2:4])
             @test occursin(r"4\s+Image\s+SCI\s+1", sprint(show, MIME("text/plain"), file))
         end
+    end
+
+    ####    Test the size of the HDU, which is the NAXISn of its header    ####
+
+    @testset "size" begin
+        data = reshape(Float32[1:100;], 5, 20)
+        #  the size is the NAXISn of the header, and is the size of the data
+        @test size(HDU(Image, data)) == (5, 20) && size(HDU(Image, data)) == size(HDU(Image, data).data)
+        @test size(HDU(Image, zeros(Int16, 2, 3, 4))) == (2, 3, 4)
+        #  an IMAGE extension that has no data has no dimensions
+        @test size(HDU(Image)) == ()
+        #  the size of an HDU whose data are not read, which a file has, is known without reading them
+        path = joinpath(mktempdir(), "size.fits")
+        write(path, [HDU(Primary), HDU(Image, data)])
+        lazy = fits(path)[2]
+        @test getfield(lazy, :data) isa FITSFiles.LazyArray
+        @test size(lazy) == (5, 20) && getfield(lazy, :data) isa FITSFiles.LazyArray
+        @test size(fits(path)[1]) == ()
     end
 
 end

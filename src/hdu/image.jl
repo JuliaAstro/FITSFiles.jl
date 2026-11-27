@@ -137,6 +137,14 @@ function verifysize(::Type{Image}, mankeys::AbstractDict)
         "$(abs(bits) ÷ 8) bytes × $(join(sizes, " × ")) values is more than $(typemax(Int)) bytes."))
 end
 
+"""
+	Base.size(hdu::HDU{Image})
+
+The dimensions of the data array of an IMAGE extension, which are the NAXISn of its header, so that the size of an HDU whose data are
+not read yet (see [`fits`](@ref)) is known without reading them. An IMAGE extension that has no data has no dimensions, `()`.
+"""
+Base.size(hdu::HDU{Image}) = datasize(getfield(hdu, :cards))
+
 #  The data format of the array from the mandatory keywords
 function DataFormat(::Type{Image}, data::Missing, mankeys::Dict{S, V}) where
     {S<:AbstractString, V<:ValueType}

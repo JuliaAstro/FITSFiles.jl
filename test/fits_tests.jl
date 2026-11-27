@@ -175,4 +175,58 @@
         @test_throws ArgumentError fits(IOBuffer(zeros(UInt8, 2880)))
     end
 
+    ####    Test the vectors of HDUs of one type of HDU, e.g., the `Vector{HDU{Primary}}` of `[HDU(data, cards)]`    ####
+
+    @testset "concrete vectors of HDUs" begin
+        data = reshape(Float32[1:100;], 5, 20)
+        cards = Card{<:Any}[Card("FLTKEY", 1.0, "floating point keyword"), Card("STRKEY", "string value")]
+        hdus = [HDU(data, cards)]
+        @test hdus isa Vector{HDU{Primary}}
+        scimage = HDU(Image, data, Card{<:Any}[Card("EXTNAME", "SCI")])
+
+        #  a vector of one type of HDU is written to a file and to a buffer, whichever the type is, and read as it was written
+        path = joinpath(mktempdir(), "roundtrip.fits")
+        write(path, hdus)
+        back = fits(path)
+        @test length(back) == 1 && back[1] isa HDU{Primary} && back[1].data == data
+        io = IOBuffer()
+        write(io, hdus)
+        seekstart(io)
+        @test fits(io)[1].data == data
+        write(path, [HDU(data, cards), HDU(Image, data, cards)])
+        back = fits(path)
+        @test FITSFiles.typeofhdu.(back) == [Primary, Image] && back[2].data == data
+        #  a vector of the same type that is not a Vector, e.g., a view, is written too, and the keywords of the write are those of the HDU
+        io = IOBuffer()
+        write(io, view(HDU[HDU(data, cards), scimage], 1:2))
+        @test fits(IOBuffer(take!(io)))[2].data == data
+        io = IOBuffer()
+        write(io, view([HDU(data, cards)], 1:1); checksum = true)
+        @test haskey(fits(IOBuffer(take!(io)))[1].cards, "CHECKSUM")
+        write(path, [HDU(data, cards)]; checksum = true)
+        @test haskey(fits(path)[1].cards, "CHECKSUM")
+
+        #  the functions of the vectors of HDUs are for the vectors of one type of HDU, as they are for the vector of HDU
+        images = [scimage]
+        @test images isa Vector{HDU{Image}}
+        for vector in (images, HDU[scimage], view(HDU[scimage], 1:1))
+            @test haskey(vector, Image) && !haskey(vector, Primary)
+            @test vector[Image] === scimage && vector["SCI"] === scimage && vector["SCI", 1] === scimage
+            @test_throws KeyError vector[Primary]
+            @test_throws KeyError vector["OTHER"]
+            @test get(vector, "SCI") === scimage && isnothing(get(vector, "OTHER"))
+            @test get(vector, "OTHER", "sci") === scimage
+            @test get(vector, ["SCI", "OTHER"], ["x", "y"]) == [scimage, nothing] && get(vector, ("OTHER",), ("sci",)) == [scimage]
+            @test findfirst("EXTNAME", vector) === findfirst("EXTNAME", HDU[scimage])
+            @test findfirst("EXTNAME", vcat(vector, [HDU(Image, data, Card{<:Any}[Card("EXTNAME", "extname")])])) == 2
+        end
+        @test sprint(show, MIME("text/plain"), images) == sprint(show, MIME("text/plain"), HDU[scimage])
+        @test occursin("Image", sprint(show, MIME("text/plain"), images)) && occursin("SCI", sprint(show, MIME("text/plain"), images))
+        @test sprint(show, MIME("text/plain"), hdus) == sprint(show, MIME("text/plain"), HDU[HDU(data, cards)])
+        @test_nowarn redirect_stdout(devnull) do; info(images); info(hdus); end
+        #  the vectors of HDUs that are the types of HDU of a file are those of the vector of HDU
+        file = fits(IOBuffer(let io = IOBuffer(); write(io, [HDU(data, cards), scimage]); take!(io) end))
+        @test haskey(file, Image) && file["SCI"].data == data && file[Image].data == data
+    end
+
 end

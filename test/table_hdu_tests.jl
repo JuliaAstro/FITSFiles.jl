@@ -818,4 +818,27 @@
         @test_logs reread(tablebytes(fieldcards(["I4"], [1]), ["   1   ", "   2   "]))
         @test_logs (:warn, r"The character '\\r' of row 1, column 5") reread(tablebytes(fieldcards(["I4"], [1]), ["   1\r\n", "   2\r\n"]))
     end
+    ####    Test the size of the HDU, which is the characters of a row and the rows of the header (Sect. 7.2.3)    ####
+
+    @testset "size" begin
+        #  the size is the number of characters in a row and the number of rows, NAXIS1 and NAXIS2, which is the size of the array of characters
+        #  that the table is, and the rows are the number of values of a column of the data
+        data = (a = [1, 2, 3], b = [1.5, 2.5, 3.5], c = ["x", "y", "zz"])
+        hdu = HDU(Table, data)
+        @test size(hdu) == (30, 3) && size(hdu) == (getfield(hdu, :cards)["NAXIS1"], getfield(hdu, :cards)["NAXIS2"])
+        @test size(hdu)[2] == length(data.a) && getfield(hdu, :cards)["TFIELDS"] == length(data)
+        @test size(HDU(Table, (a = [1, 2],))) == (1, 2) && size(HDU(Table, [(a = 1, b = 2.5)])) == (27, 1)
+        #  the characters of a row are those that the header has, which are more than the fields have if NAXIS1 is more
+        @test size(HDU(Table, (a = [1, 2],), Card{<:Any}[Card("NAXIS1", 10)])) == (10, 2)
+        #  a table that has no rows, or no fields, or no data
+        @test size(HDU(Table, (a = Int[], b = String[]))) == (3, 0) && size(HDU(Table)) == (0, 0)
+        @test size(HDU(Table, NamedTuple())) == (0, 0)
+        #  the size of an HDU whose data are not read, which a file has, is known without reading them
+        path = joinpath(mktempdir(), "size.fits")
+        write(path, [HDU(Primary), HDU(Table, data)])
+        lazy = fits(path)[2]
+        @test getfield(lazy, :data) isa FITSFiles.LazyArray
+        @test size(lazy) == (30, 3) && getfield(lazy, :data) isa FITSFiles.LazyArray
+    end
+
 end

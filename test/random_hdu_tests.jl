@@ -511,20 +511,20 @@
                     "PTYPE3  = 'PARAM3'                                                              "),
                    ("PZERO1", 1.0f0, "",
                     "PZERO1  =                  1.0                                                  "),
-                   ("PSCAL1",  0.1f0, "",
+                   ("PSCAL1",  0.1, "",
                     "PSCAL1  =                  0.1                                                  "),
                    ("PZERO2", 1.0f0, "",
                     "PZERO2  =                  1.0                                                  "),
-                   ("PSCAL2",  0.1f0, "",
+                   ("PSCAL2",  0.1, "",
                     "PSCAL2  =                  0.1                                                  "),
                    ("PZERO3", 1.0f0, "",
                     "PZERO3  =                  1.0                                                  "),
-                   ("PSCAL3",  0.1f0, "",
+                   ("PSCAL3",  0.1, "",
                     "PSCAL3  =                  0.1                                                  ")])
 
     @test (length(data[1]) == 4 && ndims(hdu.data[:data]) == 4 &&
            size(hdu.data[:data]) == (3, 2, 3, 4) && eltype(hdu.data[:data]) == Float32 &&
-           all(hdu.data[:PARAM1] .== [1.1f0, 1.2f0, 1.3f0]))
+           all(hdu.data[:PARAM1] .== [1.1, 1.2, 1.3]))
 
     #  test Random type with data being array of records and scale == false
     data = [
@@ -587,15 +587,15 @@
                     "PTYPE3  = 'PARAM3'                                                              "),
                    ("PZERO1", 1.0f0, "",
                     "PZERO1  =                  1.0                                                  "),
-                   ("PSCAL1",  0.1f0, "",
+                   ("PSCAL1",  0.1, "",
                     "PSCAL1  =                  0.1                                                  "),
                    ("PZERO2", 1.0f0, "",
                     "PZERO2  =                  1.0                                                  "),
-                   ("PSCAL2",  0.1f0, "",
+                   ("PSCAL2",  0.1, "",
                     "PSCAL2  =                  0.1                                                  "),
                    ("PZERO3", 1.0f0, "",
                     "PZERO3  =                  1.0                                                  "),
-                   ("PSCAL3",  0.1f0, "",
+                   ("PSCAL3",  0.1, "",
                     "PSCAL3  =                  0.1                                                  ")])
 
     @test (length(data[1]) == 4 && ndims(hdu.data[:data]) == 4 &&
@@ -1386,6 +1386,27 @@
                 (a = Int16[1, 3], c = Int16[2, 4], data = Int16[10 11 12; 20 21 22])
             @test fits(path; record = true)[1].data[2] == (a = 6.0f0, c = 4.0f0, data = Float32[21, 22, 23])
         end
+    end
+
+    ####    Test the size of the HDU, which is the groups and the NAXISn of the header    ####
+
+    @testset "size" begin
+        #  the size is the number of groups and the axes of the array of a group, which is the size of the array of the data
+        data = (a = Int16[1, 3], data = Int16[10 11 12; 20 21 22])
+        @test size(HDU(Random, data)) == (2, 3) && size(HDU(Random, data)) == size(HDU(Random, data).data.data)
+        data = (p = Float32[1, 2, 3, 4], data = reshape(Float32[1:96;], 4, 3, 2, 4))
+        @test size(HDU(Random, data)) == (4, 3, 2, 4) && size(HDU(Random, data)) == size(HDU(Random, data).data.data)
+        #  a group that has no axes has one value, and the size is the number of groups
+        @test size(HDU(Random, (a = Int16[1, 3, 5], b = Int16[2, 4, 6]))) == (3,)
+        #  the records have the same size
+        records = [(a = Int16(1), data = Int16[10, 11, 12]), (a = Int16(3), data = Int16[20, 21, 22])]
+        @test size(HDU(Random, records)) == (2, 3)
+        #  the size of an HDU whose data are not read, which a file has, is known without reading them
+        path = joinpath(mktempdir(), "size.fits")
+        write(path, [HDU(Random, (a = Int16[1, 3], data = Int16[10 11 12; 20 21 22]))])
+        lazy = fits(path)[1]
+        @test getfield(lazy, :data) isa FITSFiles.LazyArray
+        @test size(lazy) == (2, 3) && getfield(lazy, :data) isa FITSFiles.LazyArray
     end
 
 end

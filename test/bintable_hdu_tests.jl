@@ -824,23 +824,23 @@
                     "TTYPE5  = 'par5'                                                                "),
                    ("TZERO1", 1.0f0, "",
                     "TZERO1  =                  1.0                                                  "),
-                   ("TSCAL1", 0.1f0, "",
+                   ("TSCAL1", 0.1, "",
                     "TSCAL1  =                  0.1                                                  "),
                    ("TZERO2", 1.0f0, "",
                     "TZERO2  =                  1.0                                                  "),
-                   ("TSCAL2", 0.1f0, "",
+                   ("TSCAL2", 0.1, "",
                     "TSCAL2  =                  0.1                                                  "),
                    ("TZERO3", 1.0f0, "",
                     "TZERO3  =                  1.0                                                  "),
-                   ("TSCAL3", 0.1f0, "",
+                   ("TSCAL3", 0.1, "",
                     "TSCAL3  =                  0.1                                                  "),
                    ("TZERO4", 1.0f0, "",
                     "TZERO4  =                  1.0                                                  "),
-                   ("TSCAL4", 0.1f0, "",
+                   ("TSCAL4", 0.1, "",
                     "TSCAL4  =                  0.1                                                  "),
                    ("TZERO5", 1.0f0, "",
                     "TZERO5  =                  1.0                                                  "),
-                   ("TSCAL5", 0.1f0, "",
+                   ("TSCAL5", 0.1, "",
                     "TSCAL5  =                  0.1                                                  ")])
 
     @test (length(hdu.data) == 5 && length(hdu.data[:par1]) == 3 &&
@@ -1964,4 +1964,24 @@
         #  a format that is not in Table 20 is the earlier warning only
         @test_logs (:warn, r"TDISP1 must be a display format of Table 20") reading("I", "Q9.9")
     end
+    ####    Test the size of the HDU, which is the bytes of a row and the rows of the header (Sect. 7.3.3)    ####
+
+    @testset "size" begin
+        #  the size is the number of bytes in a row and the number of rows, NAXIS1 and NAXIS2, which is the size of the byte array that the table is,
+        #  and the rows are the number of values of a column of the data
+        data = (a = Int32[1, 2, 3], b = [1.5, 2.5, 3.5], c = ["x", "y", "zz"])
+        hdu = HDU(Bintable, data)
+        @test size(hdu) == (14, 3) && size(hdu) == (getfield(hdu, :cards)["NAXIS1"], getfield(hdu, :cards)["NAXIS2"])
+        @test size(hdu)[2] == length(data.a) && getfield(hdu, :cards)["TFIELDS"] == length(data)
+        @test size(HDU(Bintable, (m = [1 2; 3 4; 5 6],))) == (16, 3) && size(HDU(Bintable, [(a = Int16(1), b = 2.5)])) == (10, 1)
+        #  a table that has no rows, or no fields, or no data
+        @test size(HDU(Bintable, (a = Int32[], b = Float64[]))) == (12, 0) && size(HDU(Bintable)) == (0, 0)
+        #  the size of an HDU whose data are not read, which a file has, is known without reading them
+        path = joinpath(mktempdir(), "size.fits")
+        write(path, [HDU(Primary), HDU(Bintable, data)])
+        lazy = fits(path)[2]
+        @test getfield(lazy, :data) isa FITSFiles.LazyArray
+        @test size(lazy) == (14, 3) && getfield(lazy, :data) isa FITSFiles.LazyArray
+    end
+
 end
