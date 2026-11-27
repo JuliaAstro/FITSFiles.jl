@@ -291,11 +291,12 @@ end
 function Base.getproperty(hdu::HDU, name::Symbol)
 	if name === :data && getfield(hdu, :data) isa LazyArray
 		desc = getfield(hdu, :data)
-		io = open(desc.filnam)
-		seek(io, desc.begpos)
-		field = read(io, typeofhdu(hdu), desc.format, desc.fields;
-			desc.keywds...)
-		close(io)
+		io = openlazy(desc)
+		field = try
+			read(io, typeofhdu(hdu), desc.format, desc.fields; desc.keywds...)
+		finally
+			close(io)
+		end
 	else
 		field = getfield(hdu, name)
 	end
@@ -339,7 +340,7 @@ function Base.read(io::IO, ::Type{HDU}; type = nothing, strict::Bool = true, uni
 		pos = position(io)
 		if io isa IOStream
 			# create a lazy array for the HDU data field and move to next HDU
-			name, mtime = io.name[7:end-1], stat(io).mtime
+			name, mtime = abspath(io.name[7:end-1]), stat(io).mtime
 			data = LazyArray(name, mtime, pos, format, fields, (;kwds...))
 		else
 			data = read(io, type_, format, fields; kwds...)
@@ -376,6 +377,11 @@ physical values of floating-point stored values that were read with a BSCALE and
 with that scale and zero, and the stored values, `(value - BZERO)/BSCALE`, are written. The BSCALE and BZERO of the header of an HDU that
 is made from such data are those of the data.
 
+The data of an HDU that is read from a file are not read until they are accessed (see [`fits`](@ref)), and are written as they are, with the
+fill of the type of HDU after them, by copying their bytes from the file, so a file is written as it is read, and the data are not decoded. The header
+may be changed, e.g., a card is added, but not the size and the type of the data, which is an `ArgumentError`, and the file must not have been modified
+since the HDU was read, which is an `ArgumentError` too. Read the data (`hdu.data`) to change them.
+
 # Keywords
 
 - `check::Bool=true`: check that the stored value of each value of the data gives the value again when BSCALE and BZERO
@@ -384,6 +390,27 @@ is made from such data are those of the data.
 - `checksum::Bool=false`: set the DATASUM and CHECKSUM keywords to the checksums of the data and of the HDU
   (Sect. 4.4.2.7 of the standard), which replace the keywords of the header, if it has them
 """
+#  The data of an HDU that are not read, which are copied as they are from the file that they are read from, since the header describes them:
+#  the bytes are those of the file, and the fill after them is that of the type of HDU. The format of the header must be that of the data that
+#  were read, so that the data have the same type and size.
+function Base.write(io::IO, ::Type{T}, data::LazyArray, format::DataFormat, fields; kwds...) where T<:AbstractHDU
+	format == data.format || throw(ArgumentError("The header of the HDU has a data format that is not that of the data of the file " *
+		"that were not read, which are copied as they are: the header has the type $(format.type), the shape $(format.shape), the " *
+		"parameters $(format.param), and the groups $(format.group), and the data have the type $(data.format.type), the shape " *
+		"$(data.format.shape), the parameters $(data.format.param), and the groups $(data.format.group). Read the data (`hdu.data`) " *
+		"to change them."))
+	nbytes = sizeof(format.type)*format.leng
+	src = openlazy(data)
+	try
+		nbytes > unreadbytes(src) && throw(ArgumentError("The data of the HDU are $nbytes bytes, as its header says, but the file has " *
+			"only $(unreadbytes(src)) of them."))
+		copybytes(io, src, nbytes)
+	finally
+		close(src)
+	end
+	padblock(io, format, fillrule(T)[1])
+end
+
 function Base.write(io::IO, hdu::HDU{<:AbstractHDU}; checksum::Bool = false, kwds...)
 
 	cards = getfield(hdu, :cards)

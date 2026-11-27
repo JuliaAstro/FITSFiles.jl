@@ -87,6 +87,11 @@ The special records after the last HDU (Sect. 3.5) are not read, with a warning.
 
 The default data structure for Random and Bintable HDUs is a named tuple of arrays.
 
+The data of the HDUs of a file are not read until they are accessed (`hdu.data`), so that a file is scanned quickly, e.g., to
+[`info`](@ref) its HDUs, and `size(hdu)` is the size of the data from the header. They are read from the file each time they are accessed,
+so the file must not have been modified since it was read, which is an `ArgumentError`, and an HDU that is written is written with the data
+as they are in the file (see [`Base.write(io::IO, hdu::HDU)`](@ref)).
+
 # Keywords
 
 - `checksum::Bool=false`: verify the DATASUM and CHECKSUM keywords of each HDU, with a warning if a sum is not the sum
@@ -126,7 +131,8 @@ end
 
 Write a vector of header-data units (HDUs), of any type of HDU, e.g., the `Vector{HDU{Primary}}` of `[HDU(data, cards)]`, to a file, with a
 warning if the first HDU is not a primary HDU or a later one is (Sect. 3.1 of the standard). The keyword `checksum::Bool=false` sets the
-DATASUM and CHECKSUM keywords of each HDU (see [`Base.write(io::IO, hdu::HDU)`](@ref)).
+DATASUM and CHECKSUM keywords of each HDU (see [`Base.write(io::IO, hdu::HDU)`](@ref)). The data of the HDUs of a file that are not read are
+copied from the file, so the vector is not written to that file, which is an `ArgumentError` that leaves the file as it is.
 """
 function Base.write(io::IO, hdus::AbstractVector{<:HDU}; kwds...)
     for (j, hdu) in enumerate(hdus)
@@ -141,6 +147,12 @@ Base.write(io::IO, hdus::Vector{<:HDU}; kwds...) = invoke(write, Tuple{IO, Abstr
 Base.write(io::IO, hdus::SubArray{<:HDU, 1}; kwds...) = invoke(write, Tuple{IO, AbstractVector{<:HDU}}, io, hdus; kwds...)
 
 function Base.write(file::AbstractString, hdus::AbstractVector{<:HDU}; kwds...)
+    #  The data that are not read are read from their file when they are written, which opening the file for writing empties
+    for (j, hdu) in enumerate(hdus)
+        data = getfield(hdu, :data)
+        data isa LazyArray && isfile(file) && isfile(data.filnam) && samefile(file, data.filnam) && throw(ArgumentError(
+            "The data of HDU $j are not read, and are read from $(data.filnam), which opening it for writing empties. Write to another file."))
+    end
     io = open(file, write=true)
     write(io, hdus; kwds...)
     close(io)

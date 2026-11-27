@@ -229,4 +229,113 @@
         @test haskey(file, Image) && file["SCI"].data == data && file[Image].data == data
     end
 
+    ####    Test the data that are not read, which a file is scanned for, and are copied as they are when they are written    ####
+
+    @testset "lazy data" begin
+        dir = mktempdir()
+        primary, image = HDU(Primary, Int16[1 2 3; 4 5 6]), HDU(Image, Float32[1.5 2.5; -1 7])
+        table = HDU(Table, (a = [1, 22], b = [2.5, -3.25], c = ["xy", "z"]), Card{<:Any}[Card("EXTNAME", "CAT")])
+        bintable = HDU(Bintable, (a = Int32[1, 2, 3], b = [1.5, 2.5, 3.5], c = ["x", "yy", "zzz"], v = [[1.0], [2.0, 3.0], Float64[]]))
+        groups = HDU(Random, (a = Int16[1, 3], data = Int16[10 11 12; 20 21 22]))
+        islazy(hdu) = getfield(hdu, :data) isa FITSFiles.LazyArray
+        bytesof(hdus; kwds...) = (io = IOBuffer(); write(io, hdus; kwds...); take!(io))
+        newfile(name, hdus) = (path = joinpath(dir, name); write(path, hdus); path)
+
+        #  the data of the HDUs of a file are not read, and are written as they are in the file, whatever the type of HDU is
+        for (name, hdus) in (("a.fits", [primary, image, table, bintable]), ("b.fits", [groups]), ("c.fits", [HDU(Primary), table]))
+            path = newfile(name, hdus)
+            lazy = fits(path)
+            @test count(islazy, lazy) == count(hdu -> !ismissing(getfield(hdu, :data)), lazy) && any(islazy, lazy)
+            original = read(path)
+            @test bytesof(lazy) == original
+            other = joinpath(dir, "copy_" * name)
+            write(other, lazy)
+            @test read(other) == original
+            #  the data are the data that were written, and are not changed by being written
+            @test fits(other)[end].data == fits(IOBuffer(original))[end].data
+            #  the checksums are those of the data that are read
+            eager = fits(IOBuffer(original))
+            @test bytesof(lazy; checksum = true) == bytesof(eager; checksum = true)
+        end
+
+        #  the HDUs of a file are scanned without reading their data, and the size is that of the header
+        path = newfile("d.fits", [primary, HDU(Image, reshape(Float32[1:6;], 3, 2))])
+        lazy = fits(path)
+        @test islazy(lazy[2]) && size(lazy[2]) == (3, 2)
+        #  the fill after the data is that of the type of HDU, whatever the fill of the file is, with a warning that the fill is not
+        for (hdus, fill) in (([primary], 0x00), ([HDU(Primary), table], 0x20))
+            path = newfile("e.fits", hdus)
+            bytes = read(path)
+            correct = copy(bytes)
+            bytes[end] = 0x55
+            write(path, bytes)
+            lazy = @test_logs (:warn, r"The fill of the last data block of the HDU is not all") fits(path)
+            @test bytesof(lazy) == correct && bytesof(lazy)[end] == fill
+        end
+
+        #  the header may be changed, but not the size and the type of the data
+        path = newfile("f.fits", [HDU(Primary), table])
+        lazy = fits(path)
+        cards = copy(getfield(lazy[2], :cards))
+        push!(cards, Card("OBJECT", "changed"))
+        changed = HDU{Table}(cards, getfield(lazy[2], :data))
+        again = fits(IOBuffer(bytesof([lazy[1], changed])))
+        @test again[2].cards["OBJECT"] == "changed" && again[2].data == fits(path)[2].data
+        for (key, value) in ("NAXIS2" => 1, "NAXIS1" => 40)
+            cards = copy(getfield(lazy[2], :cards))
+            cards[key] = value
+            @test_throws ArgumentError r"The header of the HDU has a data format that is not that of the data of the file that were not read" bytesof(
+                [lazy[1], HDU{Table}(cards, getfield(lazy[2], :data))])
+        end
+
+        #  the file must not have been modified since it was read, which is an error, and the data of a file that does not exist are not read
+        path = newfile("g.fits", [primary, image])
+        lazy = fits(path)
+        sleep(0.05)
+        touch(path)
+        @test_throws ArgumentError r"has been modified since the HDU was read, so the data are not those that the header describes" bytesof(lazy)
+        @test_throws ArgumentError r"has been modified since the HDU was read" lazy[2].data
+        @test_throws ArgumentError r"has been modified since the HDU was read" write(joinpath(dir, "h.fits"), lazy)
+        rm(path)
+        @test_throws ArgumentError r"which the data of the HDU are read from, does not exist" bytesof(lazy)
+        @test_throws ArgumentError r"does not exist" lazy[2].data
+        #  the HDU that has no lazy data is written, and so is a file that has no data
+        @test bytesof([HDU(Primary)]) == bytesof(fits(IOBuffer(bytesof([HDU(Primary)]))))
+
+        #  a vector of HDUs is not written to the file that the data are read from, which opening for writing would empty, and the file is as it was
+        path = newfile("i.fits", [primary, image, table])
+        original = read(path)
+        lazy = fits(path)
+        @test_throws ArgumentError r"The data of HDU 1 are not read, and are read from .*i\.fits, which opening it for writing empties\. Write to another file\." write(path, lazy)
+        @test_throws ArgumentError r"The data of HDU 2 are not read" write(path, [HDU(Primary), lazy[2]])
+        @test read(path) == original && bytesof(fits(path)) == original
+        #  but is to another file, and the file is written with the HDUs that have no lazy data, which modifies the file that the data of the others
+        #  are read from
+        other = joinpath(dir, "j.fits")
+        write(other, lazy)
+        @test read(other) == original
+        write(path, [primary, image])
+        @test fits(path)[2].data == image.data
+        @test_throws ArgumentError r"has been modified since the HDU was read" bytesof(lazy)
+
+        #  the data that are not in the file are an error, which says how many bytes the file has
+        path = newfile("k.fits", [HDU(Primary, zeros(Int16, 1000))])
+        open(path, "r+") do io
+            truncate(io, 2880 + 500)
+        end
+        lazy = fits(path)
+        @test_throws ArgumentError r"The data of the HDU are 2000 bytes, as its header says, but the file has only 500 of them" bytesof(lazy)
+
+        #  the file is found when the directory is changed, since the name of the file is its absolute path
+        path = newfile("l.fits", [primary, image])
+        original = read(path)
+        lazy = cd(() -> fits("l.fits"), dir)
+        @test bytesof(lazy) == original && lazy[2].data == image.data
+
+        #  the files of the sample data are written as they are
+        sample = joinpath(@__DIR__, "data", "int32_large.fits")
+        @test bytesof(fits(sample)) == bytesof(fits(IOBuffer(read(sample))))
+        @test bytesof(fits(sample)) == read(sample)
+    end
+
 end
