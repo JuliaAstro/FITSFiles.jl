@@ -189,8 +189,15 @@ Base.write(io::IO, ::Type{Bintable}, data::Missing, format::DataFormat, fields::
 #  elements has no storage, and its offset is 0 (Sect. 7.3.5).
 function writearray(io::IO, heap::IOBuffer, field::BinaryField, cell; check::Bool = true)
     type = field.type
-    type <: Union{AbstractString, BitVector} && throw(ArgumentError("The variable-length array of field $(field.name) has " *
-        "elements of type $type, which are not written."))
+    #  The characters of a string are the bytes of the array, and the bits of a bit array are the bits of its bytes, whose number is the
+    #  length of the array, and the bits after the end of the array are zeros
+    if type <: Union{AbstractString, BitVector}
+        n = type <: AbstractString ? ncodeunits(cell) : length(cell)
+        write(io, hton(field.pntr(n)), hton(field.pntr(n == 0 ? 0 : position(heap))))
+        n == 0 && return
+        type <: AbstractString ? write(heap, codeunits(checkascii(cell))) : write(heap, BitVector, cell)
+        return
+    end
     values = cell isa AbstractArray ? reshape(cell, :) : [cell]
     values = storedcell(field, values; check, physical = cell isa ScaledArray ? (cell.scale, cell.zero) : nothing)
     n = length(values)
@@ -211,7 +218,7 @@ function verifydata(::Type{Bintable}, data::Union{NamedTuple, AbstractVector{<:N
     M, N = format.shape[1], format.shape[2]
     variable = [field for field in fields if !isnothing(field.pntr)]
     isempty(variable) && return
-    needed = sum(length(getcell(Bintable, data, field, j)) * heapelementsize(field.type) for j = 1:N for field in variable; init = 0)
+    needed = sum(heapbytes(field, getcell(Bintable, data, field, j)) for j = 1:N for field in variable; init = 0)
     available = format.param - max(format.heap - M*N, 0)
     needed > available && throw(ArgumentError("The variable-length arrays of the data have $needed bytes, but PCOUNT " *
         "$(format.param) and THEAP $(format.heap) leave $available bytes for the heap (Sect. 7.3.5)."))
@@ -447,8 +454,13 @@ offsetof(type::Type) = haskey(RAWTYPE, type) ? OFFSETTYPE[RAWTYPE[type]][2] : 0.
 columnsof(data::AbstractArray) = [(record[j] for record in data) for j = 1:length(data[1])]
 columnsof(data::Union{Tuple, NamedTuple}) = [data[j] for j = 1:length(data)]
 
-#  The number of bytes of a value of an array in the heap
-heapelementsize(type::Type) = type <: Bool ? 1 : sizeof(type)
+#  The number of bytes of a value of an array in the heap, which is a byte for a character
+heapelementsize(type::Type) = type <: Union{Bool, AbstractString} ? 1 : sizeof(type)
+
+#  The number of bytes of the variable-length array `cell` of a field in the heap: the characters of a string, the bits of a bit array
+#  in whole bytes, or the elements of an array
+heapbytes(field::BinaryField, cell) = field.type <: AbstractString ? ncodeunits(cell) :
+    field.type <: BitVector ? sizeofbitvector(length(cell)) : length(cell) * heapelementsize(field.type)
 
 #  The type, the number of elements, the bytes in a row, the type of the array descriptor, the largest number of elements of a
 #  variable-length array, and the bytes of the heap of a field from the cells `values` of its column. The cells that are arrays of

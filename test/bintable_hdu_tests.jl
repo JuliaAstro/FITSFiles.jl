@@ -1738,4 +1738,50 @@
         bytes = tablebytes(["TFORM1  = 'I       '"], 2, 0, UInt8[])
         @test length(bytes) == 2880 && written(read(IOBuffer(bytes), HDU)) == bytes
     end
+
+    ####    Test the variable-length arrays of characters and bits (Sect. 7.3.5)    ####
+
+    @testset "variable-length strings and bits" begin
+        written(hdu) = (io = IOBuffer(); write(io, hdu); take!(io))
+        be(type, values) = collect(reinterpret(UInt8, hton.(type.(values))))
+        card(s) = rpad(s, 80)
+        function tablebytes(cards, naxis2, pcount, data)
+            header = vcat(["XTENSION= 'BINTABLE'", "BITPIX  =                    8", "NAXIS   =                    2",
+                "NAXIS1  =                    8", "NAXIS2  = " * lpad(naxis2, 20), "PCOUNT  = " * lpad(pcount, 20),
+                "GCOUNT  =                    1", "TFIELDS =                    1"], cards, ["END"])
+            vcat(collect(codeunits(rpad(join(card.(header)), 2880 * cld(80 * length(header), 2880)))),
+                data, zeros(UInt8, mod(-length(data), 2880)))
+        end
+
+        #  an array of characters is a string, whose characters are the bytes of the heap, and its length is the number of characters
+        bytes = tablebytes(["TFORM1  = '1PA(4)  '"], 3, 7, vcat(be(Int32, [3, 0, 4, 3, 0, 0]), collect(codeunits("abcdefg"))))
+        hdu = read(IOBuffer(bytes), HDU)
+        @test hdu.data.column1 == ["abc", "defg", ""] && written(hdu) == bytes
+        @test [r.column1 for r in read(IOBuffer(bytes), HDU; record = true).data] == ["abc", "defg", ""]
+        #  a string that is changed is written with its length, and the heap of the header has room for the strings that are not longer
+        hdu.data.column1[2] = "de"
+        @test read(IOBuffer(written(hdu)), HDU).data.column1 == ["abc", "de", ""]
+        hdu.data.column1[3] = "wxyz"
+        @test_throws ArgumentError written(hdu)
+        #  and a string that has other characters than ASCII is an error
+        longer = read(IOBuffer(bytes), HDU)
+        longer.data.column1[1] = "é"
+        @test_throws ArgumentError written(longer)
+
+        #  an array of bits has the number of bits as its length, whose bytes are in order from the most significant bit, and the bits
+        #  after the end are zeros
+        bytes = tablebytes(["TFORM1  = '1PX(16) '"], 2, 3, vcat(be(Int32, [9, 0, 7, 2]), UInt8[0xff, 0x80, 0b01010100]))
+        hdu = read(IOBuffer(bytes), HDU)
+        @test hdu.data.column1 == [BitVector(ones(Bool, 9)), BitVector([0, 1, 0, 1, 0, 1, 0])] && written(hdu) == bytes
+        @test read(IOBuffer(bytes), HDU; record = true).data[2].column1 == BitVector([0, 1, 0, 1, 0, 1, 0])
+        #  an array of bits that is longer than the heap has is an error
+        hdu.data.column1[1] = BitVector(ones(Bool, 40))
+        @test_throws ArgumentError written(hdu)
+
+        #  the bytes of the arrays of the heap
+        field(type) = FITSFiles.BinaryField("a", Int32, type, 1:8, 1, "", "", "", nothing, nothing, nothing, nothing, nothing, nothing, nothing, nothing)
+        @test FITSFiles.heapbytes(field(String), "abc") == 3 && FITSFiles.heapbytes(field(BitVector), BitVector(ones(Bool, 9))) == 2
+        @test FITSFiles.heapbytes(field(Int16), Int16[1, 2, 3]) == 6 && FITSFiles.heapbytes(field(Bool), [true, false]) == 2
+        @test FITSFiles.heapbytes(field(BitVector), BitVector()) == 0
+    end
 end
