@@ -1549,4 +1549,39 @@
         hdu = @test_logs (:warn, r"TTYPE2") (:warn, r"TTYPE3") read(IOBuffer(tablebytes(cards3, 6, data)), HDU)
         @test length(unique(keys(hdu.data))) == 3 && values(hdu.data) == (Int16[1], Int16[2], Int16[3])
     end
+
+    ####    Test the arrays of strings (Sect. 7.3.2)    ####
+
+    @testset "arrays of strings" begin
+        written(hdu) = (io = IOBuffer(); write(io, hdu); take!(io))
+        reread(hdu; kwds...) = read(IOBuffer(written(hdu)), HDU; kwds...)
+        card(s) = rpad(s, 80)
+
+        #  a column of arrays of strings has the number of bytes of the longest string as the first dimension of TDIMn
+        hdu = HDU(Bintable, (s = ["ab" "cd" "ef"; "gh" "ij" "kl"],))
+        @test hdu.cards["TFORM1"] == "6A" && hdu.cards["TDIM1"] == "(2,3)" && hdu.cards["NAXIS1"] == 6 && hdu.cards["NAXIS2"] == 2
+        again = reread(hdu)
+        @test again.data.s == ["ab" "cd" "ef"; "gh" "ij" "kl"] && written(again) == written(hdu)
+        @test reread(hdu; record = true).data[2].s == ["gh", "ij", "kl"]
+        #  the cells that are arrays of strings, whose strings are filled with spaces to the longest
+        for hdu in (HDU(Bintable, [(s = ["a", "bcd"],), (s = ["ef", "g"],)]), HDU(Bintable, (s = [["a", "bcd"], ["ef", "g"]],)))
+            @test hdu.cards["TFORM1"] == "6A" && hdu.cards["TDIM1"] == "(3,2)"
+            @test reread(hdu).data.s == ["a" "bcd"; "ef" "g"]
+            @test [r.s for r in reread(hdu; record = true).data] == [["a", "bcd"], ["ef", "g"]]
+        end
+        #  the strings of an array have the same size, and a string that is longer than the field is an error
+        @test_throws ArgumentError HDU(Bintable, [(s = ["a", "b"],), (s = ["c"],)])
+        hdu = HDU(Bintable, (s = ["ab" "cd"; "ef" "gh"],))
+        hdu.data.s[1, 1] = "abc"
+        @test_throws ArgumentError("The string \"abc\" has 3 bytes, but the field has 2 (Sect. 7.3.3.1).") written(hdu)
+
+        #  a file of strings is written as it was read, and the strings that do not fill the field are filled with spaces
+        header = ["XTENSION= 'BINTABLE'", "BITPIX  =                    8", "NAXIS   =                    2", "NAXIS1  =                    8",
+            "NAXIS2  =                    1", "PCOUNT  =                    0", "GCOUNT  =                    1", "TFIELDS =                    1",
+            "TFORM1  = '8A      '", "TDIM1   = '(2,3)   '", "END"]
+        bytes = vcat(collect(codeunits(rpad(join(card.(header)), 2880))), collect(codeunits("ab  cd  ")), zeros(UInt8, 2880 - 8))
+        hdu = read(IOBuffer(bytes), HDU)
+        @test hdu.data.column1 == ["ab" "" "cd"]
+        @test written(hdu) == bytes
+    end
 end

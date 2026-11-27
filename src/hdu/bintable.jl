@@ -451,12 +451,25 @@ function columndescriptor(values)
     #  A column of two or more dimensions has the values of a row in its second and later dimensions, which are the dimensions TDIMn
     #  of an array of the field that has more than one (Sect. 7.3.2)
     if values isa AbstractArray && ndims(values) >= 2
+        #  The strings of an array of strings have the number of bytes of the longest as their first dimension (Sect. 7.3.2)
+        if nonmissingtype(eltype(values)) <: AbstractString
+            width = maximum(ncodeunits, values; init = 0)
+            shape = size(values)[2:end]
+            return (String, width*prod(shape), width*prod(shape), nothing, "", 0, (width, shape...))
+        end
         type = nonmissingtype(eltype(values))
         shape = size(values)[2:end]
         leng = prod(shape)
         return (type, leng, leng*heapelementsize(type), nothing, "", 0, length(shape) > 1 ? shape : nothing)
     end
     value = fieldvalue(values)
+    if value isa AbstractArray && nonmissingtype(eltype(value)) <: AbstractString
+        cells = [cell for cell in values if !ismissing(cell)]
+        all(cell -> size(cell) == size(value), cells) || throw(ArgumentError("The arrays of strings of a field have " *
+            "different sizes, but the arrays of strings of a binary table have the same size (Sect. 7.3.2)."))
+        width = maximum(ncodeunits(string) for cell in cells for string in cell; init = 0)
+        return (String, width*length(value), width*length(value), nothing, "", 0, (width, size(value)...))
+    end
     if value isa AbstractArray && !(value isa BitVector)
         lengths = [length(cell) for cell in values if !ismissing(cell)]
         if !isempty(lengths) && !all(==(first(lengths)), lengths)
@@ -749,7 +762,16 @@ function Base.write(io::IO, field::BinaryField, value::U; check::Bool = true, kw
     #  floating-point data
     value = unsetmissing(storedcell(field, value; check), field.null, type)
 
-    if type <: AbstractString
+    if type <: AbstractString && value isa AbstractArray
+        #  The strings of an array of strings are the characters of the field in order, with the number of characters of the first
+        #  dimension of TDIMn (Sect. 7.3.2)
+        dims = stringdims(field)
+        isnothing(dims) && throw(ArgumentError("The array of strings of field $(field.name) needs the dimensions of TDIM, " *
+            "whose first dimension is the number of characters of a string (Sect. 7.3.2)."))
+        bytes = reduce(vcat, [padstring(string, dims[1]) for string in value]; init = UInt8[])
+        length(bytes) > leng && throw(ArgumentError("The strings of field $(field.name) have $(length(bytes)) bytes, but the field has $leng."))
+        write(io, vcat(bytes, fill(UInt8(' '), leng - length(bytes))))
+    elseif type <: AbstractString
         write(io, padstring(value, field.leng))
     elseif type <: BitVector
         write(io, type, BitVector(padelements(value, leng, false)))
