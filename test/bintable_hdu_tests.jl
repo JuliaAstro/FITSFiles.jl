@@ -1448,4 +1448,203 @@
         @test ismissing(HDU(Bintable).data) && ismissing(reread(HDU(Bintable)).data)
         @test written(reread(HDU(Bintable))) == written(HDU(Bintable))
     end
+
+    ####    Test the bit arrays (Sect. 7.3.3.1)    ####
+
+    @testset "bit arrays" begin
+        #  the bits are in order from the most significant bit of the first byte, and the bits after the end are zeros
+        bits = BitVector([1, 0, 1, 1, 0, 0, 0, 0, 0, 1])
+        io = IOBuffer(); write(io, BitVector, bits)
+        @test take!(io) == UInt8[0b10110000, 0b01000000]
+        @test read(IOBuffer(UInt8[0b10110000, 0b01000000]), BitVector, 10) == bits
+        @test read(IOBuffer(UInt8[0b10110000, 0b01111111]), BitVector, 10) == bits
+        @test read(IOBuffer(UInt8[0xff]), BitVector, 3) == BitVector([1, 1, 1])
+        @test read(IOBuffer(UInt8[]), BitVector, 0) == BitVector()
+        io = IOBuffer(); write(io, BitVector, BitVector()); @test isempty(take!(io))
+        for n in (1, 7, 8, 9, 16, 17, 100)
+            value = BitVector(rand(Bool, n))
+            io = IOBuffer(); write(io, BitVector, value)
+            bytes = take!(io)
+            @test length(bytes) == cld(n, 8) && read(IOBuffer(bytes), BitVector, n) == value
+            @test all(j -> (bytes[(j-1) >> 3 + 1] >> (7 - (j-1) % 8)) & 1 == value[j], 1:n)
+        end
+
+        #  the bits of a field of a table, which are in order of the bytes of the file
+        written(hdu) = (io = IOBuffer(); write(io, hdu); take!(io))
+        hdu = HDU(Bintable, (b = [bits, falses(10)],))
+        @test hdu.cards["TFORM1"] == "10X" && hdu.cards["NAXIS1"] == 2
+        bytes = written(hdu)
+        @test bytes[2881:2884] == UInt8[0b10110000, 0b01000000, 0, 0]
+        @test read(IOBuffer(bytes), HDU).data.b == [bits, falses(10)]
+        #  the bit arrays of different lengths have the length of the longest, and the bits after the end are zeros
+        hdu = HDU(Bintable, (b = [BitVector([1, 0, 0, 0, 0, 0, 0, 1, 1]), BitVector([0, 1])],))
+        @test hdu.cards["TFORM1"] == "9X"
+        @test read(IOBuffer(written(hdu)), HDU).data.b == [BitVector([1, 0, 0, 0, 0, 0, 0, 1, 1]), BitVector([0, 1, 0, 0, 0, 0, 0, 0, 0])]
+    end
+
+    ####    Test the width of the fields that are written (Sect. 7.3.1)    ####
+
+    @testset "width of fields" begin
+        written(hdu) = (io = IOBuffer(); write(io, hdu); take!(io))
+        card(s) = rpad(s, 80)
+        function tablebytes(cards, naxis1, naxis2, data)
+            header = vcat(["XTENSION= 'BINTABLE'", "BITPIX  =                    8", "NAXIS   =                    2",
+                "NAXIS1  = " * lpad(naxis1, 20), "NAXIS2  = " * lpad(naxis2, 20), "PCOUNT  =                    0",
+                "GCOUNT  =                    1", "TFIELDS =                    1"], cards, ["END"])
+            vcat(collect(codeunits(rpad(join(card.(header)), 2880 * cld(80 * length(header), 2880)))),
+                data, zeros(UInt8, mod(-length(data), 2880)))
+        end
+
+        #  the elements of the field that TDIMn does not use are written as zeros, so the rows have the same bytes
+        data = collect(reinterpret(UInt8, hton.(Int16[1, 2, 3, 4, 5, 6, 7, 8])))
+        bytes = tablebytes(["TFORM1  = '4I      '", "TDIM1   = '(3,1)   '"], 8, 2, data)
+        hdu = read(IOBuffer(bytes), HDU)
+        @test size(hdu.data.column1) == (2, 3, 1)
+        again = written(hdu)
+        @test length(again) == length(bytes) && again[2881:2880 + 16] == collect(reinterpret(UInt8, hton.(Int16[1, 2, 3, 0, 5, 6, 7, 0])))
+        @test read(IOBuffer(again), HDU).data.column1 == hdu.data.column1
+        #  the same for the bits, the logical values, and the array of a record
+        for (form, dim, nbytes, unused) in (("10X", "(3,1)", 2, UInt8[0]), ("5L", "(2,2)", 5, UInt8[0]))
+            data = form == "10X" ? UInt8[0xff, 0xff, 0xff, 0xff] : collect(codeunits("TFTFTFTFTF"))
+            hdu = read(IOBuffer(tablebytes(["TFORM1  = '$form'", "TDIM1   = '$dim'"], nbytes, 2, data)), HDU)
+            again = written(hdu)
+            @test length(again) == 5760 && read(IOBuffer(again), HDU).data.column1 == hdu.data.column1
+        end
+        bytes = written(HDU(Bintable, (b = [BitVector([1, 0, 0, 0, 0, 0, 0, 1, 1]), BitVector([0, 1])], n = Int16[5, 6])))
+        @test bytes[2881:2888] == UInt8[0b10000001, 0b10000000, 0, 5, 0b01000000, 0, 0, 6]
+
+        #  an array that has more elements than the field has is an error, since it would shift the fields after it
+        hdu = HDU(Bintable, (a = [Int16[1, 2, 3], Int16[4, 5, 6]], n = Int16[7, 8]))
+        hdu.data.a[2] = Int16[1, 2, 3, 4]
+        @test_throws ArgumentError("The array of field a has 4 elements, but the field has 3 (Sect. 7.3.1).") written(hdu)
+        hdu.data.a[2] = Int16[1, 2]
+        @test read(IOBuffer(written(hdu)), HDU).data.n == Int16[7, 8]
+    end
+
+    ####    Test the names of the fields (Sect. 7.3.2)    ####
+
+    @testset "names of fields" begin
+        written(hdu) = (io = IOBuffer(); write(io, hdu); take!(io))
+        card(s) = rpad(s, 80)
+        kw(key, value) = key * repeat(" ", 8 - length(key)) * "= " * (value isa AbstractString ? "'" * rpad(value, 8) * "'" : lpad(value, 20))
+        function tablebytes(cards, naxis1, data)
+            header = vcat(["XTENSION= 'BINTABLE'", kw("BITPIX", 8), kw("NAXIS", 2), kw("NAXIS1", naxis1), kw("NAXIS2", 1),
+                kw("PCOUNT", 0), kw("GCOUNT", 1), kw("TFIELDS", length(cards) ÷ 2)], cards, ["END"])
+            vcat(collect(codeunits(rpad(join(card.(header)), 2880 * cld(80 * length(header), 2880)))),
+                data, zeros(UInt8, mod(-length(data), 2880)))
+        end
+        data = collect(reinterpret(UInt8, hton.(Int16[1, 2, 3])))
+
+        #  fields that have the same name are different columns, which the data name by their positions, and an empty name is the default
+        cards = [kw("TFORM1", "I"), kw("TTYPE1", "A"), kw("TFORM2", "I"), kw("TTYPE2", "A"), kw("TFORM3", "I"), kw("TTYPE3", "")]
+        bytes = tablebytes(cards[[1, 2, 3, 4, 5, 6]], 6, data)
+        hdu = @test_logs (:warn, r"TTYPE2 and TTYPE1 have the same name, \"A\", without regard to the case.* named A_2") read(IOBuffer(bytes), HDU)
+        @test keys(hdu.data) == (:A, :A_2, :column3) && values(hdu.data) == (Int16[1], Int16[2], Int16[3])
+        records = read(IOBuffer(bytes), HDU; record = true).data
+        @test keys(records[1]) == (:A, :A_2, :column3) && values(records[1]) == (1, 2, 3)
+        #  the columns are written as they were read
+        @test written(hdu) == bytes[1:end]
+        #  a name that is a repeat of a repeat
+        cards3 = [kw("TFORM1", "I"), kw("TTYPE1", "A_2"), kw("TFORM2", "I"), kw("TTYPE2", "A_2"), kw("TFORM3", "I"), kw("TTYPE3", "A_2")]
+        hdu = @test_logs (:warn, r"TTYPE2") (:warn, r"TTYPE3") read(IOBuffer(tablebytes(cards3, 6, data)), HDU)
+        @test length(unique(keys(hdu.data))) == 3 && values(hdu.data) == (Int16[1], Int16[2], Int16[3])
+    end
+
+    ####    Test the arrays of strings (Sect. 7.3.2)    ####
+
+    @testset "arrays of strings" begin
+        written(hdu) = (io = IOBuffer(); write(io, hdu); take!(io))
+        reread(hdu; kwds...) = read(IOBuffer(written(hdu)), HDU; kwds...)
+        card(s) = rpad(s, 80)
+
+        #  a column of arrays of strings has the number of bytes of the longest string as the first dimension of TDIMn
+        hdu = HDU(Bintable, (s = ["ab" "cd" "ef"; "gh" "ij" "kl"],))
+        @test hdu.cards["TFORM1"] == "6A" && hdu.cards["TDIM1"] == "(2,3)" && hdu.cards["NAXIS1"] == 6 && hdu.cards["NAXIS2"] == 2
+        again = reread(hdu)
+        @test again.data.s == ["ab" "cd" "ef"; "gh" "ij" "kl"] && written(again) == written(hdu)
+        @test reread(hdu; record = true).data[2].s == ["gh", "ij", "kl"]
+        #  the cells that are arrays of strings, whose strings are filled with spaces to the longest
+        for hdu in (HDU(Bintable, [(s = ["a", "bcd"],), (s = ["ef", "g"],)]), HDU(Bintable, (s = [["a", "bcd"], ["ef", "g"]],)))
+            @test hdu.cards["TFORM1"] == "6A" && hdu.cards["TDIM1"] == "(3,2)"
+            @test reread(hdu).data.s == ["a" "bcd"; "ef" "g"]
+            @test [r.s for r in reread(hdu; record = true).data] == [["a", "bcd"], ["ef", "g"]]
+        end
+        #  the strings of an array have the same size, and a string that is longer than the field is an error
+        @test_throws ArgumentError HDU(Bintable, [(s = ["a", "b"],), (s = ["c"],)])
+        hdu = HDU(Bintable, (s = ["ab" "cd"; "ef" "gh"],))
+        hdu.data.s[1, 1] = "abc"
+        @test_throws ArgumentError("The string \"abc\" has 3 bytes, but the field has 2 (Sect. 7.3.3.1).") written(hdu)
+
+        #  a file of strings is written as it was read, and the strings that do not fill the field are filled with spaces
+        header = ["XTENSION= 'BINTABLE'", "BITPIX  =                    8", "NAXIS   =                    2", "NAXIS1  =                    8",
+            "NAXIS2  =                    1", "PCOUNT  =                    0", "GCOUNT  =                    1", "TFIELDS =                    1",
+            "TFORM1  = '8A      '", "TDIM1   = '(2,3)   '", "END"]
+        bytes = vcat(collect(codeunits(rpad(join(card.(header)), 2880))), collect(codeunits("ab  cd  ")), zeros(UInt8, 2880 - 8))
+        hdu = read(IOBuffer(bytes), HDU)
+        @test hdu.data.column1 == ["ab" "" "cd"]
+        @test written(hdu) == bytes
+    end
+
+    ####    Test the types of the fields (Sects. 7.3.3 and 7.3.3.1)    ####
+
+    @testset "types of fields" begin
+        #  the data of a type that Table 18 does not have are an error that names the types, whatever the shape of the data is
+        for data in (Float16[1, 2], [:a, :b], ['a', 'b'], Int128[1, 2], UInt128[1, 2], BigFloat[1, 2], Float16[1 2; 3 4],
+                     [Float16[1, 2], Float16[3]], [Int128[1, 2], Int128[3, 4]])
+            for hdu in (() -> HDU(Bintable, (u = data,)), () -> HDU(Bintable, [(u = x,) for x in data]))
+                err = try hdu() catch e e end
+                @test err isa ArgumentError && occursin("The data have the element type", err.msg)
+                @test err isa ArgumentError && occursin("Table 18", err.msg) && occursin("Table 19", err.msg) && occursin("UInt16", err.msg)
+            end
+        end
+        #  the types of Table 18 and the physical types of Table 19 are fields
+        for (type, tform) in ((UInt8, "B"), (Int16, "I"), (Int32, "J"), (Int64, "K"), (Float32, "E"), (Float64, "D"), (ComplexF32, "C"),
+                              (ComplexF64, "M"), (Bool, "L"), (Int8, "B"), (UInt16, "I"), (UInt32, "J"), (UInt64, "K"))
+            @test HDU(Bintable, (u = type[1, 0],)).cards["TFORM1"] == "1$tform"
+        end
+        @test HDU(Bintable, (u = ["ab"], b = [BitVector([1, 0])])).cards["TFORM1"] == "2A"
+
+        #  the characters of a field are ASCII text, so a string that has other characters is an error
+        for data in (["é"], ["abc", "naïve"], ["日本"])
+            err = try HDU(Bintable, (s = data,)) catch e e end
+            @test err isa ArgumentError && occursin("are not ASCII", err.msg) && occursin("Sect. 7.3.3.1", err.msg)
+            @test_throws ArgumentError HDU(Bintable, [(s = x,) for x in data])
+        end
+        @test FITSFiles.checkascii("abc ~") == "abc ~"
+        @test_throws ArgumentError FITSFiles.padstring("é", 4)
+    end
+
+    ####    Test the undefined complex values (Sect. 7.3.3.1)    ####
+
+    @testset "complex values" begin
+        written(hdu) = (io = IOBuffer(); write(io, hdu); take!(io))
+        reread(hdu; kwds...) = read(IOBuffer(written(hdu)), HDU; kwds...)
+        card(s) = rpad(s, 80)
+        #  a complex value that has a NaN in either part is undefined, as a whole
+        header = ["XTENSION= 'BINTABLE'", "BITPIX  =                    8", "NAXIS   =                    2", "NAXIS1  =                    8",
+            "NAXIS2  =                    4", "PCOUNT  =                    0", "GCOUNT  =                    1", "TFIELDS =                    1",
+            "TFORM1  = 'C       '", "END"]
+        values = Float32[1, 2, NaN, 3, 4, NaN, NaN, NaN]
+        bytes = vcat(collect(codeunits(rpad(join(card.(header)), 2880))), collect(reinterpret(UInt8, hton.(values))), zeros(UInt8, 2880 - 32))
+        column = read(IOBuffer(bytes), HDU).data.column1
+        @test isequal(column, Union{ComplexF32, Missing}[1 + 2im, missing, missing, missing])
+        @test eltype(column) == Union{ComplexF32, Missing}
+        #  a column that has no undefined values is not changed
+        @test eltype(reread(HDU(Bintable, (c = ComplexF32[1 + 2im, 3 - 1im],))).data.c) == ComplexF32
+        #  the undefined values are written as NaN, and are read as undefined, for the fields, the arrays, and the variable-length arrays
+        for data in ((c = Union{ComplexF32, Missing}[1 + 2im, missing, 3im],),
+                     (c = [Union{ComplexF64, Missing}[1im, missing], Union{ComplexF64, Missing}[3, 4]],),
+                     (c = [Union{ComplexF64, Missing}[1im, missing], Union{ComplexF64, Missing}[3, 4, 5]],))
+            hdu = HDU(Bintable, data)
+            again = reread(hdu)
+            @test isequal(again.data.c, reread(hdu).data.c) && written(again) == written(hdu)
+            @test count(ismissing, collect(Iterators.flatten(x isa AbstractArray ? x : [x] for x in again.data.c))) == 1
+        end
+        hdu = HDU(Bintable, (c = Union{ComplexF32, Missing}[1 + 2im, missing],))
+        @test isequal(reread(hdu).data.c, Union{ComplexF32, Missing}[1 + 2im, missing])
+        @test isequal(reread(hdu; record = true).data[2].c, missing)
+        #  the scale applies to the real part of the complex value, and an undefined value stays undefined
+        hdu = HDU(Bintable, (c = Union{ComplexF32, Missing}[1 + 2im, missing],), Card{<:Any}[Card("TSCAL1", 2.0f0), Card("TZERO1", 1.0f0)])
+        @test isequal(reread(hdu).data.c, Union{ComplexF32, Missing}[3 + 4im, missing])
+    end
 end

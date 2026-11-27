@@ -288,9 +288,9 @@ function FieldFormat(::Type{Bintable}, mankeys::DataFormat, reskeys::Dict{S, V},
 
     #   Add support TTYPEn and TUNITn in data arrays
     N = get(reskeys, "TFIELDS", 0)
-    k, fields = 0, Vector{BinaryField}(undef, N)
+    k, fields, names = 0, Vector{BinaryField}(undef, N), Set{String}()
     for j = 1:N
-        name  = stringkey(reskeys, "TTYPE$j", record ? "field$j" : "column$j")
+        name  = uniquename(stringkey(reskeys, "TTYPE$j", record ? "field$j" : "column$j"), record ? "field$j" : "column$j", names)
         form  = match(BINARYFMT, reskeys["TFORM$j"])
         pntr  = !isempty(form[:p]) ? POINTERTYPE[form[:p]] : nothing
         type  = BINARYTYPE[form[:t]]
@@ -325,6 +325,19 @@ function FieldFormat(::Type{Bintable}, mankeys::DataFormat, reskeys::Dict{S, V},
         k += byts
     end
     fields
+end
+
+#  The name of a field, which is the default if the name is empty, and which no other field has, since the columns of the data are named by
+#  the fields, and the columns of two fields that have the same name would be one. The position of the field follows the name of the
+#  field that is a repeat of another.
+function uniquename(name::AbstractString, default::AbstractString, names::Set{String})
+    name = isempty(name) ? default : String(name)
+    unique = name
+    while unique in names
+        unique = unique == name ? "$(name)_$(length(names) + 1)" : unique * "_"
+    end
+    push!(names, unique)
+    unique
 end
 
 #  The string of a keyword of a field without the spaces at its end, or the default if the header does not have it or it is not a string
@@ -390,10 +403,10 @@ function FieldFormat(::Type{Bintable}, mankey::DataFormat, reskeys::Dict{S, V},
 
     #   Add support TTYPEn and TUNITn in data arrays
     N = length(data)
-    k, fields = 0, Vector{BinaryField}(undef, N)
+    k, fields, names = 0, Vector{BinaryField}(undef, N), Set{String}()
     for j = 1:N
         name  = typeof(data) <: NamedTuple ? rstrip(String(keys(data)[j])) :
-            stringkey(reskeys, "TTYPE$j", "column$j")
+            uniquename(stringkey(reskeys, "TTYPE$j", "column$j"), "column$j", names)
         type, leng, byts, pntr, supp, _, shape = columndescriptor(data[j])
         type, offset = rawtype(type), offsetof(type)
         # unit_ = unit(data[j]) != NoUnits ? unit(data[j]) :
@@ -438,16 +451,29 @@ function columndescriptor(values)
     #  A column of two or more dimensions has the values of a row in its second and later dimensions, which are the dimensions TDIMn
     #  of an array of the field that has more than one (Sect. 7.3.2)
     if values isa AbstractArray && ndims(values) >= 2
-        type = nonmissingtype(eltype(values))
+        #  The strings of an array of strings have the number of bytes of the longest as their first dimension (Sect. 7.3.2)
+        if nonmissingtype(eltype(values)) <: AbstractString
+            width = maximum(ncodeunits, values; init = 0)
+            shape = size(values)[2:end]
+            return (String, width*prod(shape), width*prod(shape), nothing, "", 0, (width, shape...))
+        end
+        type = checkfieldtype(nonmissingtype(eltype(values)))
         shape = size(values)[2:end]
         leng = prod(shape)
         return (type, leng, leng*heapelementsize(type), nothing, "", 0, length(shape) > 1 ? shape : nothing)
     end
     value = fieldvalue(values)
+    if value isa AbstractArray && nonmissingtype(eltype(value)) <: AbstractString
+        cells = [cell for cell in values if !ismissing(cell)]
+        all(cell -> size(cell) == size(value), cells) || throw(ArgumentError("The arrays of strings of a field have " *
+            "different sizes, but the arrays of strings of a binary table have the same size (Sect. 7.3.2)."))
+        width = maximum(ncodeunits(string) for cell in cells for string in cell; init = 0)
+        return (String, width*length(value), width*length(value), nothing, "", 0, (width, size(value)...))
+    end
     if value isa AbstractArray && !(value isa BitVector)
         lengths = [length(cell) for cell in values if !ismissing(cell)]
         if !isempty(lengths) && !all(==(first(lengths)), lengths)
-            type = nonmissingtype(eltype(value))
+            type = checkfieldtype(nonmissingtype(eltype(value)))
             heap = sum(lengths) * heapelementsize(type)
             pntr = heap > typemax(Int32) ? Int64 : Int32
             return (type, 1, 2sizeof(pntr), pntr, string(maximum(lengths)), heap, nothing)
@@ -466,7 +492,7 @@ function heapformat(data, nrows::Integer)
     DataFormat(BITS2TYPE[8], prod(shape) + param, shape, param, 1, prod(shape))
 end
 
-sizeofbitvector(v::BitVector)::Integer = (length(v)-1)÷8 + 1
+sizeofbitvector(v::BitVector)::Integer = sizeofbitvector(length(v))
 
 #  The first value that is not missing, which gives the type of a field whose first values may be
 #  undefined; a column with no defined value has the zero of its element type.
@@ -483,13 +509,17 @@ function definedvalue(values)
 end
 
 #  The value that gives the type and the size of a field from the values of its column: the first value that is not missing, and the
-#  longest string of a column of strings, whose width is the number of bytes of the longest (Sect. 7.3.3.1)
+#  longest string of a column of strings, whose width is the number of bytes of the longest (Sect. 7.3.3.1), or the longest bit array
 function fieldvalue(values)
     value = definedvalue(values)
-    value isa AbstractString || return value
+    value isa Union{AbstractString, BitVector} || return value
+    size(x) = x isa AbstractString ? ncodeunits(x) : length(x)
     for other in values
-        !ismissing(other) && ncodeunits(other) > ncodeunits(value) && (value = other)
+        ismissing(other) && continue
+        other isa AbstractString && checkascii(other)
+        size(other) > size(value) && (value = other)
     end
+    value isa AbstractString && checkascii(value)
     value
 end
 
@@ -504,12 +534,22 @@ function fielddescriptor(field)
         byts = sizeofbitvector(leng)
     elseif typeof(field) <: AbstractArray
         type, leng = nonmissingtype(eltype(field)), length(field)
+        checkfieldtype(type)
         byts = leng*sizeof(type)
     else
         type, leng = typeof(field), 1
+        checkfieldtype(type)
         byts = leng*sizeof(type)
     end
     (type, leng, byts)
+end
+
+#  The element types of a field are the types of Table 18 of the data types, and the physical types of Table 19 (Sect. 7.3.3)
+function checkfieldtype(type::Type)
+    haskey(BINARYTYPE, rawtype(type)) && return type
+    throw(ArgumentError("The data have the element type $type, but the data of a field of a binary table have one of the types " *
+        "of Table 18: Bool (L), BitVector (X), UInt8 (B), Int16 (I), Int32 (J), Int64 (K), String (A), Float32 (E), Float64 (D), " *
+        "ComplexF32 (C), or ComplexF64 (M), or the physical types of Table 19: Int8, UInt16, UInt32, or UInt64 (Sect. 7.3.3)."))
 end
 
 function createcards!(::Type{Bintable}, format::DataFormat,
@@ -642,7 +682,7 @@ function Base.read(io::IO, field::BinaryField, format::DataFormat,
             seek(io, begpos + L*(j-1) + M)
             column[j] = ntoh(read(io, type))
         end
-        column = setmissing(column, field.null)
+        column = nullcomplex(setmissing(column, field.null))
         column = scale ? physical(column, type, field.scale, field.zero) : column
     else
         column = Array{type}(undef, (N, leng))
@@ -650,7 +690,7 @@ function Base.read(io::IO, field::BinaryField, format::DataFormat,
             seek(io, begpos + L*(j-1) + M)
             column[j,:] .= ntoh.([read(io, type) for k=1:leng])
         end
-        column = setmissing(column, field.null)
+        column = nullcomplex(setmissing(column, field.null))
         column = scale ? physical(column, type, field.scale, field.zero) : column
     end
     applydims(column, field)
@@ -706,7 +746,7 @@ function readarray(io::IO, field::BinaryField, heap::Integer, K::Integer, beg::I
     else
         values = Vector{type}(undef, K)
         read!(io, values)
-        setmissing(ntoh.(values), field.null)
+        nullcomplex(setmissing(ntoh.(values), field.null))
     end
 end
 
@@ -723,24 +763,48 @@ function Base.write(io::IO, field::BinaryField, value::U; check::Bool = true, kw
     U <: Union{AbstractArray, AbstractString, BitVector, Real, Complex, Missing}
 
     type, leng = field.type, field.leng
+    #  The elements of an array are written, and the elements of the field that follow them, which are the elements that TDIMn does not
+    #  use, are zeros, so that the field has its bytes in every row. An array that has more elements than the field has would shift the
+    #  fields after it.
+    n = value isa AbstractArray ? length(value) : 1
+    type <: AbstractString || n <= leng || throw(ArgumentError("The array of field $(field.name) has $n elements, " *
+        "but the field has $leng (Sect. 7.3.1)."))
     #  A logical value is written as T or F, and an undefined value as a 0 byte (Sect. 7.3.3.1)
-    type <: Bool && return leng == 0 ? 0 : write(io, encodelogical.(value))
+    type <: Bool && return leng == 0 ? 0 : write(io, padelements(encodelogical.(value), leng, 0x00))
     #  The stored values of the physical values, and the undefined values, which are written as TNULLn (Sect. 7.3.2), or NaN for
     #  floating-point data
     value = unsetmissing(storedcell(field, value; check), field.null, type)
 
-    if type <: AbstractString
+    if type <: AbstractString && value isa AbstractArray
+        #  The strings of an array of strings are the characters of the field in order, with the number of characters of the first
+        #  dimension of TDIMn (Sect. 7.3.2)
+        dims = stringdims(field)
+        isnothing(dims) && throw(ArgumentError("The array of strings of field $(field.name) needs the dimensions of TDIM, " *
+            "whose first dimension is the number of characters of a string (Sect. 7.3.2)."))
+        bytes = reduce(vcat, [padstring(string, dims[1]) for string in value]; init = UInt8[])
+        length(bytes) > leng && throw(ArgumentError("The strings of field $(field.name) have $(length(bytes)) bytes, but the field has $leng."))
+        write(io, vcat(bytes, fill(UInt8(' '), leng - length(bytes))))
+    elseif type <: AbstractString
         write(io, padstring(value, field.leng))
     elseif type <: BitVector
-        write(io, type, value)
+        write(io, type, BitVector(padelements(value, leng, false)))
     elseif leng == 0
         0
     elseif leng == 1
         write(io, hton(value))
     else
-        write(io, hton.(value))
+        write(io, hton.(padelements(value, leng, zero(type))))
     end
 end
+
+#  The elements of an array and the `pad` elements that follow them up to `leng` elements
+padelements(values::AbstractArray, leng::Integer, pad) = length(values) < leng ? vcat(values, fill(pad, leng - length(values))) : values
+padelements(value, leng::Integer, pad) = value
+
+#  A complex value that has a NaN as its real part or as its imaginary part is undefined, as a whole, and is missing (Sect. 7.3.3.1)
+nullcomplex(values::AbstractArray{<:Complex}) = any(value -> isnan(real(value)) || isnan(imag(value)), values) ?
+    map(value -> isnan(real(value)) || isnan(imag(value)) ? missing : value, values) : values
+nullcomplex(values) = values
 
 #  The string of the bytes of a field of characters, which ends at the first ASCII NULL, since the characters after it are not defined, and
 #  without the spaces that fill the field (Sect. 7.3.3.1)
@@ -749,9 +813,14 @@ function decodestring(bytes::AbstractVector{UInt8})
     String(rstrip(String(bytes[1:(isnothing(nul) ? length(bytes) : nul - 1)])))
 end
 
+#  The characters of a field are the restricted set of ASCII text characters (Sect. 7.3.3.1)
+checkascii(value::AbstractString) = isascii(value) ? value : throw(ArgumentError("The string $(repr(value)) has characters that " *
+    "are not ASCII, but the characters of a field of a binary table are the ASCII text characters (Sect. 7.3.3.1)."))
+
 #  The bytes of a string in a field of `width` bytes, which are filled with spaces. A string that is longer than the field is an error,
 #  since its bytes would be those of the fields after it.
 function padstring(value::AbstractString, width::Integer)
+    checkascii(value)
     bytes = codeunits(value)
     length(bytes) > width && throw(ArgumentError("The string $(repr(value)) has $(length(bytes)) bytes, but the field has " *
         "$width (Sect. 7.3.3.1)."))
@@ -771,23 +840,19 @@ end
 encodelogical(value::Bool) = value ? UInt8('T') : UInt8('F')
 encodelogical(::Missing) = 0x00
 
+#  The bits of a bit array are in order from the most significant bit of the first byte to the least significant bit of the last byte,
+#  and the bits after the end of the array are zeros (Sect. 7.3.3.1)
 function Base.read(io::IO, ::Type{BitVector}, len)
-    #  Read the bytes from IO and convert the UInt8s to a Bitvector
-    bv  = falses(len)
-    if len > 0
-        siz = sizeofbitvector(len)
-        vec = [read(io, UInt8) for j=1:siz]
-        unsafe_copyto!(reinterpret(Ptr{UInt8}, pointer(bv.chunks)), pointer(vec), siz)
-    end
-    bv
+    bytes = read(io, sizeofbitvector(len))
+    BitVector([bytes[(j-1) >> 3 + 1] & (0x80 >> ((j-1) & 7)) != 0 for j = 1:len])
 end
 
 function Base.write(io::IO, ::Type{BitVector}, value)
-    #  Convert the BitVector to UInt8s and write the bytes to IO
-    siz = sizeofbitvector(value)
-    vec = zeros(UInt8, siz)
-    unsafe_copyto!(pointer(vec), reinterpret(Ptr{UInt8}, pointer(value.chunks)), siz)
-    write(io, vec)
+    bytes = zeros(UInt8, sizeofbitvector(value))
+    for j in findall(value)
+        bytes[(j-1) >> 3 + 1] |= 0x80 >> ((j-1) & 7)
+    end
+    write(io, bytes)
 end
 
 """
@@ -914,8 +979,13 @@ function verifyfieldkeys(::Type{Bintable}, mankeys::AbstractDict, reskeys::Abstr
         name = get(reskeys, "TTYPE$j", nothing)
         if name isa AbstractString && !isempty(strip(name))
             other = get(names, lowercase(rstrip(name)), 0)
-            other > 0 ? @warn("TTYPE$j and TTYPE$other have the same name, $(repr(rstrip(name))), without regard to the case, " *
-                "but the names of the fields should be unique (Sect. 7.3.2).") : names[lowercase(rstrip(name))] = j
+            if other > 0
+                renamed = rstrip(name) == rstrip(reskeys["TTYPE$other"]) ? " The column of the data of TTYPE$j is named $(rstrip(name))_$j." : ""
+                @warn "TTYPE$j and TTYPE$other have the same name, $(repr(rstrip(name))), without regard to the case, but the " *
+                    "names of the fields should be unique (Sect. 7.3.2).$renamed"
+            else
+                names[lowercase(rstrip(name))] = j
+            end
         end
     end
     nothing
