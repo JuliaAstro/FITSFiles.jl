@@ -960,15 +960,16 @@
 
     seekstart(scaled_io)
     columns = read(scaled_io, HDU; record=false, scale=true).data
-    @test columns.UINT == [46.0, 128.0] && eltype(columns.UINT) === Float64
+    #  the offset of Table 19 is an unsigned integer
+    @test columns.UINT == UInt32[46, 128] && eltype(columns.UINT) === UInt32
     @test columns.SCALED == Float32[2, 3] && eltype(columns.SCALED) === Float32
-    @test columns.UINTS == [46.0 128.0; 128.0 46.0]
+    @test columns.UINTS == UInt32[46 128; 128 46] && eltype(columns.UINTS) === UInt32
 
     seekstart(scaled_io)
     records = read(scaled_io, HDU; record=true, scale=true).data
-    @test getproperty.(records, :UINT) == [46.0, 128.0]
+    @test getproperty.(records, :UINT) == UInt32[46, 128]
     @test getproperty.(records, :SCALED) == Float32[2, 3]
-    @test getproperty.(records, :UINTS) == [[46.0, 128.0], [128.0, 46.0]]
+    @test getproperty.(records, :UINTS) == [UInt32[46, 128], UInt32[128, 46]]
 
     #  the helper itself
     @test FITSFiles.scaled(Int32[-2147483602], 1.0f0, 2147483648.0) == [46.0]
@@ -986,8 +987,8 @@
             primary = ["SIMPLE  =                    T", "BITPIX  =                    8",
                 "NAXIS   =                    0", "END"]
             header = vcat(["XTENSION= 'BINTABLE'", "BITPIX  =                    8", "NAXIS   =                    2",
-                "NAXIS1  =                    $naxis1", "NAXIS2  =                    $naxis2",
-                "PCOUNT  =                    $pcount", "GCOUNT  =                    1"], cards, ["END"])
+                "NAXIS1  = " * lpad(naxis1, 20), "NAXIS2  = " * lpad(naxis2, 20),
+                "PCOUNT  = " * lpad(pcount, 20), "GCOUNT  =                    1"], cards, ["END"])
             rpad(join(card.(primary)), 2880) * rpad(join(card.(header)), 2880) *
                 String(vcat(data, zeros(UInt8, 2880 - length(data))))
         end
@@ -1033,7 +1034,10 @@
         @test_throws ArgumentError r"TFIELDS must be an integer" reread(
             bintablebytes(["TFIELDS =                  1.0"; cards[2:3]], 1, 2, UInt8[T, F]))
         @test_logs (:warn, r"THEAP 1 is less than NAXIS1\*NAXIS2, 2") reread(
-            bintablebytes([cards; "THEAP   =                    1"], 1, 2, UInt8[T, F]))
+            bintablebytes([cards; "THEAP   =                    1"], 1, 2, UInt8[T, F, 0, 0, 0, 0]; pcount = 4))
+        #  THEAP is not used if PCOUNT is 0, since there is no heap
+        @test_logs (:warn, r"THEAP must not be used if PCOUNT is 0") reread(
+            bintablebytes([cards; "THEAP   =                    2"], 1, 2, UInt8[T, F]))
 
         #  a variable-length array of logical values
         cardsp = ["TFIELDS =                    1", "TFORM1  = '1PL(3)  '", "TTYPE1  = 'flags   '"]
@@ -1073,10 +1077,10 @@
             "TTYPE1  = 'a       '", tdim, "END"]
         bytes(tdim) = rpad(join(card.(header)), 2880) * rpad(join(card.(hdr(tdim))), 2880) *
             String(zeros(UInt8, 2880))
-        for tdim in ("TDIM1   = '(3)     '", "TDIM1   = '(3,1)   '")
+        for (tdim, shape) in (("TDIM1   = '(3)     '", (1, 3)), ("TDIM1   = '(3,1)   '", (1, 3, 1)))
             buffer = IOBuffer(bytes(tdim)); read(buffer, HDU)
             hdu = read(buffer, HDU)
-            @test hdu.data.a == zeros(Int16, 1, 3)
+            @test hdu.data.a == zeros(Int16, shape)
             io = IOBuffer(); write(io, hdu)
             @test take!(io) == codeunits(bytes(tdim))[2881:end]
         end
@@ -1084,4 +1088,364 @@
         @test_logs (:warn, r"TDIM1 is not") read(buffer, HDU)
     end
 
+    ####    Test the character fields (Sect. 7.3.3.1)    ####
+
+    @testset "character fields" begin
+        written(hdu) = (io = IOBuffer(); write(io, hdu); take!(io))
+        reread(hdu; kwds...) = read(IOBuffer(written(hdu)), HDU; kwds...)
+
+        #  the width of a field is the number of bytes of the longest string, so no string is cut or shifts the fields after it
+        for hdu in (HDU(Bintable, (s = ["ab", "cdef", ""], n = Int16[1, 2, 3])),
+                    HDU(Bintable, [(s = "ab", n = Int16(1)), (s = "cdef", n = Int16(2)), (s = "", n = Int16(3))]))
+            @test hdu.cards["TFORM1"] == "4A" && hdu.cards["NAXIS1"] == 6
+            again = reread(hdu)
+            @test again.data.s == ["ab", "cdef", ""] && again.data.n == Int16[1, 2, 3]
+            @test written(again) == written(hdu)
+            #  the records have the same strings, without the spaces that fill the field
+            records = reread(hdu; record = true).data
+            @test [r.s for r in records] == ["ab", "cdef", ""] && [r.n for r in records] == Int16[1, 2, 3]
+            @test all(r -> r.s isa String, records)
+        end
+
+        #  a string that is longer than the field is an error, since it would shift the fields after it
+        hdu = HDU(Bintable, (s = ["ab", "cd"], n = Int16[1, 2]))
+        hdu.data.s[2] = "cdefgh"
+        @test_throws ArgumentError("The string \"cdefgh\" has 6 bytes, but the field has 2 (Sect. 7.3.3.1).") written(hdu)
+
+        #  a string ends at the first ASCII NULL, and the characters after it are not defined
+        @test FITSFiles.decodestring(UInt8['a', 'b', 0, 'x', 'y']) == "ab"
+        @test FITSFiles.decodestring(UInt8[0, 'x', 'y']) == ""
+        @test FITSFiles.decodestring(UInt8['a', 'b', ' ', ' ']) == "ab"
+        @test FITSFiles.decodestring(UInt8['a', ' ', 'b']) == "a b"
+        @test FITSFiles.padstring("ab", 4) == UInt8['a', 'b', ' ', ' ']
+    end
+
+    ####    Test the variable-length arrays (Sect. 7.3.5)    ####
+
+    @testset "variable-length arrays" begin
+        written(hdu) = (io = IOBuffer(); write(io, hdu); take!(io))
+        reread(hdu; kwds...) = read(IOBuffer(written(hdu)), HDU; kwds...)
+        be(type, values) = collect(reinterpret(UInt8, hton.(type.(values))))
+        card(s) = rpad(s, 80)
+        #  the bytes of a Bintable HDU, which has the cards after TFIELDS
+        function tablebytes(cards, naxis1, naxis2, data; pcount = 0)
+            header = vcat(["XTENSION= 'BINTABLE'", "BITPIX  =                    8", "NAXIS   =                    2",
+                "NAXIS1  = " * lpad(naxis1, 20), "NAXIS2  = " * lpad(naxis2, 20),
+                "PCOUNT  = " * lpad(pcount, 20), "GCOUNT  =                    1", "TFIELDS =                    1"], cards, ["END"])
+            body = vcat(data, zeros(UInt8, mod(-length(data), 2880)))
+            vcat(collect(codeunits(rpad(join(card.(header)), 2880 * cld(80 * length(header), 2880)))), body)
+        end
+
+        #  data of arrays of different lengths are variable-length arrays, whose descriptor and heap are written and read
+        data = (v = [Int16[1, 2, 3], Int16[], Int16[4, 5]], n = Int16[7, 8, 9])
+        hdu = HDU(Bintable, data)
+        @test hdu.cards["TFORM1"] == "1PI(3)" && hdu.cards["TFORM2"] == "1I"
+        @test hdu.cards["NAXIS1"] == 10 && hdu.cards["PCOUNT"] == 10
+        again = reread(hdu)
+        @test again.data.v == data.v && again.data.n == data.n && eltype(again.data.v) == Vector{Int16}
+        @test written(again) == written(hdu)
+        records = reread(hdu; record = true).data
+        @test [r.v for r in records] == data.v && [r.n for r in records] == data.n
+        #  the same for records, and for other types of the elements
+        for values in ([Float64[1.5, 2.5], Float64[3.5]], [ComplexF32[1 + 2im], ComplexF32[3im, 4]], [UInt8[1], UInt8[2, 3, 4]],
+                       [Bool[true, false], Bool[true]], [Int64[1], Int64[2, 3]])
+            hdu = HDU(Bintable, [(v = values[1],), (v = values[2],)])
+            @test occursin("1P", hdu.cards["TFORM1"])
+            again = reread(hdu)
+            @test again.data.v == values && written(again) == written(hdu)
+        end
+        #  arrays of the same length are a fixed-size array
+        @test HDU(Bintable, (v = [Int16[1, 2], Int16[3, 4]],)).cards["TFORM1"] == "2I"
+
+        #  the undefined values of an array are missing, with TNULLn
+        header = ["TFORM1  = '1PI(3)  '", "TNULL1  =               -32768"]
+        bytes = tablebytes(header, 8, 2, vcat(be(Int32, [3, 0, 2, 6]), be(Int16, [1, -32768, 3, -32768, 5])); pcount = 10)
+        arrays = read(IOBuffer(bytes), HDU).data.column1
+        @test isequal(arrays, [[1, missing, 3], [missing, 5]])
+
+        #  a heap that begins after a gap (THEAP), and the arrays are written as they were read
+        header = ["TFORM1  = '1PI(3)  '", "THEAP   =                   20"]
+        bytes = tablebytes(header, 8, 2, vcat(be(Int32, [3, 0, 2, 6]), zeros(UInt8, 4), be(Int16, [1, 2, 3, 4, 5])); pcount = 14)
+        hdu = read(IOBuffer(bytes), HDU)
+        @test hdu.data.column1 == [Int16[1, 2, 3], Int16[4, 5]]
+        @test written(hdu) == bytes
+        #  a heap that has more bytes than the arrays have is kept, and the bytes that no array uses are written as zeros
+        bytes = tablebytes(["TFORM1  = '1PI(3)  '"], 8, 2, vcat(be(Int32, [3, 0, 2, 6]), be(Int16, [1, 2, 3, 4, 5, 6, 7])); pcount = 14)
+        again = reread(read(IOBuffer(bytes), HDU))
+        @test again.cards["PCOUNT"] == 14 && length(written(again)) == length(bytes) && again.data.column1 == [Int16[1, 2, 3], Int16[4, 5]]
+        #  the arrays have more bytes than the header leaves for the heap
+        hdu = read(IOBuffer(bytes), HDU)
+        hdu.data.column1[1] = Int16[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+        @test_throws ArgumentError written(hdu)
+        #  the arrays that share the storage are read, and are not written as they were
+        bytes = tablebytes(["TFORM1  = '1PI(3)  '"], 8, 2, vcat(be(Int32, [3, 0, 3, 0]), be(Int16, [1, 2, 3])); pcount = 6)
+        hdu = read(IOBuffer(bytes), HDU)
+        @test hdu.data.column1 == [Int16[1, 2, 3], Int16[1, 2, 3]]
+        @test_throws ArgumentError written(hdu)
+
+        #  array descriptors of 64 bits (Q)
+        bytes = tablebytes(["TFORM1  = '1QJ(2)  '"], 16, 2, vcat(be(Int64, [2, 0, 1, 8]), be(Int32, [10, 20, 30])); pcount = 12)
+        hdu = read(IOBuffer(bytes), HDU)
+        @test hdu.data.column1 == [Int32[10, 20], Int32[30]] && written(hdu) == bytes
+
+        #  an array that is not in the heap, or has a negative length, is read as empty, with a warning (the elements are undefined)
+        for descriptor in ([3, 0, 5, 1000], [3, 0, -2, 0], [3, 0, 2, -6], [3, 0, 2, 8])
+            bytes = tablebytes(["TFORM1  = '1PI(3)  '"], 8, 2, vcat(be(Int32, descriptor), be(Int16, [10, 20, 30, 40, 50])); pcount = 10)
+            hdu = @test_logs (:warn, r"array descriptor .* of row 2 of field column1 is not in the heap of 10 bytes") read(
+                IOBuffer(bytes), HDU)
+            @test hdu.data.column1 == [Int16[10, 20, 30], Int16[]]
+        end
+        #  an array of no elements has no storage, whatever the offset is
+        bytes = tablebytes(["TFORM1  = '1PI(3)  '"], 8, 2, vcat(be(Int32, [3, 0, 0, 1000]), be(Int16, [10, 20, 30])); pcount = 6)
+        @test @test_logs(read(IOBuffer(bytes), HDU)).data.column1 == [Int16[10, 20, 30], Int16[]]
+    end
+
+    ####    Test the physical values of the integer fields (Sect. 7.3.2, Table 19 and Eq. 7)    ####
+
+    @testset "physical values" begin
+        written(hdu) = (io = IOBuffer(); write(io, hdu); take!(io))
+        reread(hdu; kwds...) = read(IOBuffer(written(hdu)), HDU; kwds...)
+
+        #  the unsigned integers and the signed bytes are the integers of the same size with the offset in TZERO, and are written and read
+        for (type, tform, offset, values) in ((UInt16, "1I", 2^15, UInt16[0, 1, 60000, typemax(UInt16)]),
+                                              (UInt32, "1J", 2^31, UInt32[0, 5, 4000000000, typemax(UInt32)]),
+                                              (UInt64, "1K", UInt64(2)^63, UInt64[0, 5, UInt64(2)^62, typemax(UInt64)]),
+                                              (Int8, "1B", -2^7, Int8[-128, -1, 0, 127]))
+            for hdu in (HDU(Bintable, (u = values,)), HDU(Bintable, [(u = v,) for v in values]))
+                @test hdu.cards["TFORM1"] == tform && hdu.cards["TZERO1"] == offset
+                again = reread(hdu)
+                @test again.data.u == values && eltype(again.data.u) === type && written(again) == written(hdu)
+                #  the stored values have the offset
+                @test eltype(reread(hdu; scale = false).data.u) === FITSFiles.RAWTYPE[type]
+                @test reread(hdu; scale = false).data.u == FITSFiles.offsetvalue.(values, FITSFiles.RAWTYPE[type])
+                @test eltype(reread(hdu; record = true).data[1].u) === type
+            end
+            #  the arrays of the fields, and the variable-length arrays
+            again = reread(HDU(Bintable, (a = [values, reverse(values)],)))
+            @test again.data.a == [values reverse(values)]' && eltype(again.data.a) === type
+            again = reread(HDU(Bintable, (v = [values[1:2], values],)))
+            @test again.data.v == [values[1:2], values] && eltype(again.data.v) === Vector{type}
+        end
+        #  the undefined values are TNULLn, which is the stored value
+        hdu = HDU(Bintable, (u = Union{UInt16, Missing}[5, missing],), Card{<:Any}[Card("TNULL1", -32768)])
+        @test isequal(reread(hdu).data.u, Union{UInt16, Missing}[5, missing])
+
+        #  the integers of 32 or 64 bits are exact if TSCAL is 1 and TZERO is 0, and the scaled values are at least a Float64
+        for (type, value) in ((Int32, 2147483647), (Int64, 2^40 + 1))
+            hdu = HDU(Bintable, (a = type[value, 3],))
+            @test reread(hdu).data.a == type[value, 3] && eltype(reread(hdu).data.a) === type
+            hdu = HDU(Bintable, (a = type[value, 3],), Card{<:Any}[Card("TSCAL1", 0.5f0), Card("TZERO1", 1.0f0)])
+            scaled = reread(hdu).data.a
+            @test eltype(scaled) === Float64 && scaled == 1.0 .+ 0.5 .* Float64.(type[value, 3])
+            #  the scaled values are written as the stored values
+            @test written(reread(hdu; record = true)) == written(hdu)
+            @test written(reread(hdu)) == written(hdu)
+        end
+        #  an Int16 and a Float32 scale are a Float32
+        hdu = HDU(Bintable, (a = Int16[1, 2],), Card{<:Any}[Card("TSCAL1", 0.5f0)])
+        @test eltype(reread(hdu).data.a) === Float32 && reread(hdu).data.a == Float32[0.5, 1]
+    end
+
+    ####    Test the arrays of the fields that have more than one dimension (TDIMn, Sect. 7.3.2)    ####
+
+    @testset "multi-dimensional fields" begin
+        written(hdu) = (io = IOBuffer(); write(io, hdu); take!(io))
+        reread(hdu; kwds...) = read(IOBuffer(written(hdu)), HDU; kwds...)
+        card(s) = rpad(s, 80)
+        #  the bytes of a Bintable HDU of one field that has the cards after TFIELDS
+        function tablebytes(cards, naxis1, naxis2, data)
+            header = vcat(["XTENSION= 'BINTABLE'", "BITPIX  =                    8", "NAXIS   =                    2",
+                "NAXIS1  = " * lpad(naxis1, 20), "NAXIS2  = " * lpad(naxis2, 20),
+                "PCOUNT  =                    0", "GCOUNT  =                    1", "TFIELDS =                    1"], cards, ["END"])
+            vcat(collect(codeunits(rpad(join(card.(header)), 2880 * cld(80 * length(header), 2880)))),
+                data, zeros(UInt8, mod(-length(data), 2880)))
+        end
+
+        #  the arrays of the cells that have more than one dimension have the dimensions in TDIMn, and are read with them: the rows are
+        #  the first dimension of the column
+        cells = [Float32[1 2; 3 4; 5 6], Float32[7 8; 9 10; 11 12]]
+        for hdu in (HDU(Bintable, (a = cells,)), HDU(Bintable, [(a = cell,) for cell in cells]))
+            @test hdu.cards["TFORM1"] == "6E" && hdu.cards["TDIM1"] == "(3,2)"
+            again = reread(hdu)
+            @test size(again.data.a) == (2, 3, 2) && again.data.a[1, :, :] == cells[1] && again.data.a[2, :, :] == cells[2]
+            @test written(again) == written(hdu)
+            records = reread(hdu; record = true).data
+            @test [r.a for r in records] == cells
+        end
+        #  a column of two or more dimensions is the array of each row
+        column = reshape(Int16.(1:12), 2, 3, 2)
+        hdu = HDU(Bintable, (a = column,))
+        @test hdu.cards["TFORM1"] == "6I" && hdu.cards["TDIM1"] == "(3,2)" && hdu.cards["NAXIS2"] == 2
+        @test reread(hdu).data.a == column
+        hdu = HDU(Bintable, (a = Int16[1 2 3; 4 5 6],))
+        @test hdu.cards["TFORM1"] == "3I" && !haskey(hdu.cards, "TDIM1") && reread(hdu).data.a == Int16[1 2 3; 4 5 6]
+
+        #  the dimensions of TDIMn hold no more elements than TFORMn has, and the elements that are not in the array are not read
+        data = vcat(reinterpret(UInt8, hton.(Int16[1, 2, 3, 4, 5, 6, 7, 8])))
+        bytes = tablebytes(["TFORM1  = '4I      '", "TDIM1   = '(3,1)   '"], 8, 2, data)
+        hdu = read(IOBuffer(bytes), HDU)
+        @test hdu.data.column1 == reshape(Int16[1, 5, 2, 6, 3, 7], 2, 3, 1)
+        #  and more elements than TFORMn has are ignored with a warning
+        bytes = tablebytes(["TFORM1  = '4I      '", "TDIM1   = '(3,2)   '"], 8, 2, data)
+        hdu = @test_logs (:warn, r"TDIM of field column1, 3 × 2, has 6 elements, more than the 4 of its TFORM") read(IOBuffer(bytes), HDU)
+        @test hdu.data.column1 == Int16[1 2 3 4; 5 6 7 8]
+
+        #  arrays of strings, whose first dimension is the number of characters of a string
+        text = collect(codeunits("abcdef" * "ghijkl"))
+        bytes = tablebytes(["TFORM1  = '6A      '", "TDIM1   = '(2,3)   '"], 6, 2, text)
+        strings = read(IOBuffer(bytes), HDU).data.column1
+        @test strings == ["ab" "cd" "ef"; "gh" "ij" "kl"] && size(strings) == (2, 3)
+        #  a single dimension is a string
+        bytes = tablebytes(["TFORM1  = '6A      '", "TDIM1   = '(6)     '"], 6, 2, text)
+        @test read(IOBuffer(bytes), HDU).data.column1 == ["abcdef", "ghijkl"]
+        records = read(IOBuffer(tablebytes(["TFORM1  = '6A      '", "TDIM1   = '(2,3)   '"], 6, 2, text)), HDU; record = true).data
+        @test records[2].column1 == ["gh", "ij", "kl"]
+
+        #  the arrays of variable-length arrays, and of bits
+        bytes = tablebytes(["TFORM1  = '1PI(6)  '", "TDIM1   = '(2,2)   '"], 8, 2,
+            vcat(reinterpret(UInt8, hton.(Int32[4, 0, 6, 8])), reinterpret(UInt8, hton.(Int16[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]))))
+        header = replace(String(copy(bytes)), "PCOUNT  =                    0" => "PCOUNT  =                   20")
+        hdu = read(IOBuffer(codeunits(header)), HDU)
+        @test hdu.data.column1 == [Int16[1 3; 2 4], Int16[5 7; 6 8]]
+    end
+
+    ####    Test the verification of the header (Sects. 4.4.1.2, 7.3.1, and 7.3.2)    ####
+
+    @testset "header verification" begin
+        written(hdu) = (io = IOBuffer(); write(io, hdu); take!(io))
+        card(s) = rpad(s, 80)
+        kw(key, value) = key * repeat(" ", 8 - length(key)) * "= " * lpad(value isa AbstractString ? "'" * rpad(value, 8) * "'" : string(value),
+            value isa AbstractString ? 10 : 20)
+        #  the bytes of a Bintable HDU of the keywords, which are the mandatory ones and the others, and the bytes of the table
+        function tablebytes(others, data; naxis1 = 2, naxis2 = 2, tfields = 1, mandatory = nothing)
+            header = something(mandatory, [kw("XTENSION", "BINTABLE"), kw("BITPIX", 8), kw("NAXIS", 2), kw("NAXIS1", naxis1),
+                kw("NAXIS2", naxis2), kw("PCOUNT", 0), kw("GCOUNT", 1), kw("TFIELDS", tfields)])
+            header = vcat(header, others, ["END"])
+            vcat(collect(codeunits(rpad(join(card.(header)), 2880 * cld(80 * length(header), 2880)))),
+                data, zeros(UInt8, mod(-length(data), 2880)))
+        end
+        reading(bytes) = read(IOBuffer(bytes), HDU)
+        stored = collect(reinterpret(UInt8, hton.(Int16[1, 2])))
+        tform = kw("TFORM1", "I")
+
+        #  a header that conforms is read without a warning
+        @test @test_logs(reading(tablebytes([tform], stored))).data.column1 == Int16[1, 2]
+
+        #  the number of bytes of a row is the sum of the bytes of the fields (Eq. 8)
+        @test_throws ArgumentError("NAXIS1 is 1, but the fields of TFORMn have 2 bytes in a row, which is the value that NAXIS1 must have " *
+            "(Eq. 8, Sect. 7.3.1).") reading(tablebytes([tform], stored; naxis1 = 1))
+        #  the bytes after the fields are not read, and are written as zeros
+        padded = vcat(stored[1:2], UInt8[7, 7, 7, 7], stored[3:4], UInt8[8, 8, 8, 8])
+        hdu = @test_logs (:warn, r"NAXIS1 is 6, but the fields of TFORMn have 2 bytes in a row") reading(
+            tablebytes([tform], padded; naxis1 = 6))
+        @test hdu.data.column1 == Int16[1, 2] && hdu.cards["NAXIS1"] == 6
+        again = reading(written(hdu))
+        @test again.data.column1 == Int16[1, 2] && again.cards["NAXIS1"] == 6
+        #  the written rows have zeros after the fields
+        @test written(hdu)[2881:2880 + 12] == UInt8[0, 1, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0]
+        #  the fields of the sum of bytes include arrays, bits, strings, complex values, and array descriptors
+        forms = ["3I", "9X", "4A", "2C", "1PJ(3)", "0PI", "1QD(2)", "0I", "0X"]
+        sizes = [6, 2, 4, 16, 8, 0, 16, 0, 0]
+        for (form, nbytes) in zip(forms, sizes)
+            @test FITSFiles.tformbytes("TFORM1", form) == nbytes
+        end
+        @test FITSFiles.tformbytes("TFORM1", "B") == 1 && FITSFiles.tformbytes("TFORM1", "2M") == 32
+
+        #  TFORMn is of the form rTa, with a data type of Table 18 in upper case
+        for value in ("e", "5i", "1pj(3)", "5Z", "", "x", "3")
+            @test_throws ArgumentError reading(tablebytes([kw("TFORM1", value)], stored))
+        end
+        err = try reading(tablebytes([kw("TFORM1", "e")], stored)) catch e e end
+        @test occursin("must be upper case", err.msg) && occursin("Sect. 7.3.1", err.msg)
+        err = try reading(tablebytes([kw("TFORM1", "5Z")], stored)) catch e e end
+        @test occursin("data type of Table 18", err.msg) && !occursin("upper case", err.msg)
+        @test_throws ArgumentError reading(tablebytes([kw("TFORM1", 5)], stored))
+
+        #  the mandatory keywords are in order and in fixed format
+        swapped = [kw("XTENSION", "BINTABLE"), kw("BITPIX", 8), kw("NAXIS", 2), kw("NAXIS2", 2), kw("NAXIS1", 2), kw("PCOUNT", 0),
+            kw("GCOUNT", 1), kw("TFIELDS", 1)]
+        @test_logs (:warn, r"Keyword 4 of the header is NAXIS2, but the Standard requires NAXIS1") reading(
+            tablebytes([tform], stored; mandatory = swapped))
+        free = [kw("XTENSION", "BINTABLE"), kw("BITPIX", 8), kw("NAXIS", 2), "NAXIS1  = 2", kw("NAXIS2", 2), kw("PCOUNT", 0),
+            kw("GCOUNT", 1), kw("TFIELDS", 1)]
+        @test_logs (:warn, r"The value of NAXIS1 is not in fixed format") reading(tablebytes([tform], stored; mandatory = free))
+        #  PCOUNT and GCOUNT have the values 0 and 1, and BITPIX and NAXIS are needed
+        nocounts = [kw("XTENSION", "BINTABLE"), kw("BITPIX", 8), kw("NAXIS", 2), kw("NAXIS1", 2), kw("NAXIS2", 2), kw("TFIELDS", 1)]
+        @test_logs (:warn, r"PCOUNT is missing, but it is a mandatory keyword") (:warn, r"GCOUNT is missing") reading(
+            tablebytes([tform], stored; mandatory = nocounts))
+        @test_throws ArgumentError("BITPIX is missing, but it is a mandatory keyword of a BINTABLE extension (Sect. 7.3.1).") reading(
+            tablebytes([tform], stored; mandatory = [kw("XTENSION", "BINTABLE"), kw("NAXIS", 0)]))
+        #  the keywords of the primary header, and of the physical blocks, are not in an extension
+        for key in ("EXTEND", "BLOCKED")
+            @test_logs (:warn, Regex("$key must not appear in a BINTABLE extension header")) reading(
+                tablebytes([tform, "$key  =                    T"], stored))
+        end
+        @test_logs (:warn, r"SIMPLE must not appear") reading(tablebytes([tform, "SIMPLE  =                    T"], stored))
+        #  INHERIT is a logical, immediately after the mandatory keywords
+        @test_logs (:warn, r"INHERIT must be the keyword immediately after the mandatory keywords, keyword 9") reading(
+            tablebytes([tform, "INHERIT =                    T"], stored))
+        @test @test_logs(reading(tablebytes(["INHERIT =                    T", tform], stored))).data.column1 == Int16[1, 2]
+        @test_logs (:warn, r"INHERIT must be a logical") reading(tablebytes(["INHERIT =                    1", tform], stored))
+
+        #  TSCALn and TZEROn are for the fields that are not of type A, L, or X, and TNULLn is for the fields of type B, I, J, or K
+        for form in ("A", "L", "X")
+            @test_logs (:warn, Regex("TSCAL1 and TZERO1 must not be used for a field of type $form")) reading(
+                tablebytes([kw("TFORM1", form), kw("TSCAL1", 2.0)], UInt8[0x54, 0x46]; naxis1 = 1))
+        end
+        @test_logs (:warn, r"TNULL1 must not be used for a field of type E") reading(
+            tablebytes([kw("TFORM1", "E"), kw("TNULL1", 5)], zeros(UInt8, 8); naxis1 = 4))
+        #  and the keywords are not used for those fields
+        hdu = @test_logs (:warn, r"TSCAL1 and TZERO1 must not") reading(
+            tablebytes([kw("TFORM1", "L"), kw("TSCAL1", 2.0)], UInt8[0x54, 0x46]; naxis1 = 1))
+        @test hdu.data.column1 == [true, false]
+        for form in ("B", "I", "J", "K", "1PI(2)", "1QB(2)")
+            @test_logs reading(tablebytes([kw("TFORM1", form), kw("TNULL1", 5)], zeros(UInt8, 32); naxis1 = FITSFiles.tformbytes("TFORM1", form), naxis2 = 1))
+        end
+
+        #  TTYPEn and TUNITn are character strings, TUNITn is a units string, and TDISPn is a display format of Table 20
+        hdu = @test_logs (:warn, r"TTYPE1 must be a character string") reading(tablebytes([tform, kw("TTYPE1", 5)], stored))
+        @test hdu.data.column1 == Int16[1, 2]
+        @test_logs (:warn, r"TUNIT1 must be a character string") reading(tablebytes([tform, kw("TUNIT1", 5)], stored))
+        @test_logs (:warn, r"TDISP1 must be a character string") reading(tablebytes([tform, kw("TDISP1", 5)], stored))
+        @test_logs (:warn, r"TUNIT1 must be a units string") reading(tablebytes([tform, kw("TUNIT1", "bogus unit!")], stored))
+        @test @test_logs(reading(tablebytes([tform, kw("TUNIT1", "km/s")], stored))).data.column1 == Int16[1, 2]
+        for disp in ("A5", "L1", "I6", "I6.3", "B8.8", "O5", "Z4.2", "F8.3", "E12.4", "E12.4E3", "EN12.3", "ES12.3", "G10.2", "G10.2E2", "D12.4")
+            @test_logs reading(tablebytes([tform, kw("TDISP1", disp)], stored))
+        end
+        for disp in ("Q9.9", "i6", "F8", "E12", "I", "A", "F8.3.1", "Iw.m", " ", "e12.4")
+            isempty(strip(disp)) && continue
+            @test_logs (:warn, r"TDISP1 must be a display format of Table 20") reading(tablebytes([tform, kw("TDISP1", disp)], stored))
+        end
+        #  the numbers
+        @test_throws ArgumentError reading(tablebytes([tform, kw("TSCAL1", "two")], stored))
+        @test_throws ArgumentError reading(tablebytes([tform, kw("TDMIN1", "low")], stored))
+        @test @test_logs(reading(tablebytes([tform, kw("TDMIN1", 1), kw("TDMAX1", 2.5), kw("TLMIN1", -1), kw("TLMAX1", 3)], stored))).data.column1 == Int16[1, 2]
+
+        #  the names of the fields are unique without regard to the case
+        two = [kw("TFORM1", "I"), kw("TTYPE1", "Flux"), kw("TFORM2", "I"), kw("TTYPE2", "FLUX")]
+        @test_logs (:warn, r"TTYPE2 and TTYPE1 have the same name, \"FLUX\", without regard to the case") reading(
+            tablebytes(two, vcat(stored, stored); naxis1 = 4, tfields = 2))
+        @test @test_logs(reading(tablebytes([kw("TFORM1", "I"), kw("TTYPE1", "Flux"), kw("TFORM2", "I"), kw("TTYPE2", "Error")],
+            vcat(stored, stored); naxis1 = 4, tfields = 2))).data.Error == Int16[2, 2]
+    end
+
+    ####    Test a table that has no rows (Sect. 7.3.1)    ####
+
+    @testset "no rows" begin
+        written(hdu) = (io = IOBuffer(); write(io, hdu); take!(io))
+        reread(hdu; kwds...) = read(IOBuffer(written(hdu)), HDU; kwds...)
+
+        #  the table has no data blocks, and the data are the empty columns of the fields, which have the types of the fields
+        hdu = HDU(Bintable, (a = Int16[], s = String[], u = UInt16[], f = Float64[]))
+        @test hdu.cards["NAXIS2"] == 0 && hdu.cards["TFIELDS"] == 4
+        again = reread(hdu)
+        @test again.data isa NamedTuple && keys(again.data) == (:a, :s, :u, :f)
+        @test again.data.a isa Vector{Int16} && again.data.s isa Vector{String} && again.data.u isa Vector{UInt16} &&
+            again.data.f isa Vector{Float64}
+        @test all(isempty, again.data) && written(again) == written(hdu)
+        @test isempty(reread(hdu; record = true).data)
+        #  the table of no fields has no data
+        @test ismissing(HDU(Bintable).data) && ismissing(reread(HDU(Bintable)).data)
+        @test written(reread(HDU(Bintable))) == written(HDU(Bintable))
+    end
 end
