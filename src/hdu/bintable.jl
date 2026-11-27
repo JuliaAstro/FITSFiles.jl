@@ -9,6 +9,11 @@ array of binary data structured as a vector of records.
 struct Bintable <: AbstractHDU end
 XTENSIONTYPE["BINTABLE"] = Bintable
 
+#  The mandatory and reserved keywords of the HDU (see `getreservedkeys`)
+union!(MANDATORYKEYS, ["XTENSION", "PCOUNT", "GCOUNT", "THEAP", "TFIELDS", "TFORM"])
+union!(RESERVEDKEYS, ["INHERIT", "TFIELDS", "TFORM", "TSCAL", "TZERO", "TNULL", "TTYPE", "TUNIT", "TDISP", "TDIM",
+    "TDMAX", "TDMIN", "TLMAX", "TLMIN"])
+
 #  The fill after the data (see `verifyfill`)
 fillrule(::Type{Bintable}) = (0x00, "zeros", "Sect. 7.3.3")
 
@@ -145,14 +150,14 @@ end
 function verify!(::Type{Bintable}, cards::Cards, mankeys::AbstractDict, reskeys::AbstractDict)
     cards = invoke(verify!, Tuple{Type{<:AbstractHDU}, Cards, AbstractDict, AbstractDict}, Bintable, cards,
         mankeys, reskeys)
-    verifyrows(mankeys)
+    verifyrows(Bintable, mankeys)
     #  PCOUNT is the number of bytes of the heap and the gap, and there is a single table (Sect. 7.3.1)
     verifyvalue(mankeys, "PCOUNT", 0:typemax(Int), "non-negative")
     verifyvalue(mankeys, "GCOUNT", 1:1, "the integer 1")
     #  The number of fields, the heap offset, and the null values are integers (Sects. 7.3.1 and 7.3.2)
     verifyinteger(mankeys, r"^(TFIELDS|THEAP)$")
     verifyinteger(reskeys, r"^TNULL\d+$")
-    verifyfields!(cards, mankeys)
+    verifyfields!(Bintable, cards, mankeys)
     verifyheap!(cards, mankeys)
 end
 
@@ -563,4 +568,55 @@ function Base.write(io::IO, ::Type{BitVector}, value)
     vec = zeros(UInt8, siz)
     unsafe_copyto!(pointer(vec), reinterpret(Ptr{UInt8}, pointer(value.chunks)), siz)
     write(io, vec)
+end
+
+"""
+	verifyheap!(cards, mankeys)
+
+Warn if THEAP of a binary table is outside of the range that the standard allows (Sect. 7.3.2), and
+return the cards unchanged. The heap starts THEAP bytes after the start of the main data table, so THEAP
+cannot be less than NAXIS1*NAXIS2 or more than that plus PCOUNT, the bytes of the gap and the heap.
+"""
+function verifyheap!(cards::Cards, mankeys::AbstractDict)
+	haskey(mankeys, "THEAP") || return cards
+	heap = mankeys["THEAP"]
+	table = get(mankeys, "NAXIS1", 0) * get(mankeys, "NAXIS2", 0)
+	if heap < table
+		@warn "THEAP $heap is less than NAXIS1*NAXIS2, $table, and the heap overlaps the table."
+	elseif heap > table + get(mankeys, "PCOUNT", 0)
+		@warn "THEAP $heap is more than NAXIS1*NAXIS2 + PCOUNT, $(table + get(mankeys, "PCOUNT", 0)), and the heap is past the data."
+	end
+	cards
+end
+
+#  The structure of a binary table extension, which is an array of bytes with NAXIS = 2 axes, the length of a row and the number
+#  of rows (Sect. 7.3.1)
+function verifyrows(::Type{Bintable}, mankeys::AbstractDict)
+	verifyvalue(mankeys, "BITPIX", 8:8, "the integer 8")
+	verifyvalue(mankeys, "NAXIS", 2:2, "the integer 2")
+	verifyaxes(mankeys)
+end
+
+"""
+	verifyfields!(Bintable, cards, mankeys)
+
+Verify the keywords that describe the fields of a binary table extension, and return the cards unchanged
+(Sect. 7.3.1 of the standard). It is an error, since the fields cannot be read, if TFIELDS
+is negative, or if TFORMn is missing for an n from 1 to TFIELDS. It is a warning, since the extra keywords
+are not used, if TFIELDS is more than 999, the maximum, or if TFORMn is present for an n greater than TFIELDS. A header with no TFIELDS is not verified.
+"""
+function verifyfields!(::Type{Bintable}, cards::Cards, mankeys::AbstractDict)
+	N = get(mankeys, "TFIELDS", nothing)
+	isnothing(N) && return cards
+	N < 0 && throw(ArgumentError("TFIELDS must be non-negative, but its value is $N."))
+	N > MAXFIELDS && @warn "TFIELDS $N is more than the maximum of $MAXFIELDS."
+	for j = 1:N
+		haskey(mankeys, "TFORM$j") || throw(ArgumentError("TFORM$j is missing, but TFIELDS is $N."))
+	end
+	for key in sort!(collect(keys(mankeys)))
+		m = match(r"^TFORM(\d+)$", key)
+		!isnothing(m) && Base.parse(Int, m[1]) > N &&
+			@warn "$key is beyond TFIELDS $N, and is not used."
+	end
+	cards
 end

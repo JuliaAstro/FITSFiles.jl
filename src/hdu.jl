@@ -78,13 +78,6 @@ const TYPE2BITS = Dict(UInt8 => 8, Int16 => 16, Int32 => 32, Int64 => 64,
 const BITPIXVALUES = (8, 16, 32, 64, -32, -64)
 const MAXAXES = 999
 
-const MISSTYPE = (UInt8, Int16, Int32, Int64)
-#  The unsigned integers and the signed bytes are stored as the integers of the same size with an offset in
-#  BZERO (Table 11 of the standard): the type of the array => the type of the physical values and BZERO.
-const OFFSETTYPE = Dict(Int16 => (UInt16, 2^15), Int32 => (UInt32, 2^31), Int64 => (UInt64, UInt64(2)^63),
-	UInt8 => (Int8, -2^7))
-#  The type of the array of the physical type, which is the key of OFFSETTYPE
-const RAWTYPE = Dict(physical => raw for (raw, (physical, _)) in OFFSETTYPE)
 const OUTTYPE  = Dict(
     UInt8 => Float32, Int16 => Float32, Int32 => Float64, Int64 => Float64,
     Float32 => Float32, Float64 => Float64)
@@ -98,38 +91,19 @@ const MAXFIELDS = 999
 #  The HDU type of the value of XTENSION, which each type of extension adds to when it is defined
 const XTENSIONTYPE = Dict{String, Type}()
 
-const MANDATORYKEYS = (
-	#  Mandatory keys, except THEAP (see Table C.1)
-	"END", "SIMPLE", "XTENSION", "BITPIX", "NAXIS", "GROUPS", "PCOUNT",
-	"GCOUNT", "THEAP", "TFIELDS", "TFORM", "TBCOL", "ZIMAGE", "ZTABLE",
-	"ZBITPIX", "ZNAXIS", "ZPCOUNT", "ZFORM", "ZCTYP", "ZCMPTYPE", "ZTILELEN")
-
-const RESERVEDKEYS = (
-	#  General keys
-	"DATE", "DATE-OBS", "ORIGIN", "AUTHOR", "REFERENC",
-	"OBJECT", "OBSERVER", "INHERIT", "CHECKSUM", "DATASUM", "EXTNAME",
-	"EXTVER", "EXTLEVEL", "EQUINOX", "EPOCH", "BLOCKED", "EXTEND", "TELESCOP",
-	"INSTRUME",
-	#  Random field keys
-	"PTYPE", "PSCAL", "PZERO",
-	#  Image field keys
-	"BSCALE", "BZERO", "BUNIT", "BLANK", "DATAMAX", "DATAMIN",
+#  The roots of the keywords of the mandatory keywords and of the reserved keywords (see `getreservedkeys`), each root once. The
+#  keywords that are common to the HDUs are here, and each type of HDU adds those of its own, which are in its file, when it is defined.
+const MANDATORYKEYS = String["END", "BITPIX", "NAXIS"]
+const RESERVEDKEYS = String["DATE", "DATE-OBS", "ORIGIN", "AUTHOR", "REFERENC", "OBJECT", "OBSERVER", "CHECKSUM", "DATASUM",
+	"EXTNAME", "EXTVER", "EXTLEVEL", "EQUINOX", "EPOCH", "TELESCOP", "INSTRUME",
 	#  World-coordinate and time keys that are integers
-	"WCSAXES", "MJDREFI", "JDREFI",
-	#  Table field keys
-	"TFIELDS", "TFORM", "TBCOL", "TSCAL", "TZERO", "TNULL", "TTYPE", "TUNIT",
-	"TDISP", "TDMAX", "TDMIN", "TLMAX", "TLMIN",
-	#  Bintable field keys, except THEAP
-	"TFIELDS", "TFORM", "TSCAL", "TSCAL", "TZERO", "TNULL", "TTYPE", "TUNIT",
-	"TDISP", "TDIM", "TDMAX", "TDMIN", "TLMAX", "TLMIN",
-	#  ZImage field keys
-	"ZTILE", "ZNAME", "ZVAL", "ZMASKCMP", "ZQUANTIZ", "ZDITHER0", "ZSIMPLE",
-	"ZEXTEND", "ZBLOCKED", "ZTENSION", "ZPCOUNT", "ZGCOUNT", "ZBLANK", "ZHECKSUM",
-	"ZDATASUM",
-	#  ZTable field keys
-	"FZTILELN", "FZALGOR", "FZALG", "ZTHEAP", "ZHECKSUM", "ZDATASUM")
+	"WCSAXES", "MJDREFI", "JDREFI"]
 
 #  Check for header missing END card
+
+#  The scale and the zero cards of data that are the physical values of floating-point stored values, which a type of HDU defines
+#  (see `ScaledArray`)
+scalecards!(::Type, cards::Cards, data) = cards
 
 function HDU(data::D = missing, cards::C = missing; record::B = false,
 	scale::B = true, append::B = false, fixed::B = true, slash::I = 32, lpad::I = 1,
@@ -181,19 +155,6 @@ function HDU(type::Type, ::Missing = missing, cards::C = missing; kwds...) where
 	HDU{type}(kards, data)
 end
 
-#  Verify the keywords of the cards that are given with the data of an HDU that is made, so that a value that cannot be used is
-#  the error of a read, and not a MethodError. The mandatory keywords of the first card, SIMPLE and XTENSION, are not verified,
-#  since the header is arranged when it is made (see `createcards!`). Only the HDUs of an array, which verify their keywords
-#  when they are read, are verified.
-verifycards!(::Type, cards::Cards, mankeys::AbstractDict, reskeys::AbstractDict, format::DataFormat) = cards
-#  The verification of the keywords of the cards of an HDU of the type `type` that is made, which a type that verifies them defines (see
-#  the files of Primary, Image, and Random), with the keywords of the first card that are made from the data left out.
-function verifycardkeys(type::Type, cards::Cards, mankeys::AbstractDict, reskeys::AbstractDict, format::DataFormat)
-	keys = filter(pair -> first(pair) ∉ ("SIMPLE", "XTENSION"), mankeys)
-	#  The number of parameters of random groups is the number of the data, and the keywords of the parameters are verified with it
-	type == Random && (keys["PCOUNT"] = format.param)
-	verify!(type, cards, keys, reskeys)
-end
 
 function HDU(type::Type, data::AbstractArray, cards::C = missing; kwds...) where
 	C <: Union{Card, Vector{Card}, Vector{Card{<:Any}}, Missing}
@@ -494,377 +455,27 @@ function leastfloat(value::Union{Real, Nothing})
 	value
 end
 
-"""
-    verify!(type, cards, mankeys, reskeys)
 
-Verify the values of the mandatory and reserved keywords of a header, `mankeys` and `reskeys`, before
-the data format is created from them. Return the cards. A verify! method of an HDU type corrects the cards and the
-mandatory keywords, `mankeys`, when it is possible, and otherwise raises an error that names
-the keyword and its value. The generic method raises an error if the value of a keyword that
-must be an integer is not (see [`verifyinteger`](@ref)), and warns if the XTENSION value is
-not padded.
 
-The verify! methods that also have a data format argument are for the HDU types that create
-the format from data and then correct the header to match the data.
-"""
-function verify!(::Type{<:AbstractHDU}, cards::Cards, mankeys::AbstractDict, reskeys::AbstractDict)
-	#  The integer keywords that are common to all HDUs: BITPIX, NAXIS, NAXISn, PCOUNT, and GCOUNT (Sects. 4.4.1.1,
-	#  4.4.1.2, and 6.1.1) are mandatory, and EXTVER and EXTLEVEL (Sect. 4.4.2.6), WCSAXES, with an optional alternate
-	#  version letter (Sect. 8.2), and MJDREFI and JDREFI (Sect. 9.2.2) are reserved. The integer keywords of one
-	#  type of HDU, e.g., TFIELDS or BLANK, are verified by the verify! method of that type.
-	verifyinteger(mankeys, r"^(BITPIX|NAXIS\d*|PCOUNT|GCOUNT)$")
-	verifyinteger(reskeys, r"^(EXTVER|EXTLEVEL|WCSAXES[A-Z]?|MJDREFI|JDREFI)$")
-	#  The descriptive keywords of Sects. 4.4.2.1 to 4.4.2.3 are character strings, and the dates are dates.
-	#  The level of an extension is 1 for the highest level, and the levels of the extensions below it have higher values
-	#  (Sect. 4.4.2.6)
-	level = get(reskeys, "EXTLEVEL", 1)
-	level isa Integer && level < 1 && @warn "EXTLEVEL must be 1 or more, with 1 the highest level (Sect. 4.4.2.6), " *
-		"but its value is $level. It is read as it is."
-	verifystring(reskeys, r"^(ORIGIN|TELESCOP|INSTRUME|OBSERVER|OBJECT|AUTHOR|REFERENC|EXTNAME|CHECKSUM|DATASUM)$")
-	verifydate(reskeys, r"^DATE")
-	verifyxtension!(cards)
-end
 
-"""
-	verifyinteger(keys, pattern)
 
-Raise an `ArgumentError` that names the keyword and its value if the value of a keyword of the dictionary
-`keys` that matches the regular expression `pattern` is not an integer, e.g., NAXIS1 = 2.0 or PCOUNT = 'two'.
-`keys` is the dictionary of the mandatory keywords, `mankeys`, or of the reserved keywords, `reskeys`, of a
-header (see `MANDATORYKEYS` and `RESERVEDKEYS`), and a verify! method calls `verifyinteger` once for each. A
-floating-point value, even of a whole number, is not an integer, and the size of the data cannot be determined
-from it, so the HDU cannot be read. The values of other keywords are not checked.
-"""
-function verifyinteger(keys::AbstractDict, pattern::Regex)
-	for (key, value) in keys
-		occursin(pattern, key) || continue
-		value isa Integer && !(value isa Bool) && continue
-		throw(ArgumentError("$key must be an integer, but its value is $(repr(value))."))
-	end
-	nothing
-end
 
-"""
-	verifynumber(keys, pattern)
 
-Raise an `ArgumentError` that names the keyword and its value if the value of a keyword of the dictionary
-`keys` that matches `pattern` is not a real number, e.g., BSCALE = 'two'. A value of an integer type is a
-number, since a keyword of a floating-point number can be written without a decimal point. The array cannot
-be scaled by a value that is not a number, so the HDU cannot be read.
-"""
-function verifynumber(keys::AbstractDict, pattern::Regex)
-	for (key, value) in keys
-		occursin(pattern, key) || continue
-		value isa Real && !(value isa Bool) && continue
-		throw(ArgumentError("$key must be a number, but its value is $(repr(value))."))
-	end
-	nothing
-end
 
-"""
-	verifyfloat(keys, pattern)
 
-Warn if the value of a keyword of the dictionary `keys` that matches `pattern` is an integer, when the
-standard requires a floating-point number, e.g., DATAMIN = 0. A value that is not a number is not checked
-(see [`verifynumber`](@ref)). The value is read as it is.
-"""
-function verifyfloat(keys::AbstractDict, pattern::Regex)
-	for (key, value) in keys
-		occursin(pattern, key) && value isa Integer && !(value isa Bool) &&
-			@warn "$key must be a floating-point number, but its value is the integer $value. It is read as it is."
-	end
-	nothing
-end
 
-"""
-	verifystring(keys, pattern)
 
-Warn if the value of a keyword of the dictionary `keys` that matches `pattern` is not a character string.
-The value is read and written as it is.
-"""
-function verifystring(keys::AbstractDict, pattern::Regex)
-	for (key, value) in keys
-		occursin(pattern, key) && !(value isa AbstractString) &&
-			@warn "$key must be a character string, but its value is $(repr(value)). It is read as it is."
-	end
-	nothing
-end
 
-"""
-	verifylogical(keys, pattern)
 
-Warn if the value of a keyword of the dictionary `keys` that matches `pattern` is not a logical, T or F.
-The value is read and written as it is.
-"""
-function verifylogical(keys::AbstractDict, pattern::Regex)
-	for (key, value) in keys
-		occursin(pattern, key) && !(value isa Bool) &&
-			@warn "$key must be a logical, T or F, but its value is $(repr(value)). It is read as it is."
-	end
-	nothing
-end
 
-#  Is `text` a date of the form YYYY-MM-DD, YYYY-MM-DDThh:mm:ss[.sss...], or, before 2000, DD/MM/YY (Sect. 4.4.2.1)?
-function isdatestring(text::AbstractString)
-	m = match(r"^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?)?$", text)
-	if !isnothing(m)
-		year, month, day = parse.(Int, m.captures[1:3])
-		time = isnothing(m[4]) ? (0, 0, 0) : parse.(Int, m.captures[4:6])
-		return isdate(year, month, day) && time[1] < 24 && time[2] < 60 && time[3] < 61
-	end
-	m = match(r"^(\d{2})/(\d{2})/(\d{2})$", text)
-	isnothing(m) ? false : isdate(1900 + parse(Int, m[3]), parse(Int, m[2]), parse(Int, m[1]))
-end
 
-function isdate(year::Integer, month::Integer, day::Integer)
-	leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)
-	ndays = (31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)
-	1 <= month <= 12 && 1 <= day <= ndays[month]
-end
 
-"""
-	verifydate(keys, pattern)
 
-Warn if the value of a keyword of the dictionary `keys` that matches `pattern` is not a date of the form
-`YYYY-MM-DD` or `YYYY-MM-DDThh:mm:ss[.sss...]`, or `DD/MM/YY` for a date before 2000 (Sect. 4.4.2.1 of the
-standard). The value is read and written as it is.
-"""
-function verifydate(keys::AbstractDict, pattern::Regex)
-	for (key, value) in keys
-		occursin(pattern, key) || continue
-		value isa AbstractString && isdatestring(strip(value)) && continue
-		@warn "$key must be a date of the form YYYY-MM-DD[Thh:mm:ss[.sss]] (Sect. 4.4.2.1), but its value is " *
-			"$(repr(value)). It is read as it is."
-	end
-	nothing
-end
 
-"""
-	verifyunit(keys, pattern)
 
-Warn if the value of a keyword of the dictionary `keys` that matches `pattern` is a character string that is
-not a units string (Sect. 4.3 of the standard). An empty string is not checked. The value is read and written
-as it is.
-"""
-function verifyunit(keys::AbstractDict, pattern::Regex)
-	for (key, value) in keys
-		occursin(pattern, key) && value isa AbstractString && !isempty(strip(value)) &&
-			isnothing(parseunit(Unitful, value)) &&
-			@warn "$key must be a units string (Sect. 4.3), but its value is $(repr(value)). It is read as it is."
-	end
-	nothing
-end
 
-"""
-	verifyvalue(keys, key, allowed, requirement)
 
-Raise an `ArgumentError` that names the keyword and its value if the keyword `key` is in the dictionary
-`keys`, of the mandatory keywords, and its value is not in `allowed`, e.g., a range or a tuple of values.
-`requirement` describes the allowed values for the message, e.g., "the integer 0". A keyword that is not in
-`keys` is not verified, since the header of an HDU that is created without cards has no keywords. The
-value is an integer, which `verifyinteger` verifies first.
-"""
-function verifyvalue(keys::AbstractDict, key::AbstractString, allowed, requirement::AbstractString)
-	haskey(keys, key) && !(keys[key] in allowed) &&
-		throw(ArgumentError("$key must be $requirement, but its value is $(repr(keys[key]))."))
-	nothing
-end
 
-#  The requirement of the value of BITPIX of the data types of an array (Table 8)
-verifybitpix(mankeys::AbstractDict) = verifyvalue(mankeys, "BITPIX", BITPIXVALUES,
-	"one of $(join(BITPIXVALUES[1:end-1], ", ")), or $(BITPIXVALUES[end])")
-
-#  The structure of a table extension, ASCII or binary, which is an array of bytes with NAXIS = 2 axes, the
-#  length of a row and the number of rows (Sects. 7.2.1 and 7.3.1)
-function verifyrows(mankeys::AbstractDict)
-	verifyvalue(mankeys, "BITPIX", 8:8, "the integer 8")
-	verifyvalue(mankeys, "NAXIS", 2:2, "the integer 2")
-	verifyaxes(mankeys)
-end
-
-"""
-	verifyaxes(mankeys; first = 1)
-
-Verify the NAXISn keywords of an HDU, from the index `first` to NAXIS, in the dictionary `mankeys` of the
-mandatory keywords. It is an error, since the size of the data cannot be determined, if NAXISn is missing for
-an n from `first` to NAXIS, or if it is negative. It is a warning, since the extra keywords are not used, if
-NAXISn is present for an n greater than NAXIS. A header with no NAXIS is not verified. `first` is 2 for random
-groups, where NAXIS1 is 0 (Sects. 4.4.1.1, 6.1.1, 7.1.1, 7.2.1, and 7.3.1).
-"""
-function verifyaxes(mankeys::AbstractDict; first::Integer = 1)
-	N = get(mankeys, "NAXIS", nothing)
-	isnothing(N) && return nothing
-	for j = first:N
-		haskey(mankeys, "NAXIS$j") || throw(ArgumentError("NAXIS$j is missing, but NAXIS is $N."))
-		verifyvalue(mankeys, "NAXIS$j", 0:typemax(Int), "non-negative")
-	end
-	for key in sort!(collect(keys(mankeys)))
-		m = match(r"^NAXIS(\d+)$", key)
-		!isnothing(m) && Base.parse(Int, m[1]) > max(N, 0) && @warn "$key is beyond NAXIS $N, and is not used."
-	end
-	nothing
-end
-
-"""
-	verifyfields!(cards, mankeys; columns = false)
-
-Verify the keywords that describe the fields of a table extension, and return the cards unchanged
-(Sects. 7.2.1 and 7.3.1 of the standard). It is an error, since the fields cannot be read, if TFIELDS
-is negative, if TFORMn is missing for an n from 1 to TFIELDS, or, for an ASCII table (`columns = true`),
-if TBCOLn is missing or less than 1, since the first column of a row is numbered 1. It is a warning,
-since the extra keywords are not used, if TFIELDS is more than 999, the maximum, or if TFORMn or TBCOLn
-is present for an n greater than TFIELDS. A header with no TFIELDS is not verified.
-"""
-function verifyfields!(cards::Cards, mankeys::AbstractDict; columns::Bool = false)
-	N = get(mankeys, "TFIELDS", nothing)
-	isnothing(N) && return cards
-	N < 0 && throw(ArgumentError("TFIELDS must be non-negative, but its value is $N."))
-	N > MAXFIELDS && @warn "TFIELDS $N is more than the maximum of $MAXFIELDS."
-	for j = 1:N
-		haskey(mankeys, "TFORM$j") || throw(ArgumentError("TFORM$j is missing, but TFIELDS is $N."))
-		if columns
-			haskey(mankeys, "TBCOL$j") || throw(ArgumentError("TBCOL$j is missing, but TFIELDS is $N."))
-			mankeys["TBCOL$j"] >= 1 || throw(ArgumentError(
-				"TBCOL$j must be at least 1, the first column of a row, but its value is $(mankeys["TBCOL$j"])."))
-		end
-	end
-	for key in sort!(collect(keys(mankeys)))
-		m = match(r"^(TFORM|TBCOL)(\d+)$", key)
-		!isnothing(m) && Base.parse(Int, m[2]) > N && (columns || m[1] == "TFORM") &&
-			@warn "$key is beyond TFIELDS $N, and is not used."
-	end
-	cards
-end
-
-"""
-	verifyheap!(cards, mankeys)
-
-Warn if THEAP of a binary table is outside of the range that the standard allows (Sect. 7.3.2), and
-return the cards unchanged. The heap starts THEAP bytes after the start of the main data table, so THEAP
-cannot be less than NAXIS1*NAXIS2 or more than that plus PCOUNT, the bytes of the gap and the heap.
-"""
-function verifyheap!(cards::Cards, mankeys::AbstractDict)
-	haskey(mankeys, "THEAP") || return cards
-	heap = mankeys["THEAP"]
-	table = get(mankeys, "NAXIS1", 0) * get(mankeys, "NAXIS2", 0)
-	if heap < table
-		@warn "THEAP $heap is less than NAXIS1*NAXIS2, $table, and the heap overlaps the table."
-	elseif heap > table + get(mankeys, "PCOUNT", 0)
-		@warn "THEAP $heap is more than NAXIS1*NAXIS2 + PCOUNT, $(table + get(mankeys, "PCOUNT", 0)), and the heap is past the data."
-	end
-	cards
-end
-
-"""
-	verifyxtension!(cards)
-
-Warn if the value of the XTENSION card is not padded to 8 characters, as the standard requires,
-and return the cards unchanged. A file may have the value written without the padding, e.g.,
-`'TABLE'`, which is read without error, since the trailing spaces of a string are not significant,
-and the file is written as it was read, so the card is not changed. The width of the value is the
-width of the string on the card, and not the value.
-"""
-function verifyxtension!(cards::Cards)
-	j = Base.findfirst("XTENSION", cards)
-	ismissing(j) && return cards
-	card = cards[j]
-	value, format = card.value, card.format
-	if value isa AbstractString && rstrip(uppercase(value)) in XTENSION_VALUES && format.vbeg > 0 &&
-		format.vend - format.vbeg - 1 < XTENSIONLENGTH
-		@warn "The XTENSION value '$value' is not padded to $XTENSIONLENGTH characters."
-	end
-	cards
-end
-
-"""
-	verifyprimary(cards, mankeys)
-
-Warn if the header of a primary HDU does not begin with SIMPLE, BITPIX, NAXIS, and the NAXISn keywords, in
-that order and with no other keyword between them (Sect. 4.4.1.1 of the standard), or if the values of
-these keywords are not in fixed format (Sect. 4.4.1), and return the cards unchanged. The file is read and
-written as it is, so the cards are not reordered or reformatted. The NAXIS value of `mankeys` must be
-valid, as `verifyarray` checks.
-"""
-function verifyprimary(cards::Cards, mankeys::AbstractDict)
-	#  A header that is being created does not have the keywords yet, and is arranged when it is created.
-	haskey(mankeys, "SIMPLE") || return cards
-	required = vcat(["SIMPLE", "BITPIX", "NAXIS"], ["NAXIS$j" for j = 1:get(mankeys, "NAXIS", 0)])
-	verifyorder(cards, required)
-	verifyfixed(cards, required)
-end
-
-"""
-	verifyorder(cards, required)
-
-Warn at the first of the first cards that is not the keyword in the same place of `required`, and return the
-cards unchanged (see [`verifyprimary`](@ref)). The keywords `section` and `names` are the section of the standard and
-the names of the keywords that the warning gives.
-"""
-function verifyorder(cards::Cards, required::AbstractVector{<:AbstractString};
-	section::AbstractString = "Sect. 4.4.1.1", names::AbstractString = "SIMPLE, BITPIX, NAXIS, and the NAXISn")
-
-	for (j, key) in enumerate(required)
-		found = j <= length(cards) ? uppercase(cards[j].key) : "END"
-		if found != key
-			found = isempty(found) ? "a blank card" : found
-			@warn "Keyword $j of the header is $found, but the Standard requires $key ($section): " *
-				"$names come first, in order, with no other keyword between them. The cards are not reordered."
-			break
-		end
-	end
-	cards
-end
-
-"""
-	verifyfixed(cards, required)
-
-Warn if the value of a card of the keywords `required` is not in fixed format, and return the cards unchanged
-(see [`verifyprimary`](@ref)).
-"""
-function verifyfixed(cards::Cards, required::AbstractVector{<:AbstractString})
-	free = unique([uppercase(card.key) for card in cards if uppercase(card.key) in required && !card.format.fixd])
-	isempty(free) || @warn "The value of $(join(free, ", ")) is not in fixed format (Sect. 4.4.1): " *
-		"a fixed-format value is right-justified in bytes 11 to 30, and a string begins in byte 11. " *
-		"The cards are not changed."
-	cards
-end
-
-"""
-	verifyshape!(cards, mankeys, format; first = 1)
-
-Correct BITPIX and the NAXIS keywords of `cards` to match the data format `format`, and return
-the cards. `first` is the index of the first NAXISn keyword that describes the data, which is 2
-for random groups, where NAXIS1 is 0.
-"""
-function verifyshape!(cards::Cards, mankeys::AbstractDict, format::DataFormat; first::Integer = 1)
-	if haskey(mankeys, "BITPIX") && format.type != BITS2TYPE[mankeys["BITPIX"]]
-		setindex!(cards, TYPE2BITS[format.type], "BITPIX")
-		@warn "BITPIX set to $(TYPE2BITS[format.type])."
-	end
-	if haskey(mankeys, "NAXIS1") && format.shape != datasize(cards, first)
-		N = length(format.shape) + first - 1
-		setindex!(cards, N, "NAXIS")
-		first == 2 && setindex!(cards, 0, "NAXIS1")
-		for j = first:N setindex!(cards, format.shape[j-first+1], "NAXIS$j") end
-		@warn "NAXIS$(first:N) set to $(format.shape)"
-	end
-	cards
-end
-
-"""
-	verifycounts!(cards, mankeys, format)
-
-Correct PCOUNT and GCOUNT of `cards` to match the data format `format`, and return the cards.
-"""
-function verifycounts!(cards::Cards, mankeys::AbstractDict, format::DataFormat)
-	for (key, value) in (("PCOUNT", format.param), ("GCOUNT", format.group))
-		if haskey(mankeys, key) && value != mankeys[key]
-			setindex!(cards, value, key)
-			@warn "$key set to $value"
-		end
-	end
-	cards
-end
 
 """
 	arrangecards!(cards, required)
@@ -898,65 +509,6 @@ function tablekeys(xtension::AbstractString, format::DataFormat, nfields::Intege
 		"NAXIS2" => N, "PCOUNT" => 0, "GCOUNT" => 1, "TFIELDS" => nfields]
 end
 
-"""
-    scaled(data, scale, zero)
-
-Return `zero + scale*data`. The type of the result is the promotion of the types of `data`,
-`scale` and `zero` (a Float32 for 32-bit integer data and a Float32 `scale`, say), but the
-operands are converted to at least a Float64 before the multiplication and the addition, which
-`muladd` fuses into a single rounding where the hardware allows it. A Float32 product would
-otherwise round the stored integers to 24 bits (e.g., a `UInt32` stored as `Int32` with `TZERO`
-2147483648 and a Float32 `TSCAL` of 1).
-"""
-function scaled(data, scale, zero)
-	T = promote_type(typeof(scale), typeof(zero), nonmissingtype(eltype(data)))
-	W = promote_type(T, Float64)
-	#  An undefined value stays undefined
-	f(x) = ismissing(x) ? missing : T(muladd(W(scale), W(x), W(zero)))
-	f.(data)
-end
-
-"""
-    setmissing(data, miss)
-
-Return `data` with `missing` in place of the raw values equal to `miss`, the value of the BLANK or
-TNULLn keyword (Sects. 4.4.2.5 and 7.3.2 of the standard). The comparison is made before any scaling.
-The result has the element type `Union{T, Missing}`, whether or not a value is equal to `miss`, and
-`data` itself is returned when `miss` is `nothing`.
-"""
-setmissing(data, ::Nothing) = data
-setmissing(value::Real, miss::Integer) = value == miss ? missing : value
-function setmissing(data::AbstractArray{T}, miss::Integer) where T
-	out = Array{Union{T, Missing}}(data)
-	out[data .== miss] .= missing
-	out
-end
-
-"""
-    unsetmissing(data, miss, type)
-
-Return `data` with `miss` in place of `missing`, as raw values of `type`: the inverse of
-[`setmissing`](@ref). Data of a floating-point `type` has no BLANK or TNULLn keyword, and the undefined
-value is `NaN` (Sect. 4.4.2.5). It is an `ArgumentError` if `data` has a `missing` value but no `miss`
-is given for an integer `type`.
-"""
-unsetmissing(data, miss, type::Type) = data
-function unsetmissing(data::AbstractArray{Union{T, Missing}}, miss, type::Type) where T
-	any(ismissing, data) || return type.(data)
-	type.(coalesce.(data, undefinedvalue(type, miss)))
-end
-function unsetmissing(value::Missing, miss, type::Type)
-	undefinedvalue(type, miss)
-end
-
-function undefinedvalue(type::Type{<:AbstractFloat}, miss)
-	type(NaN)
-end
-function undefinedvalue(type::Type, miss)
-	isnothing(miss) && throw(ArgumentError(
-		"missing values cannot be written without a BLANK or TNULLn keyword"))
-	type(miss)
-end
 
 function getreservedkeys(cards::Cards)
 	mankeys = Dict{AbstractString, ValueType}()
@@ -1135,27 +687,7 @@ function readbytes(io::IO, n::Integer)
 	bytes
 end
 
-#  The byte that fills the last data block after the data, and what it is called, and the section of the standard: zeros, except
-#  for the ASCII spaces of an ASCII table
-fillrule(::Type{<:AbstractHDU}) = (0x00, "zeros", "Sect. 3.3.2")
 
-"""
-	verifyfill(io, type, pos, nbytes)
-
-Warn if the fill of the last data block after the `nbytes` bytes of the data of an HDU of the type `type`, which begin at
-the position `pos` of `io`, is not what the standard says: all bits zero, or ASCII spaces for an ASCII table (Sects. 3.3.2,
-6.2, 7.2.3, and 7.3.3). The data are read as they are, but the fill is not kept, and is written as it should be. A last
-block that is not filled, which is a file that ends after the data, is not verified. The position of `io` is not kept.
-"""
-function verifyfill(io::IO, type::Type{<:AbstractHDU}, pos::Integer, nbytes::Integer)
-	nfill = BLOCKLEN*cld(nbytes, BLOCKLEN) - nbytes
-	nfill == 0 && return nothing
-	byte, name, section = fillrule(type)
-	seek(io, pos + nbytes)
-	all(==(byte), read(io, nfill)) || @warn "The fill of the last data block of the HDU is not all $name ($section). The data are " *
-		"read as they are, and the fill is written as $name."
-	nothing
-end
 
 function padblock(io::IO, format::DataFormat, pad::UInt8 = 0x00)
 	#  Pad remaining data block to BLOCKLEN length (2880 bytes)

@@ -16,6 +16,11 @@ of ASCII data structured as vector of records.
 struct Table <: AbstractHDU end
 XTENSIONTYPE["TABLE"] = Table
 
+#  The mandatory and reserved keywords of the HDU (see `getreservedkeys`)
+union!(MANDATORYKEYS, ["XTENSION", "PCOUNT", "GCOUNT", "TFIELDS", "TFORM", "TBCOL"])
+union!(RESERVEDKEYS, ["INHERIT", "TFIELDS", "TFORM", "TBCOL", "TSCAL", "TZERO", "TNULL", "TTYPE", "TUNIT", "TDISP",
+    "TDMAX", "TDMIN", "TLMAX", "TLMIN"])
+
 #  The fill after the data is ASCII spaces (see `verifyfill`)
 fillrule(::Type{Table}) = (0x20, "ASCII spaces", "Sect. 7.2.3")
 
@@ -107,13 +112,13 @@ end
 function verify!(::Type{Table}, cards::Cards, mankeys::AbstractDict, reskeys::AbstractDict)
     cards = invoke(verify!, Tuple{Type{<:AbstractHDU}, Cards, AbstractDict, AbstractDict}, Table, cards,
         mankeys, reskeys)
-    verifyrows(mankeys)
+    verifyrows(Table, mankeys)
     #  An ASCII table has a single table and no heap (Sect. 7.2.1)
     verifyvalue(mankeys, "PCOUNT", 0:0, "the integer 0")
     verifyvalue(mankeys, "GCOUNT", 1:1, "the integer 1")
     #  The number of fields and the first columns of the fields are integers (Sect. 7.2.1)
     verifyinteger(mankeys, r"^(TFIELDS|TBCOL\d+)$")
-    verifyfields!(cards, mankeys; columns = true)
+    verifyfields!(Table, cards, mankeys)
 end
 
 function verify!(::Type{Table}, cards::Cards, format::DataFormat,
@@ -359,4 +364,40 @@ function Base.write(io::IO, data::ValueType, field::TableField, begpos::Integer;
     value = Printf.format(Printf.Format("%$(fmt[2:end])$(fmt[1])"), data)
     write(io, repeat(" ", field.slice.start - (position(io) - begpos + 1)))
     write(io, occursin("D", field.form) ? replace(value, "E" => "D") : value)
+end
+
+#  The structure of an ASCII table extension, which is an array of bytes with NAXIS = 2 axes, the length of a row and the number
+#  of rows (Sect. 7.2.1)
+function verifyrows(::Type{Table}, mankeys::AbstractDict)
+	verifyvalue(mankeys, "BITPIX", 8:8, "the integer 8")
+	verifyvalue(mankeys, "NAXIS", 2:2, "the integer 2")
+	verifyaxes(mankeys)
+end
+
+"""
+	verifyfields!(Table, cards, mankeys)
+
+Verify the keywords that describe the fields of an ASCII table extension, and return the cards unchanged
+(Sect. 7.2.1 of the standard). It is an error, since the fields cannot be read, if TFIELDS
+is negative, if TFORMn is missing for an n from 1 to TFIELDS, or if TBCOLn is missing or less than 1, since the first column of a row is numbered 1. It is a warning,
+since the extra keywords are not used, if TFIELDS is more than 999, the maximum, or if TFORMn or TBCOLn
+is present for an n greater than TFIELDS. A header with no TFIELDS is not verified.
+"""
+function verifyfields!(::Type{Table}, cards::Cards, mankeys::AbstractDict)
+	N = get(mankeys, "TFIELDS", nothing)
+	isnothing(N) && return cards
+	N < 0 && throw(ArgumentError("TFIELDS must be non-negative, but its value is $N."))
+	N > MAXFIELDS && @warn "TFIELDS $N is more than the maximum of $MAXFIELDS."
+	for j = 1:N
+		haskey(mankeys, "TFORM$j") || throw(ArgumentError("TFORM$j is missing, but TFIELDS is $N."))
+		haskey(mankeys, "TBCOL$j") || throw(ArgumentError("TBCOL$j is missing, but TFIELDS is $N."))
+		mankeys["TBCOL$j"] >= 1 || throw(ArgumentError(
+			"TBCOL$j must be at least 1, the first column of a row, but its value is $(mankeys["TBCOL$j"])."))
+	end
+	for key in sort!(collect(keys(mankeys)))
+		m = match(r"^(TFORM|TBCOL)(\d+)$", key)
+		!isnothing(m) && Base.parse(Int, m[2]) > N &&
+			@warn "$key is beyond TFIELDS $N, and is not used."
+	end
+	cards
 end

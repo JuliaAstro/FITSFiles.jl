@@ -168,30 +168,34 @@
         ok = keys("TFIELDS" => 2, "TFORM1" => "I4", "TFORM2" => "F5.1", "TBCOL1" => 1, "TBCOL2" => 5)
 
         #  the cards are returned unchanged, and a header without TFIELDS is not verified (Sects. 7.2.1, 7.3.1)
-        @test FITSFiles.verifyfields!(cards, ok; columns = true) === cards
-        @test FITSFiles.verifyfields!(cards, keys("TFORM3" => "I4")) === cards
-        @test FITSFiles.verifyfields!(cards, keys("TFIELDS" => 0)) === cards
+        @test FITSFiles.verifyfields!(Table, cards, ok) === cards
+        @test FITSFiles.verifyfields!(Bintable, cards, keys("TFORM3" => "I4")) === cards
+        @test FITSFiles.verifyfields!(Bintable, cards, keys("TFIELDS" => 0)) === cards
 
-        #  TFIELDS is not negative, and TFORMn and TBCOLn are present for each field
-        @test_throws ArgumentError("TFIELDS must be non-negative, but its value is -1.") FITSFiles.verifyfields!(
-            cards, keys("TFIELDS" => -1))
-        @test_throws ArgumentError("TFORM2 is missing, but TFIELDS is 2.") FITSFiles.verifyfields!(
-            cards, keys("TFIELDS" => 2, "TFORM1" => "I4"))
+        #  TFIELDS is not negative, and TFORMn is present for each field of both types of table, and TBCOLn for an ASCII table
+        for type in (Table, Bintable)
+            @test_throws ArgumentError("TFIELDS must be non-negative, but its value is -1.") FITSFiles.verifyfields!(
+                type, cards, keys("TFIELDS" => -1))
+            @test_throws ArgumentError("TFORM2 is missing, but TFIELDS is 2.") FITSFiles.verifyfields!(
+                type, cards, keys("TFIELDS" => 2, "TFORM1" => "I4", "TBCOL1" => 1, "TBCOL2" => 5))
+        end
         @test_throws ArgumentError("TBCOL2 is missing, but TFIELDS is 2.") FITSFiles.verifyfields!(
-            cards, delete!(copy(ok), "TBCOL2"); columns = true)
-        @test FITSFiles.verifyfields!(cards, delete!(copy(ok), "TBCOL2")) === cards
+            Table, cards, delete!(copy(ok), "TBCOL2"))
+        @test FITSFiles.verifyfields!(Bintable, cards, delete!(copy(ok), "TBCOL2")) === cards
 
-        #  the first column of a row is 1
-        @test_throws ArgumentError FITSFiles.verifyfields!(cards, merge(ok, keys("TBCOL1" => 0)); columns = true)
-        @test FITSFiles.verifyfields!(cards, merge(ok, keys("TBCOL1" => 0))) === cards
+        #  the first column of a row of an ASCII table is 1
+        @test_throws ArgumentError FITSFiles.verifyfields!(Table, cards, merge(ok, keys("TBCOL1" => 0)))
+        @test FITSFiles.verifyfields!(Bintable, cards, merge(ok, keys("TBCOL1" => 0))) === cards
 
         #  more than 999 fields, and keywords of fields that are beyond TFIELDS, are warnings
-        @test_logs (:warn, r"TFIELDS 1000 is more than the maximum of 999") FITSFiles.verifyfields!(
-            cards, keys("TFIELDS" => 1000, [("TFORM$j" => "I4") for j = 1:1000]...))
-        @test_logs (:warn, r"TFORM3 is beyond TFIELDS 2") FITSFiles.verifyfields!(cards, merge(ok, keys("TFORM3" => "I4")))
+        for type in (Table, Bintable)
+            @test_logs (:warn, r"TFIELDS 1000 is more than the maximum of 999") FITSFiles.verifyfields!(
+                type, cards, keys("TFIELDS" => 1000, [("TFORM$j" => "I4") for j = 1:1000]..., [("TBCOL$j" => j) for j = 1:1000]...))
+            @test_logs (:warn, r"TFORM3 is beyond TFIELDS 2") FITSFiles.verifyfields!(type, cards, merge(ok, keys("TFORM3" => "I4")))
+        end
         @test_logs (:warn, r"TBCOL3 is beyond TFIELDS 2") FITSFiles.verifyfields!(
-            cards, merge(ok, keys("TBCOL3" => 9)); columns = true)
-        @test_logs FITSFiles.verifyfields!(cards, merge(ok, keys("TBCOL3" => 9)))
+            Table, cards, merge(ok, keys("TBCOL3" => 9)))
+        @test_logs FITSFiles.verifyfields!(Bintable, cards, merge(ok, keys("TBCOL3" => 9)))
 
         #  the heap starts at the end of the main data table or later, and within PCOUNT bytes of it (Sect. 7.3.2)
         table = keys("NAXIS1" => 8, "NAXIS2" => 3, "PCOUNT" => 10)
@@ -281,7 +285,7 @@
 
         #  the types of HDU: the first card is SIMPLE or XTENSION, and the random group cards are in order
         fmt = FITSFiles.DataFormat(Int16, 6, (2, 3), 0, 1, 0)
-        for (type, field, first) in ((Primary, FITSFiles.ImageField(Int16, 0f0, 1f0, nothing, nothing, nothing), "SIMPLE"),
+        for (type, field, first) in ((Primary, FITSFiles.PrimaryField(Int16, 0f0, 1f0, nothing, nothing, nothing), "SIMPLE"),
             (Image, FITSFiles.ImageField(Int16, 0f0, 1f0, nothing, nothing, nothing), "XTENSION"),
             (FITSFiles.Conform, FITSFiles.ConformField(), "SIMPLE"))
             kards = FITSFiles.createcards!(type, fmt, field, Card{<:Any}[])
@@ -346,15 +350,19 @@
         field = FITSFiles.FieldFormat(Image, format, mankeys(), missing)
         @test (field.type, field.zero, field.scale, field.miss, field.dmin, field.dmax) ==
             (Int16, 0, 1, nothing, nothing, nothing)
-        field = FITSFiles.FieldFormat(Primary, format, mankeys("BZERO" => 32768, "BSCALE" => 2.5, "BLANK" => -32768,
-            "DATAMIN" => 1.5, "DATAMAX" => 9.5), ones(Int16, 3, 4))
-        @test (field.zero, field.scale, field.miss, field.dmin, field.dmax) == (32768, 2.5, -32768, 1.5, 9.5)
+        for type in (Primary, Image)
+            field = FITSFiles.FieldFormat(type, format, mankeys("BZERO" => 32768, "BSCALE" => 2.5, "BLANK" => -32768,
+                "DATAMIN" => 1.5, "DATAMAX" => 9.5), ones(Int16, 3, 4))
+            @test (field.zero, field.scale, field.miss, field.dmin, field.dmax) == (32768, 2.5, -32768, 1.5, 9.5)
+            @test field isa (type === Primary ? FITSFiles.PrimaryField : FITSFiles.ImageField)
+        end
         format = FITSFiles.DataFormat(Image, missing, mankeys("BITPIX" => -32))
         @test isnothing(FITSFiles.FieldFormat(Image, format, mankeys("BITPIX" => -32, "BLANK" => 0), missing).miss)
 
         #  the data of a header is zeros, or missing if there are no axes
         @test FITSFiles.zerosarray(formats[1]) == zeros(Int16, 3, 4)
-        @test FITSFiles.createdata(Image, formats[1], field) == zeros(Int16, 3, 4)
+        @test FITSFiles.createdata(Image, formats[1], FITSFiles.FieldFormat(Image, formats[1], mankeys(), missing)) == zeros(Int16, 3, 4)
+        @test FITSFiles.createdata(Primary, formats[1], FITSFiles.FieldFormat(Primary, formats[1], mankeys(), missing)) == zeros(Int16, 3, 4)
         @test ismissing(FITSFiles.zerosarray(FITSFiles.DataFormat(Int16, 1, (), 0, 1, 0)))
     end
 
@@ -545,5 +553,56 @@
         #  the HDUs of the other types are made as they were
         table = HDU(Bintable, (a = Int32[1, 2, 3],), Card{<:Any}[Card("TTYPE1", "a")])
         @test table isa HDU{Bintable}
+    end
+
+    ####    Test the mandatory and reserved keywords of the HDUs    ####
+
+    @testset "MANDATORYKEYS and RESERVEDKEYS" begin
+        mandatory = [
+        "BITPIX", "END", "GCOUNT", "GROUPS", "NAXIS", "PCOUNT", "SIMPLE", "TBCOL", "TFIELDS", "TFORM", "THEAP",
+        "XTENSION", "ZBITPIX", "ZCMPTYPE", "ZCTYP", "ZFORM", "ZIMAGE", "ZNAXIS", "ZPCOUNT", "ZTABLE", "ZTILELEN"]
+        reserved = [
+        "AUTHOR", "BLANK", "BLOCKED", "BSCALE", "BUNIT", "BZERO", "CHECKSUM", "DATAMAX", "DATAMIN", "DATASUM",
+        "DATE", "DATE-OBS", "EPOCH", "EQUINOX", "EXTEND", "EXTLEVEL", "EXTNAME", "EXTVER", "FZALG", "FZALGOR",
+        "FZTILELN", "INHERIT", "INSTRUME", "JDREFI", "MJDREFI", "OBJECT", "OBSERVER", "ORIGIN", "PSCAL", "PTYPE",
+        "PZERO", "REFERENC", "TBCOL", "TDIM", "TDISP", "TDMAX", "TDMIN", "TELESCOP", "TFIELDS", "TFORM", "TLMAX",
+        "TLMIN", "TNULL", "TSCAL", "TTYPE", "TUNIT", "TZERO", "WCSAXES", "ZBLANK", "ZBLOCKED", "ZDATASUM",
+        "ZDITHER0", "ZEXTEND", "ZGCOUNT", "ZHECKSUM", "ZMASKCMP", "ZNAME", "ZPCOUNT", "ZQUANTIZ", "ZSIMPLE",
+        "ZTENSION", "ZTHEAP", "ZTILE", "ZVAL"]
+        #  the types of HDUs add the roots of their keywords, in their files, to those of the HDUs, which are each once
+        @test allunique(FITSFiles.MANDATORYKEYS) && allunique(FITSFiles.RESERVEDKEYS)
+        @test sort(FITSFiles.MANDATORYKEYS) == sort(mandatory) && sort(FITSFiles.RESERVEDKEYS) == sort(reserved)
+        #  the keywords of each type of HDU are sorted into the mandatory and the reserved
+        cards = Card{<:Any}[Card("SIMPLE", true), Card("BITPIX", 16), Card("GROUPS", true), Card("PCOUNT", 2), Card("PTYPE1", "A"),
+            Card("BSCALE", 2.0), Card("INHERIT", true), Card("TFORM3", "A4"), Card("TDIM2", "(2,3)"), Card("ZTILE1", 4),
+            Card("FZALGOR", "RICE_1"), Card("OBJECT", "x"), Card("NOTAKEY", 1)]
+        mankeys, reskeys = FITSFiles.getreservedkeys(cards)
+        @test sort(collect(keys(mankeys))) == ["BITPIX", "GROUPS", "PCOUNT", "SIMPLE", "TFORM3"]
+        @test sort(collect(keys(reskeys))) == ["BSCALE", "FZALGOR", "INHERIT", "OBJECT", "PTYPE1", "TDIM2", "TFORM3", "ZTILE1"]
+    end
+
+    ####    Test the verification that each type of HDU has of its own    ####
+
+    @testset "verifyconform and verifyrows" begin
+        #  a Conform HDU verifies the order and the format of its mandatory keywords, as a primary HDU does, with its own function
+        simple, bitpix, naxis = Card("SIMPLE", false), Card("BITPIX", 16), Card("NAXIS", 0)
+        mankeys, _ = FITSFiles.getreservedkeys(Card{<:Any}[simple, bitpix, naxis])
+        cards = Card{<:Any}[simple, bitpix, naxis]
+        @test FITSFiles.verifyconform(cards, mankeys) === cards
+        misordered = Card{<:Any}[Card("OBJECT", "x"), simple, bitpix, naxis]
+        @test_logs (:warn, r"Keyword 1 of the header is OBJECT, but the Standard requires SIMPLE") FITSFiles.verifyconform(
+            misordered, mankeys)
+        @test FITSFiles.verifyconform(misordered, Dict{AbstractString, FITSFiles.ValueType}("BITPIX" => 16)) === misordered
+        #  and the tables verify the structure of their rows, each with its own function
+        for (type, xtension) in ((Table, "TABLE"), (Bintable, "BINTABLE"))
+            ok = Dict{AbstractString, FITSFiles.ValueType}("BITPIX" => 8, "NAXIS" => 2, "NAXIS1" => 20, "NAXIS2" => 3)
+            @test isnothing(FITSFiles.verifyrows(type, ok))
+            @test_throws ArgumentError("BITPIX must be the integer 8, but its value is 16.") FITSFiles.verifyrows(
+                type, merge(ok, Dict{AbstractString, FITSFiles.ValueType}("BITPIX" => 16)))
+            @test_throws ArgumentError("NAXIS must be the integer 2, but its value is 1.") FITSFiles.verifyrows(
+                type, merge(ok, Dict{AbstractString, FITSFiles.ValueType}("NAXIS" => 1)))
+            @test_throws ArgumentError("NAXIS2 is missing, but NAXIS is 2.") FITSFiles.verifyrows(
+                type, delete!(copy(ok), "NAXIS2"))
+        end
     end
 end
