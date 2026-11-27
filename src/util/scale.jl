@@ -96,6 +96,16 @@ function offsetvalue(x::Integer, ::Type{T}) where T<:Integer
     reinterpret(T, reinterpret(U, x) ⊻ (one(U) << (8sizeof(U) - 1)))
 end
 
+#  The type of the stored values of data of the element type `type`, which is a type of BITPIX (Table 8 of the standard), or a physical
+#  type of the offsets of Table 11, e.g., an Int16 for a UInt16. Another type cannot be stored in an array of an HDU.
+function storedtype(type::Type)
+    stored = get(RAWTYPE, type, type)
+    haskey(TYPE2BITS, stored) || throw(ArgumentError("The data have the element type $type, but the data of an array of an HDU " *
+        "have one of the types of BITPIX (Table 8): $(join(sort!(string.(collect(keys(TYPE2BITS)))), ", ")), or the " *
+        "physical types of Table 11: $(join(sort!(string.(collect(keys(RAWTYPE)))), ", "))."))
+    stored
+end
+
 #  An N-dimensional array of zeros of the type of BITPIX, or missing if the data has no axes.
 zerosarray(format::DataFormat) = length(format.shape) > 0 ? zeros(format.type, format.shape) : missing
 

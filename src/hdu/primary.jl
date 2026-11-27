@@ -163,7 +163,7 @@ function DataFormat(::Type{Primary}, data::AbstractArray, mankeys::Dict{S, V}) w
     #  The type of the stored values, which excludes the undefined (missing) ones, and is the integer of the same
     #  size for the physical types of Table 11 (e.g., an Int16 for a UInt16)
     type  = nonmissingtype(eltype(data))
-    type  = get(RAWTYPE, type, type)
+    type  = storedtype(type)
     leng  = length(data)
     shape = size(data)
     param = get(mankeys, "PCOUNT", 0)

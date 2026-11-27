@@ -539,6 +539,19 @@
             made = HDU(Image, zeros(type, shape))
             @test size(made.data) == shape && size(reading(written(made)).data) == shape
         end
+        ####    Data of a type that BITPIX does not have are an error that says which types it has (Table 8)
+
+        for data in (Float16[1 2; 3 4], [true false], ComplexF32[1 2; 3 4], ['a' 'b'], BigFloat[1 2])
+            for type in (Image, Primary)
+                err = try HDU(type, data) catch e e end
+                @test err isa ArgumentError && occursin("element type $(eltype(data))", err.msg) &&
+                    occursin("Table 8", err.msg) && occursin("Float64", err.msg) && occursin("UInt16", err.msg)
+            end
+        end
+        #  the types of BITPIX and the physical types of Table 11 are not
+        for type in (UInt8, Int8, Int16, UInt16, Int32, UInt32, Int64, UInt64, Float32, Float64)
+            @test HDU(Image, type[1 2; 3 4]).data == type[1 2; 3 4]
+        end
         #  an array that has no axes has no data
         noaxes = ["XTENSION= 'IMAGE   '", kw("BITPIX", 16), kw("NAXIS", 0), kw("PCOUNT", 0), kw("GCOUNT", 1)]
         @test ismissing(reading(filebytes(noaxes, UInt8[])).data)
