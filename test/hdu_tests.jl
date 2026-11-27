@@ -609,4 +609,20 @@
                 type, delete!(copy(ok), "NAXIS2"))
         end
     end
+
+    ####    Test what each type of HDU says of how it is shown and compared    ####
+
+    @testset "firstaxis and primarytype" begin
+        #  the axes of the data begin at NAXIS1, and at NAXIS2 for random groups, whose NAXIS1 is 0
+        for type in (Primary, Image, Table, Bintable, FITSFiles.Conform, FITSFiles.ZImage, FITSFiles.ZTable)
+            @test FITSFiles.firstaxis(type) == 1
+        end
+        @test FITSFiles.firstaxis(Random) == 2
+        random = HDU(Random, (a = Int16[1, 3], data = Int16[10 11 12; 20 21 22]))
+        @test occursin("3", sprint(show, MIME"text/plain"(), random)) && !occursin("2 × 3", sprint(show, MIME"text/plain"(), random))
+        @test occursin("2 × 3", sprint(show, MIME"text/plain"(), HDU(Primary, Int16[10 11 12; 20 21 22])))
+        #  a header that begins with SIMPLE is an IMAGE for the comparison of the names, and random groups are not
+        @test FITSFiles.primarytype(Primary) == "IMAGE" && FITSFiles.primarytype(FITSFiles.Conform) == "IMAGE"
+        @test FITSFiles.primarytype(Random) == "GROUPS"
+    end
 end

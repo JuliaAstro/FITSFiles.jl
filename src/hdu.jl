@@ -221,6 +221,9 @@ function extlevel(hdu::HDU)
 	haskey(cards, "EXTLEVEL") ? cards["EXTLEVEL"] : 1
 end
 
+#  The first axis of the data that is shown: the NAXISn of the shape. A type of HDU that does not have the axis 1 of the data defines its own
+firstaxis(::Type{<:AbstractHDU}) = 1
+
 """
 	info(hdu::HDU)
 
@@ -234,7 +237,7 @@ function info(hdu::HDU, n::Integer = 0)
 	ver = lpad(extver(hdu), INFOVERSLEN)
 	crd = lpad(length(cards), INFOCARDLEN)
 	siz = join([string(cards["NAXIS$j"])
-				for j ∈ (typeofhdu(hdu)==Random ? 2 : 1):N], " × ")
+				for j ∈ firstaxis(typeofhdu(hdu)):N], " × ")
 	eltype = lpad(datatype(cards), INFOTYPELEN)
 	print(stdout, "$(n == 0 ? "   " : lpad(n, 3))   $typ  $nam  $ver  $crd  $eltype   $siz\n")
 end
@@ -247,7 +250,7 @@ function Base.show(io::IO, ::MIME"text/plain", hdu::HDU)
 	ver = lpad(extver(hdu), INFOVERSLEN)
 	crd = lpad(length(cards), INFOCARDLEN)
 	siz = join([string(cards["NAXIS$j"])
-				for j ∈ (typeofhdu(hdu)==Random ? 2 : 1):N], " × ")
+				for j ∈ firstaxis(typeofhdu(hdu)):N], " × ")
 	eltype = lpad(datatype(cards), INFOTYPELEN)
 	print(io, "      $typ  $nam  $ver  $crd  $eltype   $siz")
 end

@@ -605,3 +605,9 @@ function shapekeys(::Type{Random}, format::DataFormat)
     for (j, n) in enumerate(format.shape) push!(required, "NAXIS$(j+1)" => n) end
     required
 end
+
+#  The axes of the data that are shown begin at NAXIS2, since NAXIS1 of random groups is 0
+firstaxis(::Type{Random}) = 2
+
+#  The type of random groups for the comparison of the names of the HDUs, which are not equivalent to an IMAGE extension
+primarytype(::Type{Random}) = "GROUPS"
