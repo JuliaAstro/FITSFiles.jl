@@ -294,8 +294,10 @@ end
 The data array of an HDU that is read from a file, memory-mapped, so that the values of the array are read from the file when they are indexed, and the
 file is not read at once. It is an `AbstractArray` of the values that `hdu.data` is, of the same type and with the same scale, and has the same size, e.g., a
 [`FITSFiles.ScaledArray`](@ref) of the values of floating-point stored values that have a BSCALE and a BZERO. It is for the primary HDU, the IMAGE
-extension, and the conforming HDU, i.e., for the data of an array, and an error for the data of another type of HDU. The data of the HDUs of a file are
-mapped when it is read by the keyword `access = :mapped` of [`fits`](@ref) and `read(io, HDU)`, so that `hdu.data` is the mapped array.
+extension, and the conforming HDU, i.e., for the data of an array, and for random groups, whose data are a `NamedTuple` of the mapped parameters and
+array (for repeated names a matrix of the parameters), which are read by the group and not by the file, and an error for the data of another type of
+HDU, or of random groups that are records. The data of the HDUs of a file are mapped when it is read by the keyword `access = :mapped` of
+[`fits`](@ref) and `read(io, HDU)`, so that `hdu.data` is the mapped array.
 
 Slices, e.g., `array[1:100, 5, :]`, and `collect(array)` read the values at once, but each value of an array that is read by value is read with a function
 call. The array reads the file as it is when it is indexed, so it is not valid if the file is truncated or changed. It is an `ArgumentError` if the file
@@ -310,8 +312,10 @@ end
 mapdata(type::Type{<:AbstractHDU}, ::LazyArray) = throw(ArgumentError("The data of an HDU of the type $type are not an array, so they " *
 	"cannot be mapped."))
 
-#  The data of a type of HDU can be mapped, which the type defines (see `mapdata`)
+#  The data of a type of HDU can be mapped, which the type defines (see `mapdata`), and, for the keywords that the data are read with, which a type
+#  that does not map the data of some keywords, e.g., the records of random groups, defines
 mappable(::Type{<:AbstractHDU}) = false
+mappable(type::Type{<:AbstractHDU}, keywds::NamedTuple) = mappable(type)
 
 #  The lazy array that the data of an HDU are read from, if they are not read: the lazy array that is the data, or that the mapped array of the
 #  data is read from, or nothing
@@ -319,6 +323,12 @@ lazysource(data) = nothing
 lazysource(data::LazyArray) = data
 lazysource(data::MappedArray) = data.source
 lazysource(data::ScaledArray) = lazysource(data.parent)
+#  The lazy array that all of the arrays of named data are read from, which random groups that are mapped have, or nothing
+function lazysource(data::NamedTuple)
+	isempty(data) && return nothing
+	source = lazysource(first(data))
+	!isnothing(source) && all(value -> lazysource(value) === source, data) ? source : nothing
+end
 
 function Base.getproperty(hdu::HDU, name::Symbol)
 	if name === :data && getfield(hdu, :data) isa LazyArray
@@ -347,8 +357,9 @@ and a warning says if it is not (see [`verifyfill`](@ref)).
 
 - `access::Symbol=:lazy`: how the data of an HDU that is read from a file are accessed. `:lazy` is the default: the file is scanned without reading
   the data, which are read when `hdu.data` is accessed, as an ordinary array that can be changed. `:memory` reads the data at once. `:mapped` maps
-  the data of the primary HDU, an IMAGE extension, and a conforming HDU in memory (see [`mapdata`](@ref)), so that `hdu.data` is a read-only array
-  that reads only the values that are indexed from the file, and the data of the other types of HDU are lazy. The file must not be modified while
+  the data of the primary HDU, an IMAGE extension, a conforming HDU, and random groups that are not records in memory (see [`mapdata`](@ref)), so that
+  `hdu.data` is a read-only array (for random groups, of arrays) that reads only the values that are indexed from the file, and the data of the other
+  types of HDU are lazy. The file must not be modified while
   its data are lazy or mapped. A stream that is not a file is read at once, and `:mapped` is an error for it.
 - `type=nothing`: the HDU type, e.g., `Image`, which is otherwise determined by the mandatory
   keywords of the header
@@ -381,7 +392,7 @@ function Base.read(io::IO, ::Type{HDU}; type = nothing, strict::Bool = true, uni
 			# create a lazy array for the HDU data field and move to next HDU, which is mapped if the data are
 			name, mtime = abspath(io.name[7:end-1]), stat(io).mtime
 			data = LazyArray(name, mtime, pos, format, fields, (;kwds...))
-			access == :mapped && mappable(type_) && (data = mapdata(type_, data))
+			access == :mapped && mappable(type_, (; kwds...)) && (data = mapdata(type_, data))
 		else
 			data = read(io, type_, format, fields; kwds...)
 		end
