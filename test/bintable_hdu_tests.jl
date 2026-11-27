@@ -960,15 +960,16 @@
 
     seekstart(scaled_io)
     columns = read(scaled_io, HDU; record=false, scale=true).data
-    @test columns.UINT == [46.0, 128.0] && eltype(columns.UINT) === Float64
+    #  the offset of Table 19 is an unsigned integer
+    @test columns.UINT == UInt32[46, 128] && eltype(columns.UINT) === UInt32
     @test columns.SCALED == Float32[2, 3] && eltype(columns.SCALED) === Float32
-    @test columns.UINTS == [46.0 128.0; 128.0 46.0]
+    @test columns.UINTS == UInt32[46 128; 128 46] && eltype(columns.UINTS) === UInt32
 
     seekstart(scaled_io)
     records = read(scaled_io, HDU; record=true, scale=true).data
-    @test getproperty.(records, :UINT) == [46.0, 128.0]
+    @test getproperty.(records, :UINT) == UInt32[46, 128]
     @test getproperty.(records, :SCALED) == Float32[2, 3]
-    @test getproperty.(records, :UINTS) == [[46.0, 128.0], [128.0, 46.0]]
+    @test getproperty.(records, :UINTS) == [UInt32[46, 128], UInt32[128, 46]]
 
     #  the helper itself
     @test FITSFiles.scaled(Int32[-2147483602], 1.0f0, 2147483648.0) == [46.0]
@@ -1197,5 +1198,51 @@
         #  an array of no elements has no storage, whatever the offset is
         bytes = tablebytes(["TFORM1  = '1PI(3)  '"], 8, 2, vcat(be(Int32, [3, 0, 0, 1000]), be(Int16, [10, 20, 30])); pcount = 6)
         @test @test_logs(read(IOBuffer(bytes), HDU)).data.column1 == [Int16[10, 20, 30], Int16[]]
+    end
+
+    ####    Test the physical values of the integer fields (Sect. 7.3.2, Table 19 and Eq. 7)    ####
+
+    @testset "physical values" begin
+        written(hdu) = (io = IOBuffer(); write(io, hdu); take!(io))
+        reread(hdu; kwds...) = read(IOBuffer(written(hdu)), HDU; kwds...)
+
+        #  the unsigned integers and the signed bytes are the integers of the same size with the offset in TZERO, and are written and read
+        for (type, tform, offset, values) in ((UInt16, "1I", 2^15, UInt16[0, 1, 60000, typemax(UInt16)]),
+                                              (UInt32, "1J", 2^31, UInt32[0, 5, 4000000000, typemax(UInt32)]),
+                                              (UInt64, "1K", UInt64(2)^63, UInt64[0, 5, UInt64(2)^62, typemax(UInt64)]),
+                                              (Int8, "1B", -2^7, Int8[-128, -1, 0, 127]))
+            for hdu in (HDU(Bintable, (u = values,)), HDU(Bintable, [(u = v,) for v in values]))
+                @test hdu.cards["TFORM1"] == tform && hdu.cards["TZERO1"] == offset
+                again = reread(hdu)
+                @test again.data.u == values && eltype(again.data.u) === type && written(again) == written(hdu)
+                #  the stored values have the offset
+                @test eltype(reread(hdu; scale = false).data.u) === FITSFiles.RAWTYPE[type]
+                @test reread(hdu; scale = false).data.u == FITSFiles.offsetvalue.(values, FITSFiles.RAWTYPE[type])
+                @test eltype(reread(hdu; record = true).data[1].u) === type
+            end
+            #  the arrays of the fields, and the variable-length arrays
+            again = reread(HDU(Bintable, (a = [values, reverse(values)],)))
+            @test again.data.a == [values reverse(values)]' && eltype(again.data.a) === type
+            again = reread(HDU(Bintable, (v = [values[1:2], values],)))
+            @test again.data.v == [values[1:2], values] && eltype(again.data.v) === Vector{type}
+        end
+        #  the undefined values are TNULLn, which is the stored value
+        hdu = HDU(Bintable, (u = Union{UInt16, Missing}[5, missing],), Card{<:Any}[Card("TNULL1", -32768)])
+        @test isequal(reread(hdu).data.u, Union{UInt16, Missing}[5, missing])
+
+        #  the integers of 32 or 64 bits are exact if TSCAL is 1 and TZERO is 0, and the scaled values are at least a Float64
+        for (type, value) in ((Int32, 2147483647), (Int64, 2^40 + 1))
+            hdu = HDU(Bintable, (a = type[value, 3],))
+            @test reread(hdu).data.a == type[value, 3] && eltype(reread(hdu).data.a) === type
+            hdu = HDU(Bintable, (a = type[value, 3],), Card{<:Any}[Card("TSCAL1", 0.5f0), Card("TZERO1", 1.0f0)])
+            scaled = reread(hdu).data.a
+            @test eltype(scaled) === Float64 && scaled == 1.0 .+ 0.5 .* Float64.(type[value, 3])
+            #  the scaled values are written as the stored values
+            @test written(reread(hdu; record = true)) == written(hdu)
+            @test written(reread(hdu)) == written(hdu)
+        end
+        #  an Int16 and a Float32 scale are a Float32
+        hdu = HDU(Bintable, (a = Int16[1, 2],), Card{<:Any}[Card("TSCAL1", 0.5f0)])
+        @test eltype(reread(hdu).data.a) === Float32 && reread(hdu).data.a == Float32[0.5, 1]
     end
 end

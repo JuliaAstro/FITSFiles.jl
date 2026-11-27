@@ -158,7 +158,7 @@ function Base.write(io::IO, ::Type{Bintable}, data::Union{AbstractArray, NamedTu
                 if isnothing(field.pntr)
                     write(io, field, flatten(cell); kwds...)
                 else
-                    writearray(io, heap, field, cell)
+                    writearray(io, heap, field, cell; check = get(kwds, :check, true))
                 end
             end
         end
@@ -172,11 +172,12 @@ end
 
 #  Write the descriptor of the variable-length array `cell` to the table `io`, and its elements to the heap `heap`. An array of no
 #  elements has no storage, and its offset is 0 (Sect. 7.3.5).
-function writearray(io::IO, heap::IOBuffer, field::BinaryField, cell)
+function writearray(io::IO, heap::IOBuffer, field::BinaryField, cell; check::Bool = true)
     type = field.type
     type <: Union{AbstractString, BitVector} && throw(ArgumentError("The variable-length array of field $(field.name) has " *
         "elements of type $type, which are not written."))
     values = cell isa AbstractArray ? reshape(cell, :) : [cell]
+    values = storedcell(field, values; check)
     n = length(values)
     write(io, hton(field.pntr(n)), hton(field.pntr(n == 0 ? 0 : position(heap))))
     n == 0 && return
@@ -298,13 +299,14 @@ function FieldFormat(::Type{Bintable}, mankey::DataFormat, reskeys::Dict{S, V},
         name = typeof(data[1]) <: NamedTuple ? rstrip(String(keys(data[1])[j])) :
             rstrip(get(reskeys, "TTYPE$j", "field$j"))
         type, leng, byts, pntr, supp = columndescriptor(record[j] for record in data)
+        type, offset = rawtype(type), offsetof(type)
         # unit_ = unit(data[1][j]) != NoUnits ? unit(data[1][j]) :
         #     get(reskeys, "TUNIT$j", "")
         unit_ = get(reskeys, "TUNIT$j", "")
         disp  = get(reskeys, "TDISP$j", "")
         dims  = parsedims(get(reskeys, "TDIM$j", nothing), j)
         zero_ = leastfloat(get(reskeys, "TZERO$j",
-            type <: Union{Bool, BitVector, String} ? nothing : 0.0f0))
+            type <: Union{Bool, BitVector, String} ? nothing : offset))
         scale = leastfloat(get(reskeys, "TSCAL$j",
             type <: Union{Bool, BitVector, String} ? nothing : 1.0f0))
         null  = get(reskeys, "TNULL$j", nothing)
@@ -337,13 +339,14 @@ function FieldFormat(::Type{Bintable}, mankey::DataFormat, reskeys::Dict{S, V},
         name  = typeof(data) <: NamedTuple ? rstrip(String(keys(data)[j])) :
             rstrip(get(reskeys, "TTYPE$j", "column$j"))
         type, leng, byts, pntr, supp = columndescriptor(data[j])
+        type, offset = rawtype(type), offsetof(type)
         # unit_ = unit(data[j]) != NoUnits ? unit(data[j]) :
         #     get(reskeys, "TUNIT$j", "")
         unit_ = get(reskeys, "TUNIT$j", "")
         disp  = get(reskeys, "TDISP$j", "")
         dims  = parsedims(get(reskeys, "TDIM$j", nothing), j)
         zero_ = leastfloat(get(reskeys, "TZERO$j",
-            type <: Union{Bool, BitVector, String} ? nothing : 0.0f0))
+            type <: Union{Bool, BitVector, String} ? nothing : offset))
         scale = leastfloat(get(reskeys, "TSCAL$j",
             type <: Union{Bool, BitVector, String} ? nothing : 1.0f0))
         null  = get(reskeys, "TNULL$j", nothing)
@@ -358,6 +361,11 @@ function FieldFormat(::Type{Bintable}, mankey::DataFormat, reskeys::Dict{S, V},
     end
     fields
 end
+
+#  The type of the stored values of the physical type of a field, which is the type of Table 19 with a TZERO (e.g., an Int16 for a
+#  UInt16), and the TZERO of the physical type, which is 0 for the others
+rawtype(type::Type) = get(RAWTYPE, type, type)
+offsetof(type::Type) = haskey(RAWTYPE, type) ? OFFSETTYPE[RAWTYPE[type]][2] : 0.0f0
 
 #  The cells of each field of data that are a vector of records, or a tuple or a named tuple of columns
 columnsof(data::AbstractArray) = [(record[j] for record in data) for j = 1:length(data[1])]
@@ -449,6 +457,11 @@ function createcards!(::Type{Bintable}, format::DataFormat,
             "$(field.leng)$(POINTERTYPE[field.pntr])$(BINARYTYPE[field.type])($(field.supp))")
         named && push!(required, "TTYPE$j" => field.name)
     end
+    #  The offset of the physical type of a field is its TZERO (Table 19)
+    for (j, field) in enumerate(fields)
+        !isnothing(field.scale) && !isnothing(offsettype(field.type, field.scale, field.zero)) &&
+            push!(required, "TZERO$j" => OFFSETTYPE[field.type][2])
+    end
     arrangecards!(cards, required)
 end
 
@@ -495,9 +508,9 @@ end
 function Base.read(io::IO, field::BinaryField, format::DataFormat,
     begpos::Integer; scale::Bool = true)
 
-    #  Without TSCAL/TZERO the data pass through unchanged; scaling by the
-    #  Float32 defaults would round integers above 2^24 (e.g. Int32 pointers)
-    scale = scale && !isnothing(field.scale) && !(field.scale == 1 && field.zero == 0)
+    #  The physical values of the stored values are the stored values, if TSCAL is 1 and TZERO is 0, the values of the offsets of Table 19
+    #  (e.g., a UInt16 for an Int16 and a TZERO of 32768), or the scaled values (Eq. 7)
+    scale = scale && !isnothing(field.scale)
 
     type, leng = field.type, field.leng
 
@@ -513,7 +526,7 @@ function Base.read(io::IO, field::BinaryField, format::DataFormat,
             K   = Int(ntoh(read(io, field.pntr)))
             beg = Int(ntoh(read(io, field.pntr)))
             col = readarray(io, field, begpos + format.heap, K, beg, heaplen, j)
-            column[j] = scale ? scaled(col, field.scale, field.zero) : col
+            column[j] = scale ? physical(col, type, field.scale, field.zero) : col
         end
         column = map(identity, column)
     elseif type <: Bool
@@ -544,7 +557,7 @@ function Base.read(io::IO, field::BinaryField, format::DataFormat,
             column[j] = ntoh(read(io, type))
         end
         column = setmissing(column, field.null)
-        column = scale ? scaled(column, field.scale, field.zero) : column
+        column = scale ? physical(column, type, field.scale, field.zero) : column
     else
         column = Array{type}(undef, (N, leng))
         for j = 1:N
@@ -552,7 +565,7 @@ function Base.read(io::IO, field::BinaryField, format::DataFormat,
             column[j,:] .= ntoh.([read(io, type) for k=1:leng])
         end
         column = setmissing(column, field.null)
-        column = scale ? scaled(column, field.scale, field.zero) : column
+        column = scale ? physical(column, type, field.scale, field.zero) : column
     end
     column
 end
@@ -584,14 +597,24 @@ function readarray(io::IO, field::BinaryField, heap::Integer, K::Integer, beg::I
     end
 end
 
-function Base.write(io::IO, field::BinaryField, value::U; kwds...) where
+#  The stored values of the physical values of a cell: the values of the offsets of Table 19 have the offset, and the values that are
+#  not of the type of the field are inverted from the scale and the zero (Eq. 7), as the values of an array of an image are
+function storedcell(field::BinaryField, value; check::Bool = true)
+    (isnothing(field.scale) || field.type <: Union{Bool, BitVector, AbstractString} ||
+        (field.scale == 1 && field.zero == 0 && !haskey(OFFSETTYPE, field.type))) && return value
+    stored(values) = storedvalues(values, field.type, field.scale, field.zero, field.null; check)
+    value isa AbstractArray ? stored(value) : only(stored([value]))
+end
+
+function Base.write(io::IO, field::BinaryField, value::U; check::Bool = true, kwds...) where
     U <: Union{AbstractArray, AbstractString, BitVector, Real, Complex, Missing}
 
     type, leng = field.type, field.leng
     #  A logical value is written as T or F, and an undefined value as a 0 byte (Sect. 7.3.3.1)
     type <: Bool && return leng == 0 ? 0 : write(io, encodelogical.(value))
-    #  The undefined values are written as TNULLn (Sect. 7.3.2), or NaN for floating-point data
-    value = unsetmissing(value, field.null, type)
+    #  The stored values of the physical values, and the undefined values, which are written as TNULLn (Sect. 7.3.2), or NaN for
+    #  floating-point data
+    value = unsetmissing(storedcell(field, value; check), field.null, type)
 
     if type <: AbstractString
         write(io, padstring(value, field.leng))
