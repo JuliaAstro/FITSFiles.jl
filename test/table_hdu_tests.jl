@@ -738,6 +738,16 @@
                 "describes a table. It is read as it is, and is not used.")) @test reread(tablebytes([fields; kw(key, value)], ["   1"])).data.column1 == [1]
         end
         @test_logs (:warn, r"BUNIT must not be used in a TABLE extension header") reread(tablebytes([fields; sk("BUNIT", "Jy")], ["   1"]))
+        #  the bytes of the table, NAXIS1 × NAXIS2, are at most the largest integer, so that the size does not wrap around to a table of no data
+        for (rowlen, nrows) in [(2^62, 4), (2^40, 2^40), (4, 2^62), (typemax(Int), 2), (3*10^18, 4)]
+            @test_throws ArgumentError("The table is too large: NAXIS1 × NAXIS2, $rowlen × $nrows bytes, is more than $(typemax(Int)) bytes.") reread(
+                tablebytes(fields, ["   1"]; rowlen, nrows))
+        end
+        @test_throws ArgumentError("The table is too large: NAXIS1 × NAXIS2, 4611686018427387904 × 4 bytes, is more than $(typemax(Int)) bytes.") HDU(
+            Table, missing, Card{<:Any}[Card("NAXIS", 2), Card("NAXIS1", 2^62), Card("NAXIS2", 4), Card("TFIELDS", 0)])
+        #  a table that is as large as that is read until the file is short
+        @test_throws ArgumentError r"The data of the HDU is 9000000000000000000 bytes, as its header says, but the file has only 0 of them" reread(
+            tablebytes([kw("TFIELDS", 0)], String[]; rowlen = 3*10^9, nrows = 3*10^9))
         #  the keywords of the primary header and of the physical blocks are not in an extension
         @test_logs (:warn, r"SIMPLE must not appear in an extension header \(Sect. 4.4.1.1\)") reread(tablebytes([fields; kw("SIMPLE", "T")], ["   1"]))
         for key in ("EXTEND", "BLOCKED")
