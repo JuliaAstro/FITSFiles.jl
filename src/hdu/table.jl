@@ -7,6 +7,18 @@
 
 ####    Table HDU functions
 
+"""
+	Table header-data unit (HDU)
+
+A Table HDU consists of a vector of cards and optionally a 2-dimensional array
+of ASCII data structured as vector of records.
+"""
+struct Table <: AbstractHDU end
+XTENSIONTYPE["TABLE"] = Table
+
+#  The fill after the data is ASCII spaces (see `verifyfill`)
+fillrule(::Type{Table}) = (0x20, "ASCII spaces", "Sect. 7.2.3")
+
 const TABLEFMT = Regex("(?<t>[AIFED])(?<w>\\d+)(\\.(?<f>\\d+))?")
 
 const TABLETYPE = Dict(

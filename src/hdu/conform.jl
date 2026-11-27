@@ -1,5 +1,7 @@
 ####    Conforming HDU functions
 
+struct Conform <: AbstractHDU end
+
 """
     ConformField()
 

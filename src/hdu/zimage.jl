@@ -1,5 +1,10 @@
 ####    ZImage HDU functions
 
+struct ZImage <: AbstractHDU end
+
+#  The fill after the data is that of a binary table
+fillrule(::Type{ZImage}) = fillrule(Bintable)
+
 using CodecZlib
 #  add Rice, PLIO, Hcompress, and No compression algorithms
 

@@ -1,5 +1,17 @@
 ####    Bintable HDU functions
 
+"""
+	Bintable header-data unit (HDU)
+
+A Bintable HDU consists of a vector of cards and optionally a 2-dimensional
+array of binary data structured as a vector of records.
+"""
+struct Bintable <: AbstractHDU end
+XTENSIONTYPE["BINTABLE"] = Bintable
+
+#  The fill after the data (see `verifyfill`)
+fillrule(::Type{Bintable}) = (0x00, "zeros", "Sect. 7.3.3")
+
 const BINARYFMT = Regex(
     "(?<r>\\d*)(?<p>[PQ]?)(?<t>[LXBIJKAEDCM])\\(?(?<a>\\w*)\\)?")
 
