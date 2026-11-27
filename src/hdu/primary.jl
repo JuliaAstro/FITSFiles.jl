@@ -188,6 +188,11 @@ end
 
 createdata(::Type{Primary}, format::DataFormat, ::PrimaryField; kwds...) = zerosarray(format)
 
+#  The data of an array that has an axis of length 0, which has no data blocks (Sect. 3.3.2), are an empty array of the axes, and the
+#  data of an array that has no axes are missing
+emptydata(::Type{Primary}, format::DataFormat, fields::PrimaryField; kwds...) =
+    length(format.shape) > 0 ? read(IOBuffer(UInt8[]), Primary, format, fields; kwds...) : missing
+
 #  The BZERO card of the offset convention, if the header does not have one.
 function offsetcards!(cards::Cards, fields::PrimaryField)
     if !isnothing(offsettype(fields.type, fields.scale, fields.zero)) && !haskey(cards, "BZERO")

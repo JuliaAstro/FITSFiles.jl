@@ -508,20 +508,31 @@
         hdu = @test_logs (:warn, "NAXIS1 is 0, which is the signature of random groups, but GROUPS is F (Sect. 6.1.1), " *
             "so it is read as a primary array without data, and PCOUNT and GCOUNT are not used.") reading(
             filebytes(groupsf, data))
-        @test hdu isa HDU{Primary} && ismissing(hdu.data)
-        #  a primary array that has an axis of 0 has no data, with or without PCOUNT and GCOUNT, and without a warning
+        @test hdu isa HDU{Primary} && hdu.data isa Matrix{Int16} && size(hdu.data) == (0, 3)
+        #  a primary array that has an axis of 0 has no data blocks, and the data are an empty array, with or without PCOUNT and GCOUNT, and without a warning
         for cards in ([simple, bitpix, kw("NAXIS", 2), kw("NAXIS1", 0), kw("NAXIS2", 3)],
             [simple, bitpix, kw("NAXIS", 2), kw("NAXIS1", 0), kw("NAXIS2", 3), counts...],
             [simple, bitpix, kw("NAXIS", 1), kw("NAXIS1", 0), kw("GROUPS", "F")])
-            @test ismissing(@test_logs(reading(filebytes(cards, data))).data)
+            @test isempty(@test_logs(reading(filebytes(cards, data))).data)
         end
+        #  the empty array has the type and the axes of the header, and is written as it was read
+        for (bits, shape, type) in ((16, (3, 0), Int16), (-32, (0, 3), Float32), (8, (0, 2, 2), UInt8), (64, (0,), Int64))
+            hdr = [simple, kw("BITPIX", bits), kw("NAXIS", length(shape)), [kw("NAXIS$j", n) for (j, n) in enumerate(shape)]...]
+            bytes = filebytes(hdr, UInt8[])
+            hdu = @test_logs reading(bytes)
+            @test hdu isa HDU{Primary} && hdu.data isa Array{type, length(shape)} && size(hdu.data) == shape
+            @test @test_logs(written(hdu)) == codeunits(bytes)
+            @test size(HDU(Primary, zeros(type, shape)).data) == shape
+        end
+        #  an array that has no axes has no data
+        @test ismissing(@test_logs(reading(filebytes([simple, bitpix, kw("NAXIS", 0)], UInt8[]))).data)
         #  GROUPS must be a logical, and a value that is not is not the signature, even if it is equal to T
         for groups in ("1", "'T'", "1.0")
             value = groups == "'T'" ? "T" : groups == "1" ? 1 : 1.0f0
             hdu = @test_logs (:warn, "GROUPS must be a logical, T or F, but its value is $(repr(value)). It is read as it is.") reading(
                 filebytes([simple, bitpix, kw("NAXIS", 2), kw("NAXIS1", 0), kw("NAXIS2", 3), kw("GROUPS", groups), counts...],
                 data))
-            @test hdu isa HDU{Primary} && ismissing(hdu.data)
+            @test hdu isa HDU{Primary} && hdu.data isa Matrix{Int16} && size(hdu.data) == (0, 3)
         end
         #  GROUPS of F is not the signature, whatever NAXIS1 is
         hdu = @test_logs reading(filebytes([simple, bitpix, kw("NAXIS", 2), kw("NAXIS1", 3), kw("NAXIS2", 2),
