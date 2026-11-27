@@ -232,7 +232,7 @@
         #  random groups have NAXIS1 = 0 and the shape begins at NAXIS2.
         cards = header(Card("BITPIX", 16), Card("NAXIS", 3), Card("NAXIS1", 0), Card("NAXIS2", 4), Card("NAXIS3", 5))
         @test_logs (:warn, "NAXIS2:3 set to (2, 3)") FITSFiles.verifyshape!(
-            cards, keys(cards), format(Int16, (2, 3)); first = 2)
+            Random, cards, keys(cards), format(Int16, (2, 3)))
         @test (cards["NAXIS"], cards["NAXIS1"], cards["NAXIS2"], cards["NAXIS3"]) == (3, 0, 2, 3)
 
         #  a header without NAXIS1 is not changed

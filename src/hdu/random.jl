@@ -31,6 +31,31 @@ The elements of the array of integers that are the stored value of BLANK are `mi
 """
 struct Random <: AbstractHDU end
 
+#  The scale and the zero of the `j`th column of the array, which are those of the array if they are numbers
+scaleof(array::ScaledArray, j::Integer = 1) = array.scale isa AbstractVector ? array.scale[j] : array.scale
+zeroof(array::ScaledArray, j::Integer = 1) = array.zero isa AbstractVector ? array.zero[j] : array.zero
+
+"""
+	ScaledRecords(records, scales, zeros)
+
+The records of random groups (`record = true`) whose values are the physical values of floating-point stored values (see
+[`ScaledArray`](@ref)): the parameters and the array of each record, which have the type of the stored values, and are written as the
+stored values. The vectors `scales` and `zeros` have the PSCALn and PZEROn of the parameters, and the BSCALE and BZERO of the array,
+in order. The records are the values of `parent`.
+"""
+struct ScaledRecords{R, V<:AbstractVector{R}, S<:AbstractVector, Z<:AbstractVector} <: AbstractVector{R}
+	parent::V
+	scales::S
+	zeros::Z
+end
+
+Base.parent(records::ScaledRecords) = records.parent
+Base.size(records::ScaledRecords) = size(records.parent)
+Base.IndexStyle(::Type{<:ScaledRecords}) = IndexLinear()
+Base.getindex(records::ScaledRecords, i::Int) = records.parent[i]
+Base.setindex!(records::ScaledRecords, value, i::Int) = (records.parent[i] = value; records)
+Base.copy(records::ScaledRecords) = ScaledRecords(copy(records.parent), records.scales, records.zeros)
+
 #  Random groups are tried before the Primary HDU and the Bintable HDU, whose data and header they also fit. The data are records
 #  whose last element, the data of a group, is an array of 2 or more dimensions, and the header has GROUPS = T and NAXIS1 = 0.
 detectpriority(::Type{Random}) = 1
@@ -339,7 +364,7 @@ function verify!(::Type{Random}, cards::Cards, mankeys::AbstractDict, reskeys::A
     verifybitpix(mankeys)
     verifyvalue(mankeys, "NAXIS", 1:MAXAXES, "an integer from 1 to $MAXAXES")
     verifyvalue(mankeys, "NAXIS1", 0:0, "the integer 0")
-    verifyaxes(mankeys; first = 2)
+    verifyaxes(Random, mankeys)
     verifyvalue(mankeys, "PCOUNT", 0:typemax(Int), "non-negative")
     verifyvalue(mankeys, "GCOUNT", 0:typemax(Int), "non-negative")
     created || verifygroupsize(mankeys)
@@ -357,11 +382,42 @@ function verify!(::Type{Random}, cards::Cards, mankeys::AbstractDict, reskeys::A
     cards
 end
 
+#  Verify the NAXISn keywords of the shape of the data, which begin at NAXIS2, since NAXIS1 of random groups is 0 (Sect. 6.1.1)
+function verifyaxes(::Type{Random}, mankeys::AbstractDict)
+    N = get(mankeys, "NAXIS", nothing)
+    isnothing(N) && return nothing
+    for j = 2:N
+        haskey(mankeys, "NAXIS$j") || throw(ArgumentError("NAXIS$j is missing, but NAXIS is $N."))
+        verifyvalue(mankeys, "NAXIS$j", 0:typemax(Int), "non-negative")
+    end
+    for key in sort!(collect(keys(mankeys)))
+        m = match(r"^NAXIS(\d+)$", key)
+        !isnothing(m) && Base.parse(Int, m[1]) > max(N, 0) && @warn "$key is beyond NAXIS $N, and is not used."
+    end
+    nothing
+end
+
+#  Correct BITPIX and the NAXIS keywords to match the data format. NAXIS1 of random groups is 0, and the shape of the data begins at NAXIS2.
+function verifyshape!(::Type{Random}, cards::Cards, mankeys::AbstractDict, format::DataFormat)
+    if haskey(mankeys, "BITPIX") && format.type != BITS2TYPE[mankeys["BITPIX"]]
+        setindex!(cards, TYPE2BITS[format.type], "BITPIX")
+        @warn "BITPIX set to $(TYPE2BITS[format.type])."
+    end
+    if haskey(mankeys, "NAXIS1") && format.shape != datasize(cards, 2)
+        N = length(format.shape) + 1
+        setindex!(cards, N, "NAXIS")
+        setindex!(cards, 0, "NAXIS1")
+        for j = 2:N setindex!(cards, format.shape[j-1], "NAXIS$j") end
+        @warn "NAXIS$(2:N) set to $(format.shape)"
+    end
+    cards
+end
+
 function verify!(::Type{Random}, cards::Cards, format::DataFormat,
     mankeys::AbstractDict)
 
     get(mankeys, "SIMPLE", true) === false && @warn "Random HDU is nonconformant, since SIMPLE is F."
-    verifyshape!(cards, mankeys, format; first = 2)
+    verifyshape!(Random, cards, mankeys, format)
     if get(mankeys, "GROUPS", true) !== true
         setindex!(cards, true, "GROUPS")
         @warn "GROUPS set to true"
