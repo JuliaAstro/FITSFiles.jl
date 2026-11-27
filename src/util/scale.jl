@@ -76,6 +76,8 @@ end
 function undefinedvalue(type::Type{<:AbstractFloat}, miss)
 	type(NaN)
 end
+#  A complex value is undefined if either of its parts is a NaN (Sect. 7.3.3.1)
+undefinedvalue(type::Type{<:Complex}, miss) = type(NaN, NaN)
 function undefinedvalue(type::Type, miss)
 	isnothing(miss) && throw(ArgumentError(
 		"missing values cannot be written without a BLANK or TNULLn keyword"))

@@ -682,7 +682,7 @@ function Base.read(io::IO, field::BinaryField, format::DataFormat,
             seek(io, begpos + L*(j-1) + M)
             column[j] = ntoh(read(io, type))
         end
-        column = setmissing(column, field.null)
+        column = nullcomplex(setmissing(column, field.null))
         column = scale ? physical(column, type, field.scale, field.zero) : column
     else
         column = Array{type}(undef, (N, leng))
@@ -690,7 +690,7 @@ function Base.read(io::IO, field::BinaryField, format::DataFormat,
             seek(io, begpos + L*(j-1) + M)
             column[j,:] .= ntoh.([read(io, type) for k=1:leng])
         end
-        column = setmissing(column, field.null)
+        column = nullcomplex(setmissing(column, field.null))
         column = scale ? physical(column, type, field.scale, field.zero) : column
     end
     applydims(column, field)
@@ -746,7 +746,7 @@ function readarray(io::IO, field::BinaryField, heap::Integer, K::Integer, beg::I
     else
         values = Vector{type}(undef, K)
         read!(io, values)
-        setmissing(ntoh.(values), field.null)
+        nullcomplex(setmissing(ntoh.(values), field.null))
     end
 end
 
@@ -800,6 +800,11 @@ end
 #  The elements of an array and the `pad` elements that follow them up to `leng` elements
 padelements(values::AbstractArray, leng::Integer, pad) = length(values) < leng ? vcat(values, fill(pad, leng - length(values))) : values
 padelements(value, leng::Integer, pad) = value
+
+#  A complex value that has a NaN as its real part or as its imaginary part is undefined, as a whole, and is missing (Sect. 7.3.3.1)
+nullcomplex(values::AbstractArray{<:Complex}) = any(value -> isnan(real(value)) || isnan(imag(value)), values) ?
+    map(value -> isnan(real(value)) || isnan(imag(value)) ? missing : value, values) : values
+nullcomplex(values) = values
 
 #  The string of the bytes of a field of characters, which ends at the first ASCII NULL, since the characters after it are not defined, and
 #  without the spaces that fill the field (Sect. 7.3.3.1)

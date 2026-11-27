@@ -1613,4 +1613,38 @@
         @test FITSFiles.checkascii("abc ~") == "abc ~"
         @test_throws ArgumentError FITSFiles.padstring("é", 4)
     end
+
+    ####    Test the undefined complex values (Sect. 7.3.3.1)    ####
+
+    @testset "complex values" begin
+        written(hdu) = (io = IOBuffer(); write(io, hdu); take!(io))
+        reread(hdu; kwds...) = read(IOBuffer(written(hdu)), HDU; kwds...)
+        card(s) = rpad(s, 80)
+        #  a complex value that has a NaN in either part is undefined, as a whole
+        header = ["XTENSION= 'BINTABLE'", "BITPIX  =                    8", "NAXIS   =                    2", "NAXIS1  =                    8",
+            "NAXIS2  =                    4", "PCOUNT  =                    0", "GCOUNT  =                    1", "TFIELDS =                    1",
+            "TFORM1  = 'C       '", "END"]
+        values = Float32[1, 2, NaN, 3, 4, NaN, NaN, NaN]
+        bytes = vcat(collect(codeunits(rpad(join(card.(header)), 2880))), collect(reinterpret(UInt8, hton.(values))), zeros(UInt8, 2880 - 32))
+        column = read(IOBuffer(bytes), HDU).data.column1
+        @test isequal(column, Union{ComplexF32, Missing}[1 + 2im, missing, missing, missing])
+        @test eltype(column) == Union{ComplexF32, Missing}
+        #  a column that has no undefined values is not changed
+        @test eltype(reread(HDU(Bintable, (c = ComplexF32[1 + 2im, 3 - 1im],))).data.c) == ComplexF32
+        #  the undefined values are written as NaN, and are read as undefined, for the fields, the arrays, and the variable-length arrays
+        for data in ((c = Union{ComplexF32, Missing}[1 + 2im, missing, 3im],),
+                     (c = [Union{ComplexF64, Missing}[1im, missing], Union{ComplexF64, Missing}[3, 4]],),
+                     (c = [Union{ComplexF64, Missing}[1im, missing], Union{ComplexF64, Missing}[3, 4, 5]],))
+            hdu = HDU(Bintable, data)
+            again = reread(hdu)
+            @test isequal(again.data.c, reread(hdu).data.c) && written(again) == written(hdu)
+            @test count(ismissing, collect(Iterators.flatten(x isa AbstractArray ? x : [x] for x in again.data.c))) == 1
+        end
+        hdu = HDU(Bintable, (c = Union{ComplexF32, Missing}[1 + 2im, missing],))
+        @test isequal(reread(hdu).data.c, Union{ComplexF32, Missing}[1 + 2im, missing])
+        @test isequal(reread(hdu; record = true).data[2].c, missing)
+        #  the scale applies to the real part of the complex value, and an undefined value stays undefined
+        hdu = HDU(Bintable, (c = Union{ComplexF32, Missing}[1 + 2im, missing],), Card{<:Any}[Card("TSCAL1", 2.0f0), Card("TZERO1", 1.0f0)])
+        @test isequal(reread(hdu).data.c, Union{ComplexF32, Missing}[3 + 4im, missing])
+    end
 end
