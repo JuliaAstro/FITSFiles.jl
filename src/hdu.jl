@@ -141,6 +141,9 @@ function HDU(type::Type, ::Missing = missing, cards::C = missing; kwds...) where
 end
 
 
+#  Name the data that is given as tuples. A type of HDU that has data in records of tuples defines its own
+namedata(::Type{<:AbstractHDU}, data, fields, format) = data
+
 function HDU(type::Type, data::AbstractArray, cards::C = missing; kwds...) where
 	C <: Union{Card, Vector{Card}, Vector{Card{<:Any}}, Missing}
 
@@ -161,10 +164,7 @@ function HDU(type::Type, data::AbstractArray, cards::C = missing; kwds...) where
 	fields = FieldFormat(type, format, reskeys, data)
 	kards  = createcards!(type, format, fields, kards; kwds...)
 	kards  = scalecards!(type, kards, data)
-	if eltype(data) <: Tuple
-		data = [(; [Symbol(fields[j].name) => data[k][j]
-					for j ∈ 1:format.param]..., data = data[k][end]) for k ∈ 1:format.group]
-	end
+	data   = namedata(type, data, fields, format)
 
 	HDU{type}(kards, data)
 end
@@ -190,10 +190,7 @@ function HDU(type::Type, data::U, cards::C = missing; kwds...) where
 	fields = FieldFormat(type, format, reskeys, data; kwds...)
 	kards  = createcards!(type, format, fields, kards; kwds...)
 	kards  = scalecards!(type, kards, data)
-	if typeof(data) <: Tuple
-		data = (; [Symbol(fields[j].name) => data[j] for j ∈ 1:format.param]...,
-			data = data[end])
-	end
+	data   = namedata(type, data, fields, format)
 
 	HDU{type}(kards, data)
 end

@@ -611,3 +611,11 @@ firstaxis(::Type{Random}) = 2
 
 #  The type of random groups for the comparison of the names of the HDUs, which are not equivalent to an IMAGE extension
 primarytype(::Type{Random}) = "GROUPS"
+
+#  Name the parameters and the data of random groups that are given as a tuple, or as a vector of tuples, of the parameters followed by the data
+function namedata(::Type{Random}, data::Tuple, fields, format::DataFormat)
+    (; [Symbol(fields[j].name) => data[j] for j ∈ 1:format.param]..., data = data[end])
+end
+function namedata(::Type{Random}, data::AbstractArray{<:Tuple}, fields, format::DataFormat)
+    [(; [Symbol(fields[j].name) => data[k][j] for j ∈ 1:format.param]..., data = data[k][end]) for k ∈ 1:format.group]
+end

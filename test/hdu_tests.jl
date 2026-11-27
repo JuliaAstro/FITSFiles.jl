@@ -625,4 +625,15 @@
         @test FITSFiles.primarytype(Primary) == "IMAGE" && FITSFiles.primarytype(FITSFiles.Conform) == "IMAGE"
         @test FITSFiles.primarytype(Random) == "GROUPS"
     end
+
+    @testset "namedata" begin
+        #  tuples of the parameters followed by the data are named for random groups, and are unchanged for the other HDUs
+        one = HDU(Random, (Int16[1, 3], Int16[10 11 12; 20 21 22]))
+        @test keys(one.data) == (:param1, :data) && one.data.param1 == Int16[1, 3]
+        many = HDU(Random, [(Int16(1), Int16[1, 2, 3]), (Int16(3), Int16[4, 5, 6])])
+        @test keys(many.data[1]) == (:param1, :data) && many.data[2].data == Int16[4, 5, 6]
+        columns = (Int32[1, 2], [1.5, 2.5])
+        @test HDU(Bintable, columns).data == columns
+        @test FITSFiles.namedata(Primary, columns, nothing, nothing) === columns
+    end
 end
