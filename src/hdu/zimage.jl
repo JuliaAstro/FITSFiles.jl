@@ -2,6 +2,11 @@
 
 struct ZImage <: AbstractHDU end
 
+#  A compressed image is a binary table, so it is tried before the Bintable HDU
+detectpriority(::Type{ZImage}) = 1
+frommandatory(::Type{ZImage}, mankeys) = isequal(xtensionvalue(mankeys), "BINTABLE") && get(mankeys, "ZIMAGE", false) === true
+registerhdu!(ZImage)
+
 #  The mandatory and reserved keywords of the HDU (see `getreservedkeys`)
 union!(MANDATORYKEYS, ["ZIMAGE", "ZBITPIX", "ZNAXIS", "ZCMPTYPE"])
 union!(RESERVEDKEYS, ["ZTILE", "ZNAME", "ZVAL", "ZMASKCMP", "ZQUANTIZ", "ZDITHER0", "ZSIMPLE", "ZEXTEND", "ZBLOCKED",

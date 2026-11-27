@@ -14,7 +14,14 @@ A Table HDU consists of a vector of cards and optionally a 2-dimensional array
 of ASCII data structured as vector of records.
 """
 struct Table <: AbstractHDU end
-XTENSIONTYPE["TABLE"] = Table
+
+#  The data of a Table HDU are strings
+fromdata(::Type{Table}, data) = eltype(data) <: AbstractString
+frommandatory(::Type{Table}, mankeys) = isequal(xtensionvalue(mankeys), "TABLE")
+registerhdu!(Table)
+
+#  The maximum number of fields of the table (Sect. 7.2.1)
+const MAXTABLEFIELDS = 999
 
 #  The mandatory and reserved keywords of the HDU (see `getreservedkeys`)
 union!(MANDATORYKEYS, ["XTENSION", "PCOUNT", "GCOUNT", "TFIELDS", "TFORM", "TBCOL"])
@@ -132,10 +139,10 @@ function DataFormat(::Type{Table}, data::Missing, mankeys::Dict{S, V}) where
 
     #  Determine format from data
     type  = BITS2TYPE[get(mankeys, "BITPIX", 8)]
-    leng  = datalength(mankeys, 1)
     shape = datasize(mankeys, 1)
     param = get(mankeys, "PCOUNT", 0)
     group = get(mankeys, "GCOUNT", 1)
+    leng  = get(mankeys, "NAXIS", 0) > 0 ? group * (param + prod(shape)) : 0
     heap  = 0
     DataFormat(type, leng, shape, param, group, heap)
 end
@@ -273,7 +280,7 @@ end
 function createcards!(::Type{Table}, format::DataFormat,
     fields::Vector{TableField}, cards::Cards; kwds...)
 
-    required = tablekeys("TABLE", format, length(fields))
+    required = tablekeys(Table, format, length(fields))
     for (j, field) in enumerate(fields)
         push!(required, "TFORM$j" => field.form, "TBCOL$j" => first(field.slice))
     end
@@ -387,7 +394,7 @@ function verifyfields!(::Type{Table}, cards::Cards, mankeys::AbstractDict)
 	N = get(mankeys, "TFIELDS", nothing)
 	isnothing(N) && return cards
 	N < 0 && throw(ArgumentError("TFIELDS must be non-negative, but its value is $N."))
-	N > MAXFIELDS && @warn "TFIELDS $N is more than the maximum of $MAXFIELDS."
+	N > MAXTABLEFIELDS && @warn "TFIELDS $N is more than the maximum of $MAXTABLEFIELDS."
 	for j = 1:N
 		haskey(mankeys, "TFORM$j") || throw(ArgumentError("TFORM$j is missing, but TFIELDS is $N."))
 		haskey(mankeys, "TBCOL$j") || throw(ArgumentError("TBCOL$j is missing, but TFIELDS is $N."))
@@ -400,4 +407,11 @@ function verifyfields!(::Type{Table}, cards::Cards, mankeys::AbstractDict)
 			@warn "$key is beyond TFIELDS $N, and is not used."
 	end
 	cards
+end
+
+#  The keywords of a ASCII table extension from XTENSION to TFIELDS, where the shape is the length of a row and the number of rows
+function tablekeys(::Type{Table}, format::DataFormat, nfields::Integer)
+	M, N = length(format.shape) == 2 ? format.shape : (0, 0)
+	Pair{String, Any}["XTENSION" => "TABLE", "BITPIX" => 8, "NAXIS" => 2, "NAXIS1" => M,
+		"NAXIS2" => N, "PCOUNT" => 0, "GCOUNT" => 1, "TFIELDS" => nfields]
 end

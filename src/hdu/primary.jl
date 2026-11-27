@@ -8,6 +8,11 @@ array (<=999 dimensions). The Primary HDU is the first HDU in a vector of HDUs.
 """
 struct Primary <: AbstractHDU end
 
+#  The data of a Primary HDU are an array of numbers, or are missing, and its header begins with SIMPLE = T
+fromdata(::Type{Primary}, data) = ismissing(data) || nonmissingtype(eltype(data)) <: Real
+frommandatory(::Type{Primary}, mankeys) = !haskey(mankeys, "XTENSION") && get(mankeys, "SIMPLE", nothing) === true
+registerhdu!(Primary)
+
 #  The mandatory and reserved keywords of the HDU (see `getreservedkeys`)
 union!(MANDATORYKEYS, ["SIMPLE"])
 union!(RESERVEDKEYS, ["EXTEND", "BLOCKED", "BSCALE", "BZERO", "BUNIT", "BLANK", "DATAMAX", "DATAMIN"])
@@ -74,7 +79,7 @@ end
 function createcards!(::Type{Primary}, format::DataFormat,
     fields::AbstractField, cards::Cards; kwds...)
 
-    offsetcards!(arrangecards!(cards, ["SIMPLE" => true; shapekeys(format)]), fields)
+    offsetcards!(arrangecards!(cards, ["SIMPLE" => true; shapekeys(Primary, format)]), fields)
 end
 
 """
@@ -239,4 +244,11 @@ end
 function scalecards!(::Type{Primary}, cards::Cards, data::ScaledArray)
     setscalecard!(cards, "BSCALE", data.scale, 1)
     setscalecard!(cards, "BZERO", data.zero, 0)
+end
+
+#  The keywords BITPIX and NAXIS, and NAXISn of the shape of the data of the primary HDU
+function shapekeys(::Type{Primary}, format::DataFormat)
+    required = Pair{String, Any}["BITPIX" => TYPE2BITS[format.type], "NAXIS" => length(format.shape)]
+    for (j, n) in enumerate(format.shape) push!(required, "NAXIS$j" => n) end
+    required
 end

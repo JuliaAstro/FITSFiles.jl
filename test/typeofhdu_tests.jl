@@ -138,4 +138,27 @@
         @test FITSFiles.typeofhdu(mankeys) == ZTable
     end
 
+    ###  test the registry of the types of HDUs.
+
+    #  every type that is detected is registered once, in order of priority, and Conform, the type that no other is, is last
+    types = FITSFiles.HDUTYPES
+    @test allunique(types) && last(types) == Conform
+    @test issorted(FITSFiles.detectpriority.(types); rev = true)
+    @test Set(types) == Set([Primary, Conform, Image, Random, Table, Bintable, ZImage, ZTable])
+    #  the types of the standard extensions that are not implemented are not detected, so they are read as Conform
+    @test !any(type -> type in types, (IUEImage, A3DTable, Foreign, Dump))
+
+    #  the types are told apart by their own predicates
+    mankeys = Dict{AbstractString, FITSFiles.ValueType}("XTENSION" => "BINTABLE  ")
+    @test FITSFiles.xtensionvalue(mankeys) == "BINTABLE"
+    @test ismissing(FITSFiles.xtensionvalue(Dict{AbstractString, FITSFiles.ValueType}()))
+    @test FITSFiles.frommandatory(Bintable, mankeys) && !FITSFiles.frommandatory(Image, mankeys)
+    @test !FITSFiles.frommandatory(ZImage, mankeys)
+    @test FITSFiles.fromdata(Primary, missing) && !FITSFiles.fromdata(Table, [1, 2])
+    @test FITSFiles.firstrecord([(1, 2)]) == (1, 2) && FITSFiles.firstrecord((a = 1,)) == (a = 1,)
+    @test FITSFiles.firstrecord([1, 2]) === nothing && FITSFiles.firstrecord(missing) === nothing
+
+    #  data with missing values are an image, and a header without SIMPLE or XTENSION is not an HDU
+    @test FITSFiles.typeofhdu(Union{Int16, Missing}[1, missing], Dict{AbstractString, FITSFiles.ValueType}()) == Primary
+    @test_throws ErrorException("Unknown HDU") FITSFiles.typeofhdu(Dict{AbstractString, FITSFiles.ValueType}("NAXIS" => 0))
 end

@@ -2,6 +2,13 @@
 
 struct Conform <: AbstractHDU end
 
+#  A Conform HDU is the type of the data and the header that no other type is, so it is the last to be tried. Its header begins with
+#  SIMPLE = F, or has an XTENSION that no other type has.
+detectpriority(::Type{Conform}) = -1
+fromdata(::Type{Conform}, data) = true
+frommandatory(::Type{Conform}, mankeys) = haskey(mankeys, "XTENSION") || get(mankeys, "SIMPLE", nothing) === false
+registerhdu!(Conform)
+
 #  The mandatory and reserved keywords of the HDU (see `getreservedkeys`)
 union!(MANDATORYKEYS, ["SIMPLE", "XTENSION", "PCOUNT", "GCOUNT"])
 union!(RESERVEDKEYS, ["INHERIT", "EXTEND", "BLOCKED", "BSCALE", "BZERO", "BUNIT", "BLANK", "DATAMAX", "DATAMIN"])
@@ -60,7 +67,7 @@ FieldFormat(::Type{Conform}, format::DataFormat, reskeys::AbstractDict, data::Un
 function createcards!(::Type{Conform}, format::DataFormat,
     fields::ConformField, cards::Cards; kwds...)
 
-    arrangecards!(cards, ["SIMPLE" => true; shapekeys(format)])
+    arrangecards!(cards, ["SIMPLE" => true; shapekeys(Conform, format)])
 end
 
 function createdata(::Type{Conform}, format::DataFormat, fields::ConformField;
@@ -128,10 +135,17 @@ function DataFormat(::Type{Conform}, data::Missing, mankeys::Dict{S, V}) where
     {S<:AbstractString, V<:ValueType}
 
     type  = BITS2TYPE[get(mankeys, "BITPIX", 32)]
-    leng  = datalength(mankeys, 1)
     shape = datasize(mankeys, 1)
     param = get(mankeys, "PCOUNT", 0)
     group = get(mankeys, "GCOUNT", 1)
+    leng  = get(mankeys, "NAXIS", 0) > 0 ? group * (param + prod(shape)) : 0
     heap  = param > 0 ? get(mankeys, "THEAP", 0) : 0
     DataFormat(type, leng, shape, param, group, heap)
+end
+
+#  The keywords BITPIX and NAXIS, and NAXISn of the shape of the data of a Conform HDU
+function shapekeys(::Type{Conform}, format::DataFormat)
+    required = Pair{String, Any}["BITPIX" => TYPE2BITS[format.type], "NAXIS" => length(format.shape)]
+    for (j, n) in enumerate(format.shape) push!(required, "NAXIS$j" => n) end
+    required
 end

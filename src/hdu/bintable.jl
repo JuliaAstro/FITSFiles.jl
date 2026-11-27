@@ -7,7 +7,14 @@ A Bintable HDU consists of a vector of cards and optionally a 2-dimensional
 array of binary data structured as a vector of records.
 """
 struct Bintable <: AbstractHDU end
-XTENSIONTYPE["BINTABLE"] = Bintable
+
+#  The data of a Bintable HDU are tuples, or named tuples, of the fields
+fromdata(::Type{Bintable}, data) = firstrecord(data) !== nothing
+frommandatory(::Type{Bintable}, mankeys) = isequal(xtensionvalue(mankeys), "BINTABLE")
+registerhdu!(Bintable)
+
+#  The maximum number of fields of the table (Sect. 7.3.1)
+const MAXBINTABLEFIELDS = 999
 
 #  The mandatory and reserved keywords of the HDU (see `getreservedkeys`)
 union!(MANDATORYKEYS, ["XTENSION", "PCOUNT", "GCOUNT", "THEAP", "TFIELDS", "TFORM"])
@@ -173,10 +180,10 @@ function DataFormat(::Type{Bintable}, data::Missing, mankeys::Dict{S, V}) where
 
     #  Mandatory keys determines HDU type.
     type  = BITS2TYPE[get(mankeys, "BITPIX", 8)]
-    leng  = datalength(mankeys, 1)
     shape = datasize(mankeys, 1)
     param = get(mankeys, "PCOUNT", 0)
     group = get(mankeys, "GCOUNT", 1)
+    leng  = get(mankeys, "NAXIS", 0) > 0 ? group * (param + prod(shape)) : 0
     heap  = get(mankeys, "THEAP", sizeof(type)*prod(shape))
     DataFormat(type, leng, shape, param, group, heap)
 end
@@ -369,7 +376,7 @@ end
 function createcards!(::Type{Bintable}, format::DataFormat,
     fields::Vector{BinaryField}, cards::Cards; kwds...)
 
-    required = tablekeys("BINTABLE", format, length(fields))
+    required = tablekeys(Bintable, format, length(fields))
     #  Include TTYPE cards if any name is not an empty string
     named = any(!isempty(field.name) for field in fields)
     for (j, field) in enumerate(fields)
@@ -609,7 +616,7 @@ function verifyfields!(::Type{Bintable}, cards::Cards, mankeys::AbstractDict)
 	N = get(mankeys, "TFIELDS", nothing)
 	isnothing(N) && return cards
 	N < 0 && throw(ArgumentError("TFIELDS must be non-negative, but its value is $N."))
-	N > MAXFIELDS && @warn "TFIELDS $N is more than the maximum of $MAXFIELDS."
+	N > MAXBINTABLEFIELDS && @warn "TFIELDS $N is more than the maximum of $MAXBINTABLEFIELDS."
 	for j = 1:N
 		haskey(mankeys, "TFORM$j") || throw(ArgumentError("TFORM$j is missing, but TFIELDS is $N."))
 	end
@@ -619,4 +626,11 @@ function verifyfields!(::Type{Bintable}, cards::Cards, mankeys::AbstractDict)
 			@warn "$key is beyond TFIELDS $N, and is not used."
 	end
 	cards
+end
+
+#  The keywords of a binary table extension from XTENSION to TFIELDS, where the shape is the length of a row and the number of rows
+function tablekeys(::Type{Bintable}, format::DataFormat, nfields::Integer)
+	M, N = length(format.shape) == 2 ? format.shape : (0, 0)
+	Pair{String, Any}["XTENSION" => "BINTABLE", "BITPIX" => 8, "NAXIS" => 2, "NAXIS1" => M,
+		"NAXIS2" => N, "PCOUNT" => 0, "GCOUNT" => 1, "TFIELDS" => nfields]
 end

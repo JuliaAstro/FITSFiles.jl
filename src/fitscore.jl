@@ -20,6 +20,10 @@ function verifyposition(hdu::HDU, j::Integer)
 	hdu
 end
 
+#  The type of the HDU of a header that begins with SIMPLE, which the primary array is, for the comparison of the names of the HDUs: the
+#  primary array is equivalent to an IMAGE extension, and a type of HDU that is not defines its own
+primarytype(::Type{<:AbstractHDU}) = "IMAGE"
+
 """
     verifyname(hdus)
 
@@ -36,8 +40,7 @@ function verifyname(hdus::AbstractVector)
 	named(hdu) || return hdus
 	function signature(hdu)
 		cards = getfield(hdu, :cards)
-		type = haskey(cards, "XTENSION") ? rstrip(string(cards["XTENSION"])) :
-			typeofhdu(hdu) == Random ? "GROUPS" : "IMAGE"
+		type = haskey(cards, "XTENSION") ? rstrip(string(cards["XTENSION"])) : primarytype(typeofhdu(hdu))
 		(type, extname(hdu), extver(hdu), extlevel(hdu))
 	end
 	for j = 1:(length(hdus)-1)
@@ -173,7 +176,7 @@ function Base.show(io::IO, ::MIME"text/plain", hdus::AbstractVector{HDU})
 		ver = lpad(extver(hdu), INFOVERSLEN)
 		crd = lpad(length(cards), INFOCARDLEN)
 		siz = join([string(cards["NAXIS$j"])
-				for j ∈ (typeofhdu(hdu)==Random ? 2 : 1):N], " × ")
+				for j ∈ firstaxis(typeofhdu(hdu)):N], " × ")
 		eltype = lpad(datatype(cards), INFOTYPELEN)
 		print(io, "$(lpad(j, 3))   $typ  $nam  $ver  $crd  $eltype   $siz")
 		if j != length(hdus)

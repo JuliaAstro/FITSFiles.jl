@@ -69,27 +69,40 @@ const INFOTYPELEN = 8
 const INFOCARDLEN = 6
 const INFOLTYPLEN = 8
 
-const BITS2TYPE = Dict(8 => UInt8, 16 => Int16, 32 => Int32, 64 => Int64,
-	-32 => Float32, -64 => Float64)
-const TYPE2BITS = Dict(UInt8 => 8, Int16 => 16, Int32 => 32, Int64 => 64,
-	Float32 => -32, Float64 => -64)
-
-#  The valid values of BITPIX (Table 8 of the standard), and the largest number of axes
-const BITPIXVALUES = (8, 16, 32, 64, -32, -64)
-const MAXAXES = 999
-
-const OUTTYPE  = Dict(
-    UInt8 => Float32, Int16 => Float32, Int32 => Float64, Int64 => Float64,
-    Float32 => Float32, Float64 => Float64)
-
     #  Combine XTENSION values in card.jl and hdu.jl. The trailing spaces of a value are not
     #  significant, so the keys are not padded.
 #  The XTENSION value is padded to 8 characters.
 const XTENSIONLENGTH = 8
-#  The maximum number of fields of a table (Sects. 7.2.1 and 7.3.1)
-const MAXFIELDS = 999
-#  The HDU type of the value of XTENSION, which each type of extension adds to when it is defined
-const XTENSIONTYPE = Dict{String, Type}()
+
+#  The types of HDUs that are detected from the data or from the mandatory keywords, in the order in which they are tried. Each type
+#  of HDU adds itself when it is defined (see `registerhdu!`), and says whether it is the type of some data (`fromdata`) or of some
+#  mandatory keywords (`frommandatory`), so the detection does not know any type of HDU.
+const HDUTYPES = Type[]
+
+#  The priority of a type for detection, where the types of higher priority are tried first, and those of the same priority in the
+#  order in which they are defined
+detectpriority(::Type{<:AbstractHDU}) = 0
+fromdata(::Type{<:AbstractHDU}, data) = false
+frommandatory(::Type{<:AbstractHDU}, mankeys) = false
+
+function registerhdu!(type::Type{<:AbstractHDU})
+	index = findfirst(other -> detectpriority(other) < detectpriority(type), HDUTYPES)
+	index === nothing ? push!(HDUTYPES, type) : insert!(HDUTYPES, index, type)
+	type
+end
+
+#  The value of XTENSION without its trailing spaces, which are not significant, or missing if there is none
+function xtensionvalue(mankeys)
+	value = get(mankeys, "XTENSION", missing)
+	value isa AbstractString ? rstrip(value) : value
+end
+
+#  The first record of data that are a tuple, a named tuple, or an array of them, and nothing for other data
+function firstrecord(data)
+	data isa Union{Tuple, NamedTuple} && return data
+	data isa AbstractArray && eltype(data) <: Union{Tuple, NamedTuple} && return data[1]
+	nothing
+end
 
 #  The roots of the keywords of the mandatory keywords and of the reserved keywords (see `getreservedkeys`), each root once. The
 #  keywords that are common to the HDUs are here, and each type of HDU adds those of its own, which are in its file, when it is defined.
@@ -156,6 +169,9 @@ function HDU(type::Type, ::Missing = missing, cards::C = missing; kwds...) where
 end
 
 
+#  Name the data that is given as tuples. A type of HDU that has data in records of tuples defines its own
+namedata(::Type{<:AbstractHDU}, data, fields, format) = data
+
 function HDU(type::Type, data::AbstractArray, cards::C = missing; kwds...) where
 	C <: Union{Card, Vector{Card}, Vector{Card{<:Any}}, Missing}
 
@@ -176,10 +192,7 @@ function HDU(type::Type, data::AbstractArray, cards::C = missing; kwds...) where
 	fields = FieldFormat(type, format, reskeys, data)
 	kards  = createcards!(type, format, fields, kards; kwds...)
 	kards  = scalecards!(type, kards, data)
-	if eltype(data) <: Tuple
-		data = [(; [Symbol(fields[j].name) => data[k][j]
-					for j ∈ 1:format.param]..., data = data[k][end]) for k ∈ 1:format.group]
-	end
+	data   = namedata(type, data, fields, format)
 
 	HDU{type}(kards, data)
 end
@@ -205,10 +218,7 @@ function HDU(type::Type, data::U, cards::C = missing; kwds...) where
 	fields = FieldFormat(type, format, reskeys, data; kwds...)
 	kards  = createcards!(type, format, fields, kards; kwds...)
 	kards  = scalecards!(type, kards, data)
-	if typeof(data) <: Tuple
-		data = (; [Symbol(fields[j].name) => data[j] for j ∈ 1:format.param]...,
-			data = data[end])
-	end
+	data   = namedata(type, data, fields, format)
 
 	HDU{type}(kards, data)
 end
@@ -236,6 +246,9 @@ function extlevel(hdu::HDU)
 	haskey(cards, "EXTLEVEL") ? cards["EXTLEVEL"] : 1
 end
 
+#  The first axis of the data that is shown: the NAXISn of the shape. A type of HDU that does not have the axis 1 of the data defines its own
+firstaxis(::Type{<:AbstractHDU}) = 1
+
 """
 	info(hdu::HDU)
 
@@ -249,7 +262,7 @@ function info(hdu::HDU, n::Integer = 0)
 	ver = lpad(extver(hdu), INFOVERSLEN)
 	crd = lpad(length(cards), INFOCARDLEN)
 	siz = join([string(cards["NAXIS$j"])
-				for j ∈ (typeofhdu(hdu)==Random ? 2 : 1):N], " × ")
+				for j ∈ firstaxis(typeofhdu(hdu)):N], " × ")
 	eltype = lpad(datatype(cards), INFOTYPELEN)
 	print(stdout, "$(n == 0 ? "   " : lpad(n, 3))   $typ  $nam  $ver  $crd  $eltype   $siz\n")
 end
@@ -262,7 +275,7 @@ function Base.show(io::IO, ::MIME"text/plain", hdu::HDU)
 	ver = lpad(extver(hdu), INFOVERSLEN)
 	crd = lpad(length(cards), INFOCARDLEN)
 	siz = join([string(cards["NAXIS$j"])
-				for j ∈ (typeofhdu(hdu)==Random ? 2 : 1):N], " × ")
+				for j ∈ firstaxis(typeofhdu(hdu)):N], " × ")
 	eltype = lpad(datatype(cards), INFOTYPELEN)
 	print(io, "      $typ  $nam  $ver  $crd  $eltype   $siz")
 end
@@ -434,49 +447,6 @@ function Base.write(io::IO, cards::Cards)
     end
 end
 
-####    Utility functions
-"""
-	leastfloat(real::Union{Real, Nothing})
-
-Convert an integer to the smallest float type of Float32, Float64, and BigFloat that holds the
-integer, i.e., a Float32 for a 32-bit integer, a Float64 for a 64-bit integer, and otherwise a
-BigFloat. A value that is not an integer is returned as it is.
-"""
-function leastfloat(value::Union{Real, Nothing})
-	if typeof(value) <: Integer
-		if typemin(Int32) <= value <= typemax(Int32)
-			return convert(Float32, value)
-		elseif typemin(Int64) <= value <= typemax(Int64)
-			return convert(Float64, value)
-		else
-			return convert(BigFloat, value)
-		end
-	end
-	value
-end
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 """
 	arrangecards!(cards, required)
 
@@ -490,25 +460,6 @@ function arrangecards!(cards::Cards, required)
 	popat!(cards, "END")
 	append!(kards, cards)
 end
-
-#  The keywords BITPIX and NAXIS, and NAXISn of the shape of the data. The axes begin at NAXIS`first`,
-#  which is 2 for random groups, where NAXIS1 is 0.
-function shapekeys(format::DataFormat; first::Integer = 1)
-	required = Pair{String, Any}["BITPIX" => TYPE2BITS[format.type],
-		"NAXIS" => length(format.shape) + first - 1]
-	first == 2 && push!(required, "NAXIS1" => 0)
-	for (j, n) in enumerate(format.shape) push!(required, "NAXIS$(j+first-1)" => n) end
-	required
-end
-
-#  The keywords of a table extension from XTENSION to TFIELDS, where the shape is the length of a row
-#  and the number of rows.
-function tablekeys(xtension::AbstractString, format::DataFormat, nfields::Integer)
-	M, N = length(format.shape) == 2 ? format.shape : (0, 0)
-	Pair{String, Any}["XTENSION" => xtension, "BITPIX" => 8, "NAXIS" => 2, "NAXIS1" => M,
-		"NAXIS2" => N, "PCOUNT" => 0, "GCOUNT" => 1, "TFIELDS" => nfields]
-end
-
 
 function getreservedkeys(cards::Cards)
 	mankeys = Dict{AbstractString, ValueType}()
@@ -537,111 +488,46 @@ both.
 function typeofhdu(data::U) where
 	U <: Union{AbstractArray, Tuple, NamedTuple, Missing}
 
-	if !ismissing(data)
-		#  An array of numbers with undefined (missing) values is an image
-		if nonmissingtype(eltype(data)) <: Real
-			type = Primary
-		elseif eltype(data) <: AbstractString
-			type = Table
-		elseif typeof(data) <: Union{Tuple, NamedTuple}
-			type = typeof(data[end]) <: AbstractArray &&
-				   ndims(data[end]) >= 2 ? Random : Bintable
-		elseif basetype(eltype(data)) in (Tuple, NamedTuple)
-			type = typeof(data[1][end]) <: AbstractArray &&
-				   ndims(data[1][end]) >= 2 ? Random : Bintable
-		else
-			type = Conform
-		end
-	else
-		type = missing
+	ismissing(data) && return missing
+	for type in HDUTYPES
+		fromdata(type, data) && return type
 	end
-	type
+	error("Unknown HDU")
 end
 
 function typeofhdu(mankeys::Dict{S, V}) where {S <: AbstractString, V <: ValueType}
-	#  Determine HDU type from mandatory keys
-	exval = get(mankeys, "XTENSION", missing)
-	if !ismissing(exval)
-		type = get(XTENSIONTYPE, exval isa AbstractString ? rstrip(exval) : exval, Conform)
-		if type == Bintable
-			if get(mankeys, "ZIMAGE", false)
-				type = ZImage
-			elseif get(mankeys, "ZTABLE", false)
-				type = ZTable
-			end
-		end
-	elseif haskey(mankeys, "SIMPLE")
-		#  SIMPLE is T if the file conforms to the Standard, and F if it does not (Sect. 4.4.1.1). The primary
-		#  HDU of a file that does not conform is a Conform HDU, if its other mandatory keywords conform, which
-		#  its verify! method checks.
+	#  SIMPLE is T if the file conforms to the Standard, and F if it does not (Sect. 4.4.1.1)
+	if !haskey(mankeys, "XTENSION") && haskey(mankeys, "SIMPLE")
 		simple = mankeys["SIMPLE"]
 		simple isa Bool ||
 			throw(ArgumentError("SIMPLE must be a logical, T or F, but its value is $(repr(simple))."))
-		if !simple
-			type = Conform
-		elseif get(mankeys, "GROUPS", false) === true &&
-		   haskey(mankeys, "NAXIS1") && mankeys["NAXIS1"] == 0
-			type = Random
-		else
-			type = Primary
-		end
-	else
-		error("Unknown HDU")
 	end
-	type
+	for type in HDUTYPES
+		frommandatory(type, mankeys) && return type
+	end
+	error("Unknown HDU")
 end
 
 function typeofhdu(data::U, mankeys::Dict{S, V}) where
 {U <: Union{AbstractArray, Tuple, NamedTuple, Missing},
 	S <: AbstractString, V <: ValueType}
 
-	type = Primary
-	if !ismissing(data)
-		type = typeofhdu(data)
+	#  The mandatory keywords, if there are any, take precedence over the data
+	isempty(mankeys) || return typeofhdu(mankeys)
+	for type in HDUTYPES
+		fromdata(type, data) && return type
 	end
-	if !isempty(mankeys)
-		type = typeofhdu(mankeys)
-	end
-	type
+	error("Unknown HDU")
 end
-#=
-function compressed(type::Type{<:AbstractHDU}, mankeys::Dict{S, V}) where
-	{S<:AbstractString, V<:ValueType}
-	if type == Bintable
-		if get(mankeys, "ZIMAGE", false)
-			type = ZImage
-		elseif get(mankeys, "ZTABLE", false)
-			type = ZTable
-		end
-	end
-	type
-end
-=#
-basetype(T) = Base.typename(T).wrapper
 
 parsestring(value) = value isa String ? parsenumber(value) : value
 
 ####    Array-like Functions
 
-datatype(data::AbstractArray) = eltype(data)
-datadims(data::AbstractArray) = ndims(data)
-datasize(data::AbstractArray) = size(data)
-databytes(data::AbstractArray) = eltype(data)*length(data)
-datalength(data::AbstractArray) = length(data)
-
-datadims(mankeys::Dict) = mankeys["NAXIS"]
-
 function datasize(mankeys::Dict, start::Integer = 1)
 	#  Determine the shape of the array
 	N = get(mankeys, "NAXIS", 0)
 	N > 0 ? Tuple(mankeys["NAXIS$j"] for j ∈ start:N) : ()
-end
-
-function datalength(mankeys::Dict, start::Integer = 1)
-	#   Calculate the number of elements in the array
-	N = get(mankeys, "NAXIS", 0)
-	G, P = get(mankeys, "GCOUNT", 1), get(mankeys, "PCOUNT", 0)
-	N > 0 ? G * (P + prod(datasize(mankeys, start))) : 0
 end
 
 datatype(cards::Cards) = BITS2TYPE[get(cards, "BITPIX", 32)]
@@ -651,18 +537,6 @@ function datasize(cards::Cards, start::Integer = 1)
 	#  Determine the shape of the array
 	N = datadims(cards)
 	N > 0 ? Tuple(cards["NAXIS$j"] for j ∈ start:N) : ()
-end
-
-function databytes(cards::Cards, start::Integer = 1)
-	#  Calculate the number of bytes of data
-	N, G, P = cards["NAXIS"], get(cards, "GCOUNT", 1), get(cards, "PCOUNT", 0)
-	N > 0 ? sizeof(datatype(cards)) * G * (P + prod(datasize(cards, start))) : 0
-end
-
-function datalength(cards::Cards, start::Integer = 1)
-	#  Calculate the number of elements in the array
-	N, G, P = cards["NAXIS"], get(cards, "GCOUNT", 1), get(cards, "PCOUNT", 0)
-	N > 0 ? G * (P + prod(datasize(cards, start))) : 0
 end
 
 ####    Generic IO Functions
@@ -687,8 +561,6 @@ function readbytes(io::IO, n::Integer)
 	bytes
 end
 
-
-
 function padblock(io::IO, format::DataFormat, pad::UInt8 = 0x00)
 	#  Pad remaining data block to BLOCKLEN length (2880 bytes)
 	N = format.leng*sizeof(format.type)
@@ -696,44 +568,6 @@ function padblock(io::IO, format::DataFormat, pad::UInt8 = 0x00)
 	Base.write(io, fill(pad, nbloks*BLOCKLEN-N))
 end
 
-####    Reserved Keywords
-#=
-function parsegeneral(cards::Cards)
-	date = get(cards, "DATE", missing)
-	orign = get(cards, "ORIGIN", missing)
-	xtend = get(cards, "EXTEND", missing)
-	blokd = get(cards, "BLOCKED", missing)
-end
-
-function parseobservatory(cards::Cards)
-	datobs = get(cards, "DATE-OBS", missing)
-	# datxxx = get(cards, "DATExxxx", missing)
-	telscp = get(cards, "TELESCOP", missing)
-	instru = get(cards, "INSTRUME", missing)
-	obsrvr = get(cards, "OBSERVER", missing)
-	object = get(cards, "OBJECT", missing)
-end
-
-function parsebiblio(cards::Cards)
-	author = get(cards, "AUTHOR", missing)
-	refern = get(cards, "REFERENC", missing)
-end
-
-function parseextension(cards::Cards)
-	xname  = get(cards, "EXTNAME", missing)
-	xver   = get(cards, "EXTVER", missing)
-	xlevel = get(cards, "EXTLEVEL", missing)
-	nherit = get(cards, "INHERIT", missing)
-end
-
-function parsechecksums(card::Cards)
-	datsum = get(cards, "DATASUM", missing)
-	chksum = get(cards, "CHECKSUM", missing)
-end
-
-function parsewcs(cards::Cards)
-end
-=#
 
 ####    Dictionary key behaviour functions for Cards
 

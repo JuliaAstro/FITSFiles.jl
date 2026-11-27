@@ -31,6 +31,19 @@ The elements of the array of integers that are the stored value of BLANK are `mi
 """
 struct Random <: AbstractHDU end
 
+#  Random groups are tried before the Primary HDU and the Bintable HDU, whose data and header they also fit. The data are records
+#  whose last element, the data of a group, is an array of 2 or more dimensions, and the header has GROUPS = T and NAXIS1 = 0.
+detectpriority(::Type{Random}) = 1
+function fromdata(::Type{Random}, data)
+    record = firstrecord(data)
+    record !== nothing && record[end] isa AbstractArray && ndims(record[end]) >= 2
+end
+function frommandatory(::Type{Random}, mankeys)
+    !haskey(mankeys, "XTENSION") && get(mankeys, "SIMPLE", nothing) === true &&
+        get(mankeys, "GROUPS", false) === true && haskey(mankeys, "NAXIS1") && mankeys["NAXIS1"] == 0
+end
+registerhdu!(Random)
+
 #  The mandatory and reserved keywords of the HDU (see `getreservedkeys`)
 union!(MANDATORYKEYS, ["SIMPLE", "GROUPS", "PCOUNT", "GCOUNT"])
 union!(RESERVEDKEYS, ["PTYPE", "PSCAL", "PZERO", "EXTEND", "BLOCKED", "BSCALE", "BZERO", "BUNIT", "BLANK", "DATAMAX",
@@ -361,10 +374,10 @@ function DataFormat(::Type{Random}, data::Missing, mankeys::Dict{S, V}) where
 
     #  Mandatory keys determine HDU type
     type  = BITS2TYPE[get(mankeys, "BITPIX", 32)]
-    leng  = datalength(mankeys, 2)
     shape = datasize(mankeys, 2)
     param = get(mankeys, "PCOUNT", 0)
     group = get(mankeys, "GCOUNT", 0)
+    leng  = get(mankeys, "NAXIS", 0) > 0 ? group * (param + prod(shape)) : 0
     heap  = param > 0 ? get(mankeys, "THEAP", 0) : 0
     DataFormat(type, leng, shape, param, group, heap)
 end
@@ -512,7 +525,7 @@ function createcards!(::Type{Random}, format::DataFormat,
     #  Include PTYPE cards if any value is not an empty string
     named = any(!isempty(field.name) for field in fields[1:P])
     ptype = named ? ["PTYPE$j" => String(fields[j].name) for j = 1:P] : Pair{String, Any}[]
-    offsetcards!(arrangecards!(cards, ["SIMPLE" => true; shapekeys(format; first = 2);
+    offsetcards!(arrangecards!(cards, ["SIMPLE" => true; shapekeys(Random, format);
         "GROUPS" => true; "PCOUNT" => P; "GCOUNT" => format.group; ptype]), fields)
 end
 
@@ -597,4 +610,25 @@ function verifyblank(::Type{Random}, mankeys::AbstractDict, reskeys::AbstractDic
     verifyinteger(reskeys, r"^BLANK$")
     haskey(reskeys, "BLANK") && get(mankeys, "BITPIX", 8) < 0 && @warn "BLANK is for integer data " *
         "(a positive BITPIX) only (Sect. 4.4.2.5), so it is not used."
+end
+
+#  The keywords BITPIX and NAXIS, and NAXISn of the shape of the data of random groups, whose NAXIS1 is 0, and whose axes begin at NAXIS2
+function shapekeys(::Type{Random}, format::DataFormat)
+    required = Pair{String, Any}["BITPIX" => TYPE2BITS[format.type], "NAXIS" => length(format.shape) + 1, "NAXIS1" => 0]
+    for (j, n) in enumerate(format.shape) push!(required, "NAXIS$(j+1)" => n) end
+    required
+end
+
+#  The axes of the data that are shown begin at NAXIS2, since NAXIS1 of random groups is 0
+firstaxis(::Type{Random}) = 2
+
+#  The type of random groups for the comparison of the names of the HDUs, which are not equivalent to an IMAGE extension
+primarytype(::Type{Random}) = "GROUPS"
+
+#  Name the parameters and the data of random groups that are given as a tuple, or as a vector of tuples, of the parameters followed by the data
+function namedata(::Type{Random}, data::Tuple, fields, format::DataFormat)
+    (; [Symbol(fields[j].name) => data[j] for j ∈ 1:format.param]..., data = data[end])
+end
+function namedata(::Type{Random}, data::AbstractArray{<:Tuple}, fields, format::DataFormat)
+    [(; [Symbol(fields[j].name) => data[k][j] for j ∈ 1:format.param]..., data = data[k][end]) for k ∈ 1:format.group]
 end
