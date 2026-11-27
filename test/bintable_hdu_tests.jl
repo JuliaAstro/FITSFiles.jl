@@ -1784,4 +1784,35 @@
         @test FITSFiles.heapbytes(field(Int16), Int16[1, 2, 3]) == 6 && FITSFiles.heapbytes(field(Bool), [true, false]) == 2
         @test FITSFiles.heapbytes(field(BitVector), BitVector()) == 0
     end
+
+    ####    Test a table that is shorter than its header says (Sects. 7.3.1 and 7.3.3.1)    ####
+
+    @testset "size of tables" begin
+        card(s) = rpad(s, 80)
+        function tablebytes(naxis1, naxis2, pcount, data)
+            header = ["XTENSION= 'BINTABLE'", "BITPIX  =                    8", "NAXIS   =                    2",
+                "NAXIS1  = " * lpad(naxis1, 20), "NAXIS2  = " * lpad(naxis2, 20), "PCOUNT  = " * lpad(pcount, 20),
+                "GCOUNT  =                    1", "TFIELDS =                    1", "TFORM1  = 'I       '", "END"]
+            vcat(collect(codeunits(rpad(join(card.(header)), 2880))), data)
+        end
+        data = collect(reinterpret(UInt8, hton.(Int16[1, 2, 3])))
+        #  a table of the bytes that the header says is read
+        @test read(IOBuffer(tablebytes(2, 3, 0, data)), HDU).data.column1 == Int16[1, 2, 3]
+        #  a file that ends before the table, or the heap, does is an error that says how many bytes it has, instead of an end of the file
+        for (naxis2, pcount, nbytes) in ((100, 0, 200), (3, 10, 16), (10^15, 0, 2 * 10^15), (1, 10^12, 10^12 + 2))
+            err = try read(IOBuffer(tablebytes(2, naxis2, pcount, data)), HDU) catch e e end
+            @test err isa ArgumentError && err.msg == "The data of the HDU is $nbytes bytes, as its header says, but the file has only 6 of them."
+        end
+        #  and so is a table that is larger than the largest integer
+        err = try read(IOBuffer(tablebytes(2^40, 2^40, 0, data)), HDU) catch e e end
+        @test err isa ArgumentError && occursin("The table is too large: NAXIS1 × NAXIS2 + PCOUNT, 1099511627776 × 1099511627776 + 0 bytes", err.msg)
+        @test_throws ArgumentError read(IOBuffer(tablebytes(2, 3, typemax(Int), data)), HDU)
+        #  the file that is read lazily has the same error when its data are read
+        mktemp() do path, io
+            write(io, tablebytes(2, 100, 0, data)); close(io)
+            hdu = fits(path)[1]
+            err = try hdu.data.column1 catch e e end
+            @test err isa ArgumentError && occursin("The data of the HDU is 200 bytes", err.msg)
+        end
+    end
 end

@@ -107,6 +107,10 @@ function Base.read(io::IO, ::Type{Bintable}, format::DataFormat,
 
     begpos = position(io)
     M, N, P = format.shape[1], format.shape[2], format.param
+    #  The table and the heap have the bytes that the header says, which are checked before the data are allocated
+    nbytes = M*N + P
+    nbytes > unreadbytes(io) && throw(ArgumentError("The data of the HDU is $nbytes bytes, as its header says, but the file has " *
+        "only $(unreadbytes(io)) of them."))
     #  Read data array
     if record
         #  The records are the cells of the columns
@@ -236,6 +240,7 @@ function verify!(::Type{Bintable}, cards::Cards, mankeys::AbstractDict, reskeys:
     cards = invoke(verify!, Tuple{Type{<:AbstractHDU}, Cards, AbstractDict, AbstractDict}, Bintable, cards,
         mankeys, reskeys)
     verifyrows(Bintable, mankeys)
+    verifysize(Bintable, mankeys)
     #  PCOUNT is the number of bytes of the heap and the gap, and there is a single table (Sect. 7.3.1)
     verifyvalue(mankeys, "PCOUNT", 0:typemax(Int), "non-negative")
     verifyvalue(mankeys, "GCOUNT", 1:1, "the integer 1")
@@ -977,6 +982,15 @@ function verifyrows(::Type{Bintable}, mankeys::AbstractDict)
 	verifyvalue(mankeys, "BITPIX", 8:8, "the integer 8")
 	verifyvalue(mankeys, "NAXIS", 2:2, "the integer 2")
 	verifyaxes(mankeys)
+end
+
+#  The bytes of the table, NAXIS1 × NAXIS2, and the bytes of the heap, PCOUNT, are at most the largest integer, so that the data can be read
+#  and indexed (Sect. 7.3.1)
+function verifysize(::Type{Bintable}, mankeys::AbstractDict)
+    nbytes = BigInt(get(mankeys, "NAXIS1", 0)) * BigInt(get(mankeys, "NAXIS2", 0)) + BigInt(get(mankeys, "PCOUNT", 0))
+    nbytes > typemax(Int) && throw(ArgumentError("The table is too large: NAXIS1 × NAXIS2 + PCOUNT, " *
+        "$(get(mankeys, "NAXIS1", 0)) × $(get(mankeys, "NAXIS2", 0)) + $(get(mankeys, "PCOUNT", 0)) bytes, is more than " *
+        "$(typemax(Int)) bytes."))
 end
 
 """
