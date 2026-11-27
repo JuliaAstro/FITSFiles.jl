@@ -1815,4 +1815,82 @@
             @test err isa ArgumentError && occursin("The data of the HDU is 200 bytes", err.msg)
         end
     end
+
+    ####    Test the TNULLn of the fields (Sect. 7.3.2)    ####
+
+    @testset "TNULLn range" begin
+        written(hdu) = (io = IOBuffer(); write(io, hdu); take!(io))
+        card(s) = rpad(s, 80)
+        function tablebytes(cards, naxis1, data)
+            header = vcat(["XTENSION= 'BINTABLE'", "BITPIX  =                    8", "NAXIS   =                    2",
+                "NAXIS1  = " * lpad(naxis1, 20), "NAXIS2  =                    2", "PCOUNT  =                    0",
+                "GCOUNT  =                    1", "TFIELDS =                    1"], cards, ["END"])
+            vcat(collect(codeunits(rpad(join(card.(header)), 2880 * cld(80 * length(header), 2880)))), data, zeros(UInt8, mod(-length(data), 2880)))
+        end
+        be(type, values) = collect(reinterpret(UInt8, hton.(type.(values))))
+        #  the TNULLn of a field is a value of the type of the stored values, which are an unsigned byte, or a signed integer
+        for (form, type, lower, upper, nbytes) in (("B", UInt8, 0, 255, 1), ("I", Int16, -32768, 32767, 2), ("J", Int32, -2^31, 2^31 - 1, 4),
+                                                   ("K", Int64, typemin(Int64), typemax(Int64), 8))
+            for null in (lower, upper)
+                @test_logs read(IOBuffer(tablebytes(["TFORM1  = '$form'", "TNULL1  = " * lpad(null, 20)], nbytes, be(type, [1, 2]))), HDU)
+            end
+        end
+        for (form, type, bad, nbytes) in (("B", UInt8, [-1, 256], 1), ("I", Int16, [-32769, 32768], 2), ("J", Int32, [-2^31 - 1, 2^31], 4))
+            for null in bad
+                bytes = tablebytes(["TFORM1  = '$form'", "TNULL1  = " * lpad(null, 20)], nbytes, be(type, [1, 2]))
+                hdu = @test_logs (:warn, Regex("TNULL1, $null, is not a value of the $type of its field")) read(IOBuffer(bytes), HDU)
+                @test eltype(hdu.data.column1) <: Union{Missing, type}
+                #  the table is written as it was read if it has no undefined value, and an undefined value cannot be written
+                @test_logs (:warn, r"TNULL1") @test written(hdu)[1:2880] == bytes[1:2880]
+                hdu.data.column1[1] = missing
+                err = @test_logs (:warn, r"TNULL1") try written(hdu) catch e e end
+                @test err isa ArgumentError && occursin("TNULL of field column1, $null, is not a value of the $type of the field", err.msg)
+            end
+        end
+        #  variable-length arrays too
+        header = ["TFORM1  = '1PI(3)  '", "TNULL1  =                99999"]
+        header = vcat(["XTENSION= 'BINTABLE'", "BITPIX  =                    8", "NAXIS   =                    2", "NAXIS1  =                    8",
+            "NAXIS2  =                    1", "PCOUNT  =                    6", "GCOUNT  =                    1", "TFIELDS =                    1"],
+            header, ["END"])
+        bytes = vcat(collect(codeunits(rpad(join(card.(header)), 2880))), be(Int32, [3, 0]), be(Int16, [1, 2, 3]), zeros(UInt8, 2880 - 14))
+        hdu = @test_logs (:warn, r"TNULL1, 99999") read(IOBuffer(bytes), HDU)
+        hdu.data.column1[1] = Union{Int16, Missing}[1, missing, 3]
+        @test_throws ArgumentError Base.CoreLogging.with_logger(() -> written(hdu), Base.CoreLogging.NullLogger())
+    end
+
+    ####    Test the number of fields (Sect. 7.3.1)    ####
+
+    @testset "number of fields" begin
+        #  a table has at most 999 fields, and more than that is an error when the HDU is created
+        hdu = HDU(Bintable, Tuple(fill(Int16[1, 2], 999)))
+        @test hdu.cards["TFIELDS"] == 999 && hdu.cards["NAXIS1"] == 1998 && hdu.cards["NAXIS2"] == 2
+        err = try HDU(Bintable, Tuple(fill(Int16[1], 1000))) catch e e end
+        @test err isa ArgumentError && err.msg == "The data have 1000 fields, but a binary table has at most 999 (Sect. 7.3.1)."
+        err = try HDU(Bintable, fill((a = Int16(1),), 2)) catch e e end
+        @test !(err isa ArgumentError)
+    end
+
+    ####    Test the largest number of elements of the variable-length arrays (Sect. 7.3.5)    ####
+
+    @testset "emax of arrays" begin
+        written(hdu) = (io = IOBuffer(); write(io, hdu); take!(io))
+        be(type, values) = collect(reinterpret(UInt8, hton.(type.(values))))
+        card(s) = rpad(s, 80)
+        header = ["XTENSION= 'BINTABLE'", "BITPIX  =                    8", "NAXIS   =                    2", "NAXIS1  =                    8",
+            "NAXIS2  =                    2", "PCOUNT  =                   14", "GCOUNT  =                    1", "TFIELDS =                    1",
+            "TFORM1  = '1PI(3)  '", "END"]
+        bytes = vcat(collect(codeunits(rpad(join(card.(header)), 2880))), be(Int32, [3, 0, 2, 6]), be(Int16, [1, 2, 3, 4, 5, 0, 0]), zeros(UInt8, 2880 - 30))
+        hdu = read(IOBuffer(bytes), HDU)
+        #  the arrays that are not longer than emax are written without a warning
+        @test @test_logs(written(hdu)) == bytes
+        hdu.data.column1[2] = Int16[7, 8, 9]
+        @test length(@test_logs(written(hdu))) == length(bytes) && read(IOBuffer(@test_logs(written(hdu))), HDU).data.column1[2] == Int16[7, 8, 9]
+        #  an array that is longer is written, with a warning, since the header is written before the data
+        hdu.data.column1[2] = Int16[1, 2, 3, 4]
+        w = @test_logs (:warn, r"The longest array of field column1 has 4 elements, more than the largest number of elements, 3, that its TFORM says") written(hdu)
+        @test read(IOBuffer(w), HDU).cards["TFORM1"] == "1PI(3)" && read(IOBuffer(w), HDU).data.column1[2] == Int16[1, 2, 3, 4]
+        #  the emax of a table that is created is the length of the longest array, and strings and bits have their own
+        created = HDU(Bintable, (v = [Int16[1, 2], Int16[3, 4, 5]],))
+        @test created.cards["TFORM1"] == "1PI(3)" && length(@test_logs(written(created))) == 5760
+    end
 end
