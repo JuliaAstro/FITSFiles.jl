@@ -226,12 +226,14 @@
         @test isequal(reread(bytes; scale = false).data.column1, [1, missing, 3])
         @test reread(tablebytes(cards, rows[[1, 3]])).data.column1 isa Vector{Float64}
         #  a column that has the default scale and zero is not scaled, so an integer above 2^24 is exact (Sect. 7.2.2), and a column that has
-        #  one of them is
+        #  one of them is, with exact integers if the scale is 1 and the zero is an integer, and 64-bit floating-point numbers if it is not
         cards = fieldcards(["I10", "F5.1"], [1, 11])
         rows = ["1234567891  1.5", "       -17  2.5"]
         @test reread(tablebytes(cards, rows)).data.column1 == [1234567891, -17]
         shifted = reread(tablebytes([cards[1:3]; kw("TZERO1", "1.0"); cards[4:5]], rows)).data.column1
-        @test shifted isa Vector{Float64} && shifted == [1234567892.0, -16.0]
+        @test shifted isa FITSFiles.ScaledArray{Int64} && shifted == [1234567892, -16]
+        shifted = reread(tablebytes([cards[1:3]; kw("TZERO1", "1.5"); cards[4:5]], rows)).data.column1
+        @test shifted isa Vector{Float64} && shifted == [1234567892.5, -15.5]
         #  the scale is a 64-bit number, so 0.1 is 0.1 and not the number of a 32-bit one
         scaled = reread(tablebytes(fieldcards(["F12.9"], [1]; extra = [kw("TSCAL1", "0.1")]), ["1.123456789 "])).data.column1
         @test scaled[1] ≈ 0.1123456789 rtol = 1e-15
@@ -274,6 +276,69 @@
         hdu = HDU(Table, (a = [12],), Card{<:Any}[Card("TFORM1", "I4"), Card("TSCAL1", 2.5), Card("TZERO1", 10.0)])
         @test rowsof(hdu)[1:4] == "  12"
         @test_throws ArgumentError r"not an integer" rowsof(HDU(Table, (a = [1.5],), Card{<:Any}[Card("TFORM1", "I4")]))
+    end
+
+    ####    Test the exact integers of the scaled integer fields (Sect. 7.2.2)    ####
+
+    @testset "exact integers" begin
+        zero2 = "9223372036854775808"
+        cards(zero, form = "I20") = fieldcards([form], [1]; extra = [kw("TZERO1", zero)])
+        bytes(zero, values; form = "I20") = tablebytes(cards(zero, form), [lpad(value, parse(Int, form[2:end])) for value in values])
+        #  the physical values are integers if TSCALn is 1 and TZEROn is an integer, which a floating-point number of a whole number is, and
+        #  they are the first type of Int64, UInt64, and Int128 that holds them
+        column = reread(bytes("100", [1, 2, -3])).data.column1
+        @test column isa FITSFiles.ScaledArray{Int64} && column == [101, 102, 97] && (column.scale, column.zero) == (1, 100)
+        @test reread(bytes("100.0", [1, 2, -3])).data.column1 isa FITSFiles.ScaledArray{Int64}
+        @test reread(bytes("100.5", [1, 2, -3])).data.column1 isa Vector{Float64}
+        @test reread(tablebytes(fieldcards(["I4"], [1]; extra = [kw("TZERO1", "100"), kw("TSCAL1", "2")]), ["   1"])).data.column1 isa Vector{Float64}
+        #  an offset that is 2^63 gives the 64-bit unsigned integers, which a 64-bit float does not hold
+        values = [typemin(Int64), typemin(Int64) + 5, typemax(Int64)]
+        column = reread(bytes(zero2, values)).data.column1
+        @test column isa FITSFiles.ScaledArray{UInt64} && column == UInt64[0, 5, 18446744073709551615]
+        column = reread(bytes(zero2, values[1:2])).data.column1
+        @test column isa FITSFiles.ScaledArray{Int64} && column == [0, 5]
+        #  an offset beyond 64 bits gives 128-bit integers, and one that is not a number of Int128 is a floating-point number
+        column = reread(bytes("-9223372036854775809", [typemin(Int64), 5])).data.column1
+        @test column isa FITSFiles.ScaledArray{Int128} && column == Int128[-18446744073709551617, -9223372036854775804]
+        @test reread(bytes("1.0E40", [1, 2])).data.column1 isa Vector{Float64}
+        #  an undefined entry stays in place, and the columns of no values have the type of the others
+        cards2 = fieldcards(["I4"], [1]; extra = [kw("TZERO1", "100"), sk("TNULL1", "  -9")])
+        column = reread(tablebytes(cards2, ["   1", "  -9", "   3"])).data.column1
+        @test column isa FITSFiles.ScaledArray{Union{Int64, Missing}} && isequal(column, [101, missing, 103])
+        @test isequal(reread(tablebytes(cards2, ["  -9"])).data.column1, [missing])
+        #  the values that are not scaled are the stored values, and the records have the exact integers
+        @test reread(bytes("100", [1, 2]); scale = false).data.column1 == [1, 2]
+        records = reread(bytes("100", [1, 2]); record = true).data
+        @test records isa FITSFiles.ScaledRows && records == [(column1 = 101,), (column1 = 102,)]
+        @test records[1].column1 isa Int64
+        #  the exact integers are written as the stored values, so that the HDU is written as it was read, whichever way it was read
+        for (zero, values) in ["100" => [1, 2, -3], zero2 => values, "-9223372036854775809" => [typemin(Int64), 5], "100.0" => [1, 2]]
+            for kwds in ((;), (; record = true), (; scale = false))
+                source = bytes(zero, values)
+                @test written(source; kwds...) == codeunits(source)
+            end
+        end
+        source = tablebytes(cards2, ["   1", "  -9", "   3"])
+        @test written(source) == codeunits(source) && written(source; record = true) == codeunits(source)
+        #  the data that are made from them have the scale and the zero of the header, and the values that are not exact integers are errors
+        hdu = HDU(Table, (a = FITSFiles.ScaledArray([101, 102], 1, 100),), Card{<:Any}[Card("TFORM1", "I4")])
+        @test getfield(hdu, :cards)["TZERO1"] == 100 && !haskey(getfield(hdu, :cards), "TSCAL1")
+        @test rowsof(hdu)[1:8] == "   1   2"
+        again = roundtrip(hdu).data.a
+        @test again isa FITSFiles.ScaledArray{Int64} && again == [101, 102]
+        hdu = HDU(Table, (a = FITSFiles.ScaledArray([101.0, 102.0], 1, 100),), Card{<:Any}[Card("TFORM1", "I4")])
+        @test rowsof(hdu)[1:8] == "   1   2"
+        hdu = HDU(Table, (a = FITSFiles.ScaledArray([101.5], 1, 100),), Card{<:Any}[Card("TFORM1", "I4")])
+        @test_throws ArgumentError r"The value 101.5 of field a is not an integer, but the field has the format I4" rowsof(hdu)
+        hdu = HDU(Table, (a = FITSFiles.ScaledArray(UInt64[18446744073709551615], 1, parse(Int128, zero2)),), Card{<:Any}[Card("TFORM1", "I20")])
+        @test strip(rowsof(hdu)[1:20]) == "9223372036854775807"
+        hdu = HDU(Table, (a = FITSFiles.ScaledArray(Int128[Int128(2)^100], 1, parse(Int128, zero2)),), Card{<:Any}[Card("TFORM1", "I20")])
+        @test_throws ArgumentError r"is the stored value .* with TZERO 9223372036854775808, which is not in the range of an Int64" rowsof(hdu)
+        hdu = HDU(Table, (a = FITSFiles.ScaledArray([1], 1, 5),), Card{<:Any}[Card("TFORM1", "I4"), Card("TZERO1", 6)])
+        @test getfield(hdu, :cards)["TZERO1"] == 5
+        #  the integers of a field of the header are the stored values
+        hdu = HDU(Table, (a = [7],), Card{<:Any}[Card("TFORM1", "I4"), Card("TZERO1", 100)])
+        @test rowsof(hdu)[1:4] == "   7"
     end
 
     ####    Test the fields that are made from data    ####
@@ -340,6 +405,30 @@
         @test_throws ArgumentError r"formats\[2\] must be a format of Table 15, Aw, Iw, Fw.d, Ew.d, or Dw.d" HDU(
             Table, columns; formats = ["I4", "G8.3", "A3"])
         @test_throws ArgumentError("formats[2] must be a character string, but its value is 5.") HDU(Table, columns; formats = ["I4", 5, "A3"])
+        #  the records and the columns are matched to the fields by name, in any order, so that the fields have their values whichever way the
+        #  names are ordered
+        records = [(a = 1000, b = 2), (b = 3, a = 4)]
+        hdu = HDU(Table, records)
+        @test [rstrip(card.value) for card in getfield(hdu, :cards) if startswith(card.key, "TFORM")] == ["I4", "I1"]
+        @test roundtrip(hdu).data == (a = [1000, 4], b = [2, 3])
+        @test rowsof(hdu)[1:12] == "1000 2   4 3"
+        hdu = HDU(Table, (a = [1, 2], b = ["x", "yy"]))
+        @test rowsof(HDU{Table}(getfield(hdu, :cards), (b = ["x", "yy"], a = [1, 2]))) == rowsof(hdu)
+        @test rowsof(HDU{Table}(getfield(hdu, :cards), [(b = "x", a = 1), (a = 2, b = "yy")])) == rowsof(hdu)
+        @test_throws ArgumentError r"Record 2 of the data does not have the names of the first record, a, b" HDU(Table, [(a = 1, b = 2), (a = 3, c = 4)])
+        @test_throws ArgumentError r"Record 2 of the data has no value named b, the name of field 2, but it has a, c" rowsof(HDU{Table}(
+            getfield(hdu, :cards), [(a = 1, b = "x"), (a = 3, c = "y")]))
+        @test_throws ArgumentError r"The data have no column named b, the name of field 2, but they have a, c" rowsof(HDU{Table}(
+            getfield(hdu, :cards), (a = [1, 2], c = ["x", "yy"])))
+        #  a tuple of columns, and records that are tuples, are at the place of the field
+        @test rowsof(HDU(Table, ([1, 2], ["x", "yy"])))[1:8] == "1 x 2 yy"
+        @test roundtrip(HDU(Table, [(1, "x"), (2, "yy")])).data == (column1 = [1, 2], column2 = ["x", "yy"])
+        #  a column is a vector, which a matrix and a number are not, since the table has a value of the column for each row
+        @test_throws ArgumentError("Column 1 of the data, a, is not a vector, but a column of an ASCII table has a value for each row (Sect. 7.2.3).") HDU(
+            Table, (a = [1 2; 3 4],))
+        @test_throws ArgumentError r"Column 2 of the data is not a vector" HDU(Table, ([1, 2], 3))
+        hdu = HDU(Table, (a = [1, 2],))
+        @test_throws ArgumentError r"Column 1 of the data, a, is not a vector" rowsof(HDU{Table}(getfield(hdu, :cards), (a = [1 2; 3 4],)))
         #  a column that has missing values has the TNULLn of the cards, which is in the header with the other cards of the fields
         hdu = HDU(Table, (a = [1, missing],), Card{<:Any}[Card("TNULL1", "-9"), Card("TUNIT1", "m")])
         @test_throws ArgumentError r"has more than the 1 characters of the field" rowsof(hdu)
@@ -549,6 +638,15 @@
             tablebytes(fields, ["   1"]; mandatory = normal[[1, 3, 4, 5, 6, 7]]))
         @test_throws ArgumentError("NAXIS is missing, but it is a mandatory keyword of a TABLE extension (Sect. 7.2.1).") reread(
             tablebytes(fields, ["   1"]; mandatory = normal[[1, 2, 4, 5, 6, 7]]))
+        #  TFIELDS is mandatory, and a header that does not have it has no fields
+        @test_logs (:warn, r"TFIELDS is missing, but it is a mandatory keyword of a TABLE extension \(Sect. 7.2.1\), and the table has no fields. It is read as 0.") @test reread(
+            tablebytes(String[], ["    "])).data == NamedTuple()
+        #  the keywords that describe arrays are not used in a table (Sect. 4.4.2.5)
+        for (key, value) in ["BSCALE" => "2.0", "BZERO" => "1.0", "BLANK" => "5", "DATAMIN" => "2.0", "DATAMAX" => "9.0"]
+            @test_logs (:warn, Regex("$key must not be used in a TABLE extension header \\(Sect. 4.4.2.5\\), since it describes an array, and the header " *
+                "describes a table. It is read as it is, and is not used.")) @test reread(tablebytes([fields; kw(key, value)], ["   1"])).data.column1 == [1]
+        end
+        @test_logs (:warn, r"BUNIT must not be used in a TABLE extension header") reread(tablebytes([fields; sk("BUNIT", "Jy")], ["   1"]))
         #  the keywords of the primary header and of the physical blocks are not in an extension
         @test_logs (:warn, r"SIMPLE must not appear in an extension header \(Sect. 4.4.1.1\)") reread(tablebytes([fields; kw("SIMPLE", "T")], ["   1"]))
         for key in ("EXTEND", "BLOCKED")
@@ -570,6 +668,15 @@
         @test_logs @test names([sk("TTYPE1", "x"), sk("TTYPE2", "y")]; forms = ["I4", "I4"], rows = ["   1   2"]) == (:x, :y)
         #  the name of a field that has none is the number of its column, and the field of an empty name has the default
         @test_logs @test names([sk("TTYPE1", ""), sk("TTYPE3", "z")]) == (:column1, :column2, :z)
+        #  a name has at most 68 characters, which is the most that a string of a card has, and has the characters that are recommended for a name
+        @test HDU(Table, NamedTuple{(Symbol(repeat("x", 68)),)}(([1],))) isa HDU
+        @test_throws ArgumentError r"The name of field 1, \"xxxxxxxxxxxxxxxxxxxx\"\.\.\., has 69 characters, but the value of a TTYPEn keyword has at most 68 \(Sect. 4.2.1.1\)" HDU(
+            Table, NamedTuple{(Symbol(repeat("x", 69)),)}(([1],)))
+        for name in ["a b", "a-b", "a+b", " ab", "a*b", "a.b"]
+            @test_logs (:warn, Regex("TTYPE1, $(replace(repr(name), r"([.+*])" => s"\\\1")), has characters other than letters, digits, and the underscore, which a name should have")) names(
+                [sk("TTYPE1", name)]; forms = ["I4"], rows = ["   1"])
+        end
+        @test_logs names([sk("TTYPE1", "Ab_9")]; forms = ["I4"], rows = ["   1"])
         #  the characters of a field of characters are the ASCII text characters, from 32 to 126, which a warning says if they are not, and
         #  the characters are read as they are and are not written
         bytes = tablebytes(fieldcards(["A4"], [1]), ["ab\tc", "efgh"])

@@ -15,7 +15,11 @@ format of the values of the field and the column that follows the one space afte
 The values of a field of type `A` are strings, of type `I` are `Int64`, and of types `F`, `E`, and `D` are `Float64`, with `missing` for an
 undefined value, which is the TNULLn string of the field (Sect. 7.2.2 of the standard). A blank field is the value 0, as the standard
 says (Sect. 7.2.5). The values of a field that has a TSCALn and a TZEROn that are not 1 and 0 are the physical values, which are `Float64`
-(Eq. 7), unless `scale = false`.
+(Eq. 7), unless `scale = false`. The values of an integer field whose TSCALn is 1 and TZEROn is an integer are exact integers (`Int64`, or
+`UInt64` or `Int128` if they do not fit), which are a [`ScaledArray`](@ref).
+
+The data are matched to the fields by name: a named tuple of columns and the records that are named tuples have a value for each field of its
+TTYPEn, in any order. The fields without a TTYPEn are named `column1`, `column2`, and so on.
 """
 struct Table <: AbstractHDU end
 
@@ -69,8 +73,8 @@ struct TableField <: AbstractField
     form::String
     "The display of the field"
     disp::String
-    "The offset of the field"
-    zero::Union{Float64, Nothing}
+    "The offset of the field, which is an integer for the exact integers of an integer field (see `exactzero`)"
+    zero::Union{Real, Nothing}
     "The scale of the field"
     scale::Union{Float64, Nothing}
     "The null value of the field"
@@ -88,13 +92,13 @@ end
 """
     ScaledRows(records, scales)
 
-The records of an ASCII table (`record = true`) that has fields of floating-point values that are scaled by a TSCALn and a TZEROn. The
-values of those fields are the physical values (see [`ScaledArray`](@ref)), which the dictionary `scales` has the scale and the zero of,
+The records of an ASCII table (`record = true`) that has fields of floating-point values, or of exact integers, that are scaled by a TSCALn and a
+TZEROn. The values of those fields are the physical values (see [`ScaledArray`](@ref)), which the dictionary `scales` has the scale and the zero of,
 by the name of the field, and are written as the stored values. The records are the values of `parent`.
 """
 struct ScaledRows{R, V<:AbstractVector{R}} <: AbstractVector{R}
     parent::V
-    scales::Dict{Symbol, Tuple{Float64, Float64}}
+    scales::Dict{Symbol, Tuple{Real, Real}}
 end
 
 Base.parent(rows::ScaledRows) = rows.parent
@@ -127,6 +131,18 @@ tablenumber(keys::AbstractDict, key::AbstractString) = get(keys, key, nothing) i
 #  Float64 is not 0.1 but the number that has the digits of the Float32
 tablefloat(value::Real) = value isa Float32 ? Base.parse(Float64, string(value)) : Float64(value)
 
+#  The TZEROn of a field: an integer if the values of the field are exact integers, which an integer field has if TSCALn is 1 and TZEROn is an
+#  integer (a value of a header that is a whole floating-point number up to 2^53 is one) of at most 2^100, so that the sums of the values of the
+#  field and TZEROn are integers of 128 bits (Sect. 7.2.2), and a Float64 otherwise
+function tablezero(value, code::AbstractString, scale::Real)
+    isnothing(value) && return 0.0
+    whole = value isa Integer || (value isa AbstractFloat && isinteger(value) && abs(value) <= 2.0^53)
+    code == "I" && scale == 1 && whole && abs(value) < Int128(2)^100 ? Int128(value) : tablefloat(value)
+end
+
+#  Are the physical values of an integer field exact integers, which are the stored values and TZEROn (see `tablezero`)?
+exactzero(field::TableField) = field.type <: Integer && field.zero isa Integer && field.zero != 0
+
 #  The name of a field, which is the default if the name is empty, and which no other field has, since the columns of the data are named by the
 #  fields, and the columns of two fields that have the same name would be one.
 function tablename(name::AbstractString, default::AbstractString, names::Set{String})
@@ -145,7 +161,7 @@ function tablefield(keys::AbstractDict, j::Integer, name::AbstractString, form::
     type = TABLETYPE[code]
     #  A field of characters has no scale and zero (Sect. 7.2.2)
     scale = code == "A" ? nothing : tablefloat(something(tablenumber(keys, "TSCAL$j"), 1.0))
-    zero_ = code == "A" ? nothing : tablefloat(something(tablenumber(keys, "TZERO$j"), 0.0))
+    zero_ = code == "A" ? nothing : tablezero(tablenumber(keys, "TZERO$j"), code, scale)
     null = get(keys, "TNULL$j", nothing)
     null = null isa AbstractString ? String(rstrip(null)) : nothing
     TableField(name, type, start:start+width-1, tablestring(keys, "TUNIT$j", ""), String(rstrip(form)), tablestring(keys, "TDISP$j", ""),
@@ -218,6 +234,9 @@ function verifykeys(::Type{Table}, cards::Cards, mankeys::AbstractDict, reskeys:
         haskey(mankeys, key) || @warn "$key is missing, but it is a mandatory keyword of a TABLE extension " *
             "(Sect. 7.2.1), and has the value $value. It is read as $value."
     end
+    #  A header without TFIELDS has no fields
+    haskey(mankeys, "TFIELDS") || @warn "TFIELDS is missing, but it is a mandatory keyword of a TABLE extension (Sect. 7.2.1), and " *
+        "the table has no fields. It is read as 0."
     #  The mandatory keywords are the first keywords, in order and in fixed format
     required = filter(key -> haskey(mankeys, key), ["XTENSION", "BITPIX", "NAXIS", "NAXIS1", "NAXIS2", "PCOUNT", "GCOUNT", "TFIELDS"])
     verifyorder(cards, required; section = "Sects. 4.4.1.2 and 7.2.1",
@@ -228,6 +247,11 @@ function verifykeys(::Type{Table}, cards::Cards, mankeys::AbstractDict, reskeys:
     for key in ("EXTEND", "BLOCKED")
         haskey(reskeys, key) && @warn "$key must not appear in a TABLE extension header (Sects. 4.4.2.1 and 7.2.2). " *
             "It is read as it is."
+    end
+    #  The keywords that describe arrays are not used for a table (Sect. 4.4.2.5)
+    for key in ("BSCALE", "BZERO", "BUNIT", "BLANK", "DATAMIN", "DATAMAX")
+        haskey(reskeys, key) && @warn "$key must not be used in a TABLE extension header (Sect. 4.4.2.5), since it describes " *
+            "an array, and the header describes a table. It is read as it is, and is not used."
     end
     verifyfieldkeys(Table, mankeys, reskeys)
     cards
@@ -324,6 +348,9 @@ function verifyfieldkeys(::Type{Table}, mankeys::AbstractDict, reskeys::Abstract
                 "$code (Sect. 7.2.2), which has the formats $(join(TABLEDISPCODES[code], ", ")). It is read as it is."
         end
         name = get(reskeys, "TTYPE$j", nothing)
+        name isa AbstractString && !isempty(strip(name)) && !occursin(r"^[A-Za-z0-9_]+$", rstrip(name)) && @warn "TTYPE$j, " *
+            "$(repr(rstrip(name))), has characters other than letters, digits, and the underscore, which a name should have, since " *
+            "another character may not be allowed in the name of a variable of a program (Sect. 7.2.2). It is read as it is."
         if name isa AbstractString && !isempty(strip(name))
             other = get(names, lowercase(rstrip(name)), 0)
             if other > 0
@@ -382,10 +409,19 @@ function verifydata(::Type{Table}, data::Union{AbstractArray, Tuple, NamedTuple}
         for (j, record) in enumerate(data)
             length(record) == length(fields) || throw(ArgumentError("Record $j of the data has $(length(record)) values, but " *
                 "the table has TFIELDS = $(length(fields)) fields (Sect. 7.2.1)."))
+            record isa NamedTuple && for (k, field) in enumerate(fields)
+                haskey(record, Symbol(field.name)) || throw(ArgumentError("Record $j of the data has no value named $(field.name), " *
+                    "the name of field $k, but it has $(join(keys(record), ", ")) (Sect. 7.2.2)."))
+            end
         end
     else
         length(data) == length(fields) || throw(ArgumentError("The data have $(length(data)) columns, but the table has " *
             "TFIELDS = $(length(fields)) fields (Sect. 7.2.1)."))
+        tablecolumns(data)
+        data isa NamedTuple && for (k, field) in enumerate(fields)
+            haskey(data, Symbol(field.name)) || throw(ArgumentError("The data have no column named $(field.name), the name of " *
+                "field $k, but they have $(join(keys(data), ", ")) (Sect. 7.2.2)."))
+        end
         for (k, column) in enumerate(data)
             length(column) == N || throw(ArgumentError("Column $k of the data has $(length(column)) rows, but the table has " *
                 "NAXIS2 = $N (Sect. 7.2.1)."))
@@ -397,12 +433,26 @@ end
 ####    The format of the data
 
 #  The columns of the data: the values of each field, which are nothing for the strings of the rows, whose fields the header describes
-tablecolumns(data::Union{Tuple, NamedTuple}) = Any[data[k] for k = 1:length(data)]
+function tablecolumns(data::Union{Tuple, NamedTuple})
+    for k = 1:length(data)
+        data[k] isa AbstractVector || throw(ArgumentError("Column $k of the data$(data isa NamedTuple ? ", $(keys(data)[k])," : "") is " *
+            "not a vector, but a column of an ASCII table has a value for each row (Sect. 7.2.3)."))
+    end
+    Any[data[k] for k = 1:length(data)]
+end
 tablecolumns(data::AbstractArray{<:AbstractString}) = nothing
 function tablecolumns(data::AbstractArray)
     if isempty(data)
         eltype(data) <: Union{Tuple, NamedTuple} && isconcretetype(eltype(data)) ?
             Any[Vector{T}() for T in fieldtypes(eltype(data))] : Any[]
+    elseif first(data) isa NamedTuple
+        #  The records that are named tuples have the values of a field by its name, in any order
+        names = keys(first(data))
+        for (j, record) in enumerate(data)
+            record isa NamedTuple && length(record) == length(names) && all(name -> haskey(record, name), names) ||
+                throw(ArgumentError("Record $j of the data does not have the names of the first record, $(join(names, ", "))."))
+        end
+        Any[[record[name] for record in data] for name in names]
     else
         Any[[record[k] for record in data] for k = 1:length(first(data))]
     end
@@ -491,7 +541,7 @@ function FieldFormat(::Type{Table}, format::DataFormat, reskeys::Dict{S, V},
         for key in ("TFORM$j", "TBCOL$j")
             haskey(reskeys, key) || throw(ArgumentError("$key is missing, but TFIELDS is $N."))
         end
-        name = tablename(tablestring(reskeys, "TTYPE$j", ""), record ? "field$j" : "column$j", names)
+        name = tablename(tablestring(reskeys, "TTYPE$j", ""), "column$j", names)
         fields[j] = tablefield(reskeys, j, name, reskeys["TFORM$j"], reskeys["TBCOL$j"])
     end
     fields
@@ -504,10 +554,9 @@ function FieldFormat(::Type{Table}, format::DataFormat, reskeys::Dict{S, V},
     forms, starts = tablelayout(columns, reskeys)
     given = tablenames(data)
     names = Set{String}()
-    default = data isa AbstractArray ? "field" : "column"
     fields = Vector{TableField}(undef, length(forms))
     for j in eachindex(forms)
-        name = tablename(isnothing(given) ? tablestring(reskeys, "TTYPE$j", "") : given[j], "$default$j", names)
+        name = tablename(isnothing(given) ? tablestring(reskeys, "TTYPE$j", "") : given[j], "column$j", names)
         fields[j] = tablefield(reskeys, j, name, forms[j], starts[j])
     end
     fields
@@ -526,8 +575,10 @@ function createcards!(::Type{Table}, format::DataFormat,
     required = tablekeys(Table, format, length(fields))
     for (j, field) in enumerate(fields)
         push!(required, "TFORM$j" => field.form, "TBCOL$j" => first(field.slice))
-        #  The name of a field is its TTYPEn unless it is the default
-        field.name in ("column$j", "field$j") || push!(required, "TTYPE$j" => field.name)
+        #  The name of a field is its TTYPEn unless it is the default, and a name is a string of a card
+        ncodeunits(field.name) > 68 && throw(ArgumentError("The name of field $j, $(repr(first(field.name, 20)))..., has " *
+            "$(ncodeunits(field.name)) characters, but the value of a TTYPEn keyword has at most 68 (Sect. 4.2.1.1)."))
+        field.name == "column$j" || push!(required, "TTYPE$j" => field.name)
     end
     arrangecards!(cards, required)
 end
@@ -547,10 +598,10 @@ end
 
 ####    Scaling
 
-#  Are the physical values of a field floating-point numbers like its stored values? They are if the field is scaled by a TSCAL that is not 1
-#  or a TZERO that is not 0 (Eq. 7). The values do not say that they are scaled, so they are a `ScaledArray`, which has the scale and the
-#  zero, and is written as the stored values.
-physicalfloat(field::TableField) = field.type <: AbstractFloat && !(field.scale == 1 && field.zero == 0)
+#  Are the physical values of a field a `ScaledArray`, which has the scale and the zero, and is written as the stored values? They are if the
+#  values of the field are floating-point numbers like its stored values, or exact integers, and the field is scaled by a TSCAL that is not 1 or a
+#  TZERO that is not 0 (Eq. 7), since the values do not say that they are scaled.
+physicalscaled(field::TableField) = (field.type <: AbstractFloat || exactzero(field)) && !(field.scale == 1 && field.zero == 0)
 
 #  The TSCALn and TZEROn cards of the fields that are the physical values of floating-point stored values, which have the scale and the zero of
 #  the data
@@ -660,8 +711,19 @@ function readcolumn(field::TableField, bytes::AbstractMatrix{UInt8}; scale::Bool
     #  The column has missing values only if there are undefined entries
     column = any(ismissing, values) ? values : Vector{type}(values)
     (scale && code != "A" && !(field.scale == 1 && field.zero == 0)) || return column
+    exactzero(field) && return ScaledArray(exactvalues(column, field.zero), field.scale, field.zero)
     column = scaled(column, field.scale, field.zero)
     code == "I" ? column : ScaledArray(column, field.scale, field.zero)
+end
+
+#  The exact integers of the stored values of an integer field and TZEROn, which are 128-bit integers that are converted to the first of Int64,
+#  UInt64, and Int128 that holds all of them
+function exactvalues(column::AbstractVector, zero::Integer)
+    wide = [ismissing(value) ? missing : Int128(value) + Int128(zero) for value in column]
+    present = collect(skipmissing(wide))
+    lo, hi = isempty(present) ? (0, 0) : extrema(present)
+    type = typemin(Int64) <= lo && hi <= typemax(Int64) ? Int64 : lo >= 0 && hi <= typemax(UInt64) ? UInt64 : Int128
+    any(ismissing, wide) ? Union{type, Missing}[ismissing(value) ? missing : type(value) for value in wide] : type[value for value in present]
 end
 
 function Base.read(io::IO, ::Type{Table}, format::DataFormat, fields::Vector{TableField};
@@ -674,8 +736,8 @@ function Base.read(io::IO, ::Type{Table}, format::DataFormat, fields::Vector{Tab
     names = Tuple(Symbol(field.name) for field in fields)
     if record
         rows = [NamedTuple{names}(Tuple(column[j] for column in columns)) for j = 1:N]
-        scales = Dict{Symbol, Tuple{Float64, Float64}}(Symbol(field.name) => (field.scale, field.zero)
-            for field in fields if scale && physicalfloat(field))
+        scales = Dict{Symbol, Tuple{Real, Real}}(Symbol(field.name) => (field.scale, field.zero)
+            for field in fields if scale && physicalscaled(field))
         isempty(scales) ? rows : ScaledRows(rows, scales)
     else
         NamedTuple{names}(Tuple(columns))
@@ -684,9 +746,11 @@ end
 
 ####    Write the data
 
-#  The value of the field k in row j of the data, which is a vector of records or a named tuple (or a tuple) of columns
-tablecell(data::AbstractArray, k::Integer, j::Integer) = data[j][k]
-tablecell(data::Union{Tuple, NamedTuple}, k::Integer, j::Integer) = data[k][j]
+#  The value of the field k, which is `field`, in row j of the data, which is a vector of records or a named tuple (or a tuple) of columns. The
+#  value is of the name of the field, if the data have names, and otherwise at the place of the field.
+tablecell(data::AbstractArray, k::Integer, field, j::Integer) = data[j] isa NamedTuple ? data[j][Symbol(field.name)] : data[j][k]
+tablecell(data::NamedTuple, k::Integer, field, j::Integer) = data[Symbol(field.name)][j]
+tablecell(data::Tuple, k::Integer, field, j::Integer) = data[k][j]
 
 #  The characters of a field are the restricted set of ASCII text characters, from 32 to 126 (Sect. 7.2.5)
 function checktext(text::AbstractString, name::AbstractString)
@@ -703,6 +767,17 @@ function storedreal(field::TableField, value::Real, code::AbstractString; check:
     if !isnothing(physical)
         physical == (scale, zero) || throw(ArgumentError("The scale and the zero of the data of field $(field.name), " *
             "$(physical[1]) and $(physical[2]), are not the TSCAL and the TZERO of the header, $scale and $zero."))
+        if code == "I"
+            #  The exact integers are the stored values and TZEROn, which the stored value is an integer of an Int64 of
+            (value isa Integer || (value isa AbstractFloat && isfinite(value) && isinteger(value))) && zero isa Integer ||
+                throw(ArgumentError("The value $value of field $(field.name) is not an integer, but the field has the format " *
+                "$(field.form) of integers (Sect. 7.2.5)."))
+            stored = Int128(value) - Int128(zero)
+            typemin(Int64) <= stored <= typemax(Int64) || throw(ArgumentError("The value $value of field $(field.name) is " *
+                "the stored value $stored with TZERO $zero, which is not in the range of an Int64, from $(typemin(Int64)) to " *
+                "$(typemax(Int64)) (Sect. 7.2.5)."))
+            return Int64(stored)
+        end
         scale == 0 && throw(ArgumentError("The values cannot be written as stored values, since TSCAL is 0."))
         return (Float64(value) - zero) / scale
     end
@@ -770,7 +845,7 @@ function Base.write(io::IO, ::Type{Table}, data::Union{AbstractArray, Tuple, Nam
             copyto!(row, 1, codeunits(checktext(data[j], "row $j")), 1, length(data[j]))
         else
             for (k, field) in enumerate(fields)
-                text = fieldtext(field, tablecell(data, k, j), formats[k]; check, physical = tablescale(data, k, field))
+                text = fieldtext(field, tablecell(data, k, field, j), formats[k]; check, physical = tablescale(data, k, field))
                 copyto!(row, first(field.slice), codeunits(text), 1, length(text))
             end
         end
