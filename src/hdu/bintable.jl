@@ -113,6 +113,10 @@ function Base.read(io::IO, ::Type{Bintable}, format::DataFormat,
         columns = [read(io, field, format, begpos; kwds...) for field in fields]
         data = [(; [Symbol(field.name) => recordcell(field, column, j) for (field, column) in zip(fields, columns)]...)
             for j = 1:N]
+        #  The records that have fields of scaled floating-point values are written as the stored values
+        scales = Dict{Symbol, Tuple{Any, Any}}(Symbol(field.name) => (field.scale, field.zero)
+            for field in fields if get(kwds, :scale, true) && physicalfloat(field) && isnothing(field.pntr))
+        isempty(scales) || (data = ScaledTable(data, scales))
     else
         data = (; [Symbol(field.name) =>
             read(io, field, format, begpos; kwds...) for field in fields]... )
@@ -159,7 +163,7 @@ function Base.write(io::IO, ::Type{Bintable}, data::Union{AbstractArray, NamedTu
             for field in fields
                 cell = getcell(Bintable, data, field, j)
                 if isnothing(field.pntr)
-                    write(io, field, flatten(cell); kwds...)
+                    write(io, field, flatten(cell); physical = physicalscale(data, field), kwds...)
                 else
                     writearray(io, heap, field, cell; check = get(kwds, :check, true))
                 end
@@ -184,7 +188,7 @@ function writearray(io::IO, heap::IOBuffer, field::BinaryField, cell; check::Boo
     type <: Union{AbstractString, BitVector} && throw(ArgumentError("The variable-length array of field $(field.name) has " *
         "elements of type $type, which are not written."))
     values = cell isa AbstractArray ? reshape(cell, :) : [cell]
-    values = storedcell(field, values; check)
+    values = storedcell(field, values; check, physical = cell isa ScaledArray ? (cell.scale, cell.zero) : nothing)
     n = length(values)
     write(io, hton(field.pntr(n)), hton(field.pntr(n == 0 ? 0 : position(heap))))
     n == 0 && return
@@ -693,7 +697,64 @@ function Base.read(io::IO, field::BinaryField, format::DataFormat,
         column = nullcomplex(setmissing(column, field.null))
         column = scale ? physical(column, type, field.scale, field.zero) : column
     end
-    applydims(column, field)
+    scalefloats(applydims(column, field), field, scale)
+end
+
+#  Are the physical values of a field the same type as its stored values, which are floating-point or complex? They are if the field is
+#  scaled by a TSCAL that is not 1 or a TZERO that is not 0 (Eq. 7). The values do not say that they are scaled, so they are a
+#  `ScaledArray`, which has the scale and the zero, and is written as the stored values.
+physicalfloat(field::BinaryField) = !isnothing(field.scale) && field.type <: Union{AbstractFloat, Complex} &&
+    !(field.scale == 1 && field.zero == 0)
+
+function scalefloats(column, field::BinaryField, scale::Bool)
+    scale && physicalfloat(field) || return column
+    isnothing(field.pntr) ? ScaledArray(column, field.scale, field.zero) :
+        map(cell -> ScaledArray(cell, field.scale, field.zero), column)
+end
+
+"""
+    ScaledTable(records, scales)
+
+The records of a binary table (`record = true`) that has fields of floating-point or complex stored values that are scaled by a TSCALn and a
+TZEROn. The values of those fields are the physical values (see [`ScaledArray`](@ref)), which the dictionary `scales` has the scale and the
+zero of, by the name of the field, and are written as the stored values. The records are the values of `parent`.
+"""
+struct ScaledTable{R, V<:AbstractVector{R}} <: AbstractVector{R}
+    parent::V
+    scales::Dict{Symbol, Tuple{Any, Any}}
+end
+
+Base.parent(table::ScaledTable) = table.parent
+Base.size(table::ScaledTable) = size(table.parent)
+Base.IndexStyle(::Type{<:ScaledTable}) = IndexLinear()
+Base.getindex(table::ScaledTable, i::Int) = table.parent[i]
+Base.setindex!(table::ScaledTable, value, i::Int) = (table.parent[i] = value; table)
+Base.copy(table::ScaledTable) = ScaledTable(copy(table.parent), table.scales)
+
+#  The scale and the zero of a field of the data, if its values are the physical values of floating-point stored values, and nothing if they are
+#  the stored values
+physicalscale(data::NamedTuple, field::BinaryField) = (column = data[Symbol(field.name)];
+    column isa ScaledArray ? (column.scale, column.zero) : nothing)
+physicalscale(data::ScaledTable, field::BinaryField) = get(data.scales, Symbol(field.name), nothing)
+physicalscale(data, field::BinaryField) = nothing
+
+#  The TSCALn and TZEROn cards of the fields that are the physical values of floating-point stored values, which have the scale and the zero of
+#  the data
+function scalecards!(::Type{Bintable}, cards::Cards, data::NamedTuple)
+    for (j, column) in enumerate(data)
+        column isa ScaledArray || continue
+        setscalecard!(cards, "TSCAL$j", column.scale, 1)
+        setscalecard!(cards, "TZERO$j", column.zero, 0)
+    end
+    cards
+end
+function scalecards!(::Type{Bintable}, cards::Cards, data::ScaledTable)
+    for (j, name) in enumerate(keys(data[1]))
+        haskey(data.scales, name) || continue
+        setscalecard!(cards, "TSCAL$j", data.scales[name][1], 1)
+        setscalecard!(cards, "TZERO$j", data.scales[name][2], 0)
+    end
+    cards
 end
 
 #  The dimensions of an array of strings, which are the dimensions TDIMn if there is more than one and they hold no more characters
@@ -752,14 +813,29 @@ end
 
 #  The stored values of the physical values of a cell: the values of the offsets of Table 19 have the offset, and the values that are
 #  not of the type of the field are inverted from the scale and the zero (Eq. 7), as the values of an array of an image are
-function storedcell(field::BinaryField, value; check::Bool = true)
+function storedcell(field::BinaryField, value; check::Bool = true, physical = nothing)
+    #  The values of the data that are the physical values of floating-point stored values are inverted, if the data have the scale and the
+    #  zero of the header
+    if !isnothing(physical) && !isnothing(field.scale)
+        physical == (field.scale, field.zero) || throw(ArgumentError("The scale and the zero of the data of field $(field.name), " *
+            "$(physical[1]) and $(physical[2]), are not the TSCAL and the TZERO of the header, $(field.scale) and $(field.zero)."))
+        return invertscale(value, field.type, field.scale, field.zero)
+    end
     (isnothing(field.scale) || field.type <: Union{Bool, BitVector, AbstractString} ||
         (field.scale == 1 && field.zero == 0 && !haskey(OFFSETTYPE, field.type))) && return value
     stored(values) = storedvalues(values, field.type, field.scale, field.zero, field.null; check)
     value isa AbstractArray ? stored(value) : only(stored([value]))
 end
 
-function Base.write(io::IO, field::BinaryField, value::U; check::Bool = true, kwds...) where
+#  The stored values (value - TZERO)/TSCAL of the physical values of floating-point or complex values (Eq. 7), whose undefined values are missing
+function invertscale(values, type::Type, scale::Real, zero::Real)
+    scale == 0 && throw(ArgumentError("The values cannot be written as stored values, since TSCAL is 0."))
+    wide(x) = x isa Complex ? ComplexF64(x) : Float64(x)
+    stored(x) = ismissing(x) ? missing : type((wide(x) - wide(zero)) / wide(scale))
+    values isa AbstractArray ? map(stored, values) : stored(values)
+end
+
+function Base.write(io::IO, field::BinaryField, value::U; check::Bool = true, physical = nothing, kwds...) where
     U <: Union{AbstractArray, AbstractString, BitVector, Real, Complex, Missing}
 
     type, leng = field.type, field.leng
@@ -773,7 +849,7 @@ function Base.write(io::IO, field::BinaryField, value::U; check::Bool = true, kw
     type <: Bool && return leng == 0 ? 0 : write(io, padelements(encodelogical.(value), leng, 0x00))
     #  The stored values of the physical values, and the undefined values, which are written as TNULLn (Sect. 7.3.2), or NaN for
     #  floating-point data
-    value = unsetmissing(storedcell(field, value; check), field.null, type)
+    value = unsetmissing(storedcell(field, value; check, physical), field.null, type)
 
     if type <: AbstractString && value isa AbstractArray
         #  The strings of an array of strings are the characters of the field in order, with the number of characters of the first

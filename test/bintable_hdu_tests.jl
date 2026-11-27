@@ -1647,4 +1647,70 @@
         hdu = HDU(Bintable, (c = Union{ComplexF32, Missing}[1 + 2im, missing],), Card{<:Any}[Card("TSCAL1", 2.0f0), Card("TZERO1", 1.0f0)])
         @test isequal(reread(hdu).data.c, Union{ComplexF32, Missing}[3 + 4im, missing])
     end
+
+    ####    Test the scaled floating-point fields (Sect. 7.3.2, Eq. 7)    ####
+
+    @testset "scaled floating-point fields" begin
+        written(hdu) = (io = IOBuffer(); write(io, hdu); take!(io))
+        reread(hdu; kwds...) = read(IOBuffer(written(hdu)), HDU; kwds...)
+        scaledcards(scale, zero) = Card{<:Any}[Card("TSCAL1", scale), Card("TZERO1", zero)]
+        be(type, values) = collect(reinterpret(UInt8, hton.(type.(values))))
+
+        #  the physical values of the stored values of a field that is scaled are a ScaledArray, which the values do not say by their type,
+        #  and the field is written as the stored values: the stored values of the file are the same after it is read and written
+        for (type, tform, stored) in ((Float32, "E", [1, 2]), (Float64, "D", [1, 2]), (ComplexF32, "C", [1 + 1im, 2 - 2im]),
+                                      (ComplexF64, "M", [1 + 1im, 2 - 2im]))
+            hdu = HDU(Bintable, (a = type.(stored),), scaledcards(2.0f0, 1.0f0))
+            @test hdu.cards["TFORM1"] == "1$tform"
+            bytes = written(hdu)
+            again = read(IOBuffer(bytes), HDU)
+            @test again.data.a isa FITSFiles.ScaledArray && again.data.a == 1 .+ 2 .* type.(stored) && eltype(again.data.a) == type
+            @test written(again) == bytes
+            #  the values that are changed are inverted
+            again.data.a[1] = type(5)
+            @test read(IOBuffer(written(again)), HDU; scale = false).data.a == type.([2, stored[2]])
+            @test read(IOBuffer(written(again)), HDU).data.a[1] == type(5)
+            #  without the scale, the stored values are an array
+            plain = read(IOBuffer(bytes), HDU; scale = false).data.a
+            @test !(plain isa FITSFiles.ScaledArray) && plain == type.(stored)
+        end
+        #  the arrays of the fields, the variable-length arrays, and the records
+        hdu = HDU(Bintable, (a = Float32[1 2 3; 4 5 6], v = [Float64[1, 2], Float64[3]]), Card{<:Any}[Card("TSCAL1", 0.5f0), Card("TZERO1", 2.0f0),
+            Card("TSCAL2", 3.0), Card("TZERO2", -1.0)])
+        bytes = written(hdu)
+        again = read(IOBuffer(bytes), HDU)
+        @test again.data.a isa FITSFiles.ScaledArray && size(again.data.a) == (2, 3) && again.data.a == 2 .+ 0.5 .* Float32[1 2 3; 4 5 6]
+        @test all(cell -> cell isa FITSFiles.ScaledArray, again.data.v) && again.data.v == [[2.0, 5.0], [8.0]]
+        @test written(again) == bytes
+        records = read(IOBuffer(bytes), HDU; record = true)
+        @test records.data isa FITSFiles.ScaledTable && records.data[2].a == [4.0, 4.5, 5.0] && records.data[1].v == [2.0, 5.0]
+        @test written(records) == bytes
+        records.data[2] = (a = Float32[10, 20, 30], v = records.data[2].v)
+        @test read(IOBuffer(written(records)), HDU; scale = false).data.a == Float32[1 2 3; 16 36 56] ./ 1
+        #  the data of floating-point values that are not scaled are not a ScaledArray
+        @test !(reread(HDU(Bintable, (a = Float32[1, 2],))).data.a isa FITSFiles.ScaledArray)
+        @test !(reread(HDU(Bintable, (a = Float32[1, 2],), scaledcards(1.0f0, 0.0f0))).data.a isa FITSFiles.ScaledArray)
+        @test !(reread(HDU(Bintable, [(a = 1.0f0,)])).data.a isa FITSFiles.ScaledTable)
+
+        #  the data that are a ScaledArray have the scale and the zero in the header, and plain values are the stored values
+        hdu = HDU(Bintable, (a = FITSFiles.ScaledArray(Float32[3, 5], 2.0f0, 1.0f0), n = Int16[1, 2]))
+        @test hdu.cards["TSCAL1"] == 2.0f0 && hdu.cards["TZERO1"] == 1.0f0 && !haskey(hdu.cards, "TSCAL2")
+        @test reread(hdu).data.a == Float32[3, 5] && reread(hdu; scale = false).data.a == Float32[1, 2]
+        hdu = HDU(Bintable, (a = Float32[1, 2],), scaledcards(2.0f0, 1.0f0))
+        @test reread(hdu).data.a == Float32[3, 5] && reread(hdu; scale = false).data.a == Float32[1, 2]
+        hdu = HDU(Bintable, FITSFiles.ScaledTable([(a = 3.0f0, n = Int16(1)), (a = 5.0f0, n = Int16(2))],
+            Dict{Symbol, Tuple{Any, Any}}(:a => (2.0f0, 1.0f0))))
+        @test hdu.cards["TSCAL1"] == 2.0f0 && reread(hdu; scale = false).data.a == Float32[1, 2]
+        #  the scale and the zero of the data are those of the header
+        hdu = HDU(Bintable, (a = FITSFiles.ScaledArray(Float32[3, 5], 2.0f0, 1.0f0),))
+        hdu.cards["TSCAL1"] = 4.0f0
+        @test_throws ArgumentError written(hdu)
+        #  an undefined value is NaN
+        hdu = HDU(Bintable, (a = Float32[1, NaN],), scaledcards(2.0f0, 1.0f0))
+        again = reread(hdu)
+        @test isnan(again.data.a[2]) && again.data.a[1] == 3
+        @test isnan(reread(again).data.a[2])
+        @test FITSFiles.invertscale(ComplexF32(3, 4), ComplexF32, 2.0f0, 1.0f0) == ComplexF32(1, 2)
+        @test_throws ArgumentError FITSFiles.invertscale([1.0], Float32, 0.0, 1.0)
+    end
 end
