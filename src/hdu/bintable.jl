@@ -175,6 +175,10 @@ function Base.write(io::IO, ::Type{Bintable}, data::Union{AbstractArray, NamedTu
         write(io, zeros(UInt8, gap), bytes, zeros(UInt8, format.param - gap - length(bytes)))
         #  Pad last block with zeros
         padblock(io, format)
+    elseif format.param > 0
+        #  A table that has no rows has no arrays, so its heap, and the gap before it, are zeros
+        write(io, zeros(UInt8, format.param))
+        padblock(io, format)
     end
 end
 
@@ -207,7 +211,7 @@ function verifydata(::Type{Bintable}, data::Union{NamedTuple, AbstractVector{<:N
     M, N = format.shape[1], format.shape[2]
     variable = [field for field in fields if !isnothing(field.pntr)]
     isempty(variable) && return
-    needed = sum(length(getcell(Bintable, data, field, j)) * heapelementsize(field.type) for j = 1:N for field in variable)
+    needed = sum(length(getcell(Bintable, data, field, j)) * heapelementsize(field.type) for j = 1:N for field in variable; init = 0)
     available = format.param - max(format.heap - M*N, 0)
     needed > available && throw(ArgumentError("The variable-length arrays of the data have $needed bytes, but PCOUNT " *
         "$(format.param) and THEAP $(format.heap) leave $available bytes for the heap (Sect. 7.3.5)."))

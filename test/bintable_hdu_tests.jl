@@ -1713,4 +1713,29 @@
         @test FITSFiles.invertscale(ComplexF32(3, 4), ComplexF32, 2.0f0, 1.0f0) == ComplexF32(1, 2)
         @test_throws ArgumentError FITSFiles.invertscale([1.0], Float32, 0.0, 1.0)
     end
+
+    ####    Test a table that has no rows and has a heap (Sects. 7.3.1 and 7.3.5)    ####
+
+    @testset "no rows with a heap" begin
+        written(hdu) = (io = IOBuffer(); write(io, hdu); take!(io))
+        card(s) = rpad(s, 80)
+        function tablebytes(cards, naxis1, pcount, data)
+            header = vcat(["XTENSION= 'BINTABLE'", "BITPIX  =                    8", "NAXIS   =                    2",
+                "NAXIS1  = " * lpad(naxis1, 20), "NAXIS2  =                    0", "PCOUNT  = " * lpad(pcount, 20),
+                "GCOUNT  =                    1", "TFIELDS =                    1"], cards, ["END"])
+            vcat(collect(codeunits(rpad(join(card.(header)), 2880 * cld(80 * length(header), 2880)))),
+                data, zeros(UInt8, mod(-length(data), 2880)))
+        end
+        #  the heap of a table that has no rows is written, and the file has the bytes that the header says
+        for (cards, naxis1, pcount, form) in ((["TFORM1  = '1PI(3)  '"], 8, 6, "variable-length"), (["TFORM1  = 'I       '"], 2, 10, "fixed"),
+                                              (["TFORM1  = 'I       '", "THEAP   =                    4"], 2, 10, "gap"))
+            bytes = tablebytes(cards, naxis1, pcount, zeros(UInt8, pcount))
+            hdu = read(IOBuffer(bytes), HDU)
+            @test all(isempty, hdu.data) && hdu.cards["PCOUNT"] == pcount
+            @test written(hdu) == bytes
+        end
+        #  a table that has no rows and no heap has no data blocks
+        bytes = tablebytes(["TFORM1  = 'I       '"], 2, 0, UInt8[])
+        @test length(bytes) == 2880 && written(read(IOBuffer(bytes), HDU)) == bytes
+    end
 end
