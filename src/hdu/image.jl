@@ -157,6 +157,9 @@ function DataFormat(::Type{Image}, data::AbstractArray, mankeys::Dict{S, V}) whe
     #  size for the physical types of Table 11 (e.g., an Int16 for a UInt16)
     type  = nonmissingtype(eltype(data))
     type  = storedtype(type)
+    #  An array has from 0 to 999 axes (Sects. 3.3.2 and 4.4.1.1)
+    ndims(data) <= MAXAXES || throw(ArgumentError("The data have $(ndims(data)) axes, but an array of an HDU has " *
+        "from 0 to $MAXAXES axes (Sects. 3.3.2 and 4.4.1.1)."))
     leng  = length(data)
     shape = size(data)
     param = get(mankeys, "PCOUNT", 0)

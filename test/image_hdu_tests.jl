@@ -548,6 +548,10 @@
                     occursin("Table 8", err.msg) && occursin("Float64", err.msg) && occursin("UInt16", err.msg)
             end
         end
+        #  an array has at most 999 axes, which is an error when the HDU is created
+        @test HDU(Image, Array{Int8}(undef, ntuple(_ -> 1, 20))).cards["NAXIS"] == 20
+        err = try HDU(Image, Array{Int8}(undef, ntuple(_ -> 1, FITSFiles.MAXAXES + 1))) catch e e end
+        @test err isa ArgumentError && occursin("1000 axes", err.msg) && occursin("0 to 999 axes", err.msg)
         #  the types of BITPIX and the physical types of Table 11 are not
         for type in (UInt8, Int8, Int16, UInt16, Int32, UInt32, Int64, UInt64, Float32, Float64)
             @test HDU(Image, type[1 2; 3 4]).data == type[1 2; 3 4]
