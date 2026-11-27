@@ -1112,6 +1112,7 @@ function verifyfieldkeys(::Type{Bintable}, mankeys::AbstractDict, reskeys::Abstr
         !isnothing(nulltype) && null isa Integer && !(typemin(nulltype) <= null <= typemax(nulltype)) && @warn "TNULL$j, $null, " *
             "is not a value of the $nulltype of its field, from $(typemin(nulltype)) to $(typemax(nulltype)) (Sect. 7.3.2), so no " *
             "value is undefined. The undefined values cannot be written."
+        verifyextremes(reskeys, j, type)
         disp = get(reskeys, "TDISP$j", nothing)
         disp isa AbstractString && !occursin(TDISPFORM, strip(disp)) && @warn "TDISP$j must be a display format of Table 20 " *
             "(Sect. 7.3.2), but its value is $(repr(disp)). It is read as it is."
@@ -1131,6 +1132,26 @@ function verifyfieldkeys(::Type{Bintable}, mankeys::AbstractDict, reskeys::Abstr
 end
 
 #  The display formats of Table 20: Aw, Lw, Iw.m, Bw.m, Ow.m, Zw.m, Fw.d, Ew.dEe, ENw.d, ESw.d, Gw.dEe, and Dw.dEe, in upper case
+#  The minimum and maximum values of a column, TDMINn and TDMAXn, and the minimum and maximum valid values, TLMINn and TLMAXn, have the data
+#  type of the physical values of the column, an integer or a floating-point number (Sect. 7.3.2). The physical values of a field of type B,
+#  I, J, or K are integers if TSCALn is 1 and TZEROn is an integer, and those of a field of type E or D are floating-point numbers.
+function verifyextremes(reskeys::AbstractDict, j::Integer, type::AbstractString)
+    type in ("B", "I", "J", "K", "E", "D") || return
+    scale, zero = get(reskeys, "TSCAL$j", 1), get(reskeys, "TZERO$j", 0)
+    integers = type in ("B", "I", "J", "K") && scale isa Real && zero isa Real && scale == 1 && isinteger(zero)
+    for key in ("TDMIN$j", "TDMAX$j", "TLMIN$j", "TLMAX$j")
+        value = get(reskeys, key, nothing)
+        (value isa Real && !(value isa Bool)) || continue
+        if integers && !(value isa Integer)
+            @warn "$key must be an integer, since the values of field $j are integers (Sect. 7.3.2), but its value is $(repr(value)). " *
+                "It is read as it is."
+        elseif !integers && value isa Integer
+            @warn "$key must be a floating-point number, since the values of field $j are floating-point numbers (Sect. 7.3.2), " *
+                "but its value is $(repr(value)). It is read as it is."
+        end
+    end
+end
+
 #  The types of the stored values of the fields that have an integer TNULLn, B, I, J, and K
 const NULLTYPES = Dict("B" => UInt8, "I" => Int16, "J" => Int32, "K" => Int64)
 

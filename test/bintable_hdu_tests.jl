@@ -1419,7 +1419,7 @@
         #  the numbers
         @test_throws ArgumentError reading(tablebytes([tform, kw("TSCAL1", "two")], stored))
         @test_throws ArgumentError reading(tablebytes([tform, kw("TDMIN1", "low")], stored))
-        @test @test_logs(reading(tablebytes([tform, kw("TDMIN1", 1), kw("TDMAX1", 2.5), kw("TLMIN1", -1), kw("TLMAX1", 3)], stored))).data.column1 == Int16[1, 2]
+        @test @test_logs(reading(tablebytes([tform, kw("TDMIN1", 1), kw("TDMAX1", 2), kw("TLMIN1", -1), kw("TLMAX1", 3)], stored))).data.column1 == Int16[1, 2]
 
         #  the names of the fields are unique without regard to the case
         two = [kw("TFORM1", "I"), kw("TTYPE1", "Flux"), kw("TFORM2", "I"), kw("TTYPE2", "FLUX")]
@@ -1892,5 +1892,39 @@
         #  the emax of a table that is created is the length of the longest array, and strings and bits have their own
         created = HDU(Bintable, (v = [Int16[1, 2], Int16[3, 4, 5]],))
         @test created.cards["TFORM1"] == "1PI(3)" && length(@test_logs(written(created))) == 5760
+    end
+
+    ####    Test the minimum and maximum values of the fields (Sect. 7.3.2)    ####
+
+    @testset "minimum and maximum values" begin
+        card(s) = rpad(s, 80)
+        kw(key, value) = key * repeat(" ", 8 - length(key)) * "= " * (value isa AbstractString ? "'" * rpad(value, 8) * "'" : lpad(value, 20))
+        function tablebytes(cards, naxis1)
+            header = vcat(["XTENSION= 'BINTABLE'", kw("BITPIX", 8), kw("NAXIS", 2), kw("NAXIS1", naxis1), kw("NAXIS2", 1), kw("PCOUNT", 0),
+                kw("GCOUNT", 1), kw("TFIELDS", 1)], cards, ["END"])
+            vcat(collect(codeunits(rpad(join(card.(header)), 2880 * cld(80 * length(header), 2880)))), zeros(UInt8, 2880))
+        end
+        reading(cards, form) = read(IOBuffer(tablebytes(cards, FITSFiles.tformbytes("TFORM1", form))), HDU)
+        #  the values of an integer field are integers, and those of a floating-point field are floating-point numbers
+        for form in ("B", "I", "J", "K"), key in ("TDMIN1", "TDMAX1", "TLMIN1", "TLMAX1")
+            @test_logs reading([kw("TFORM1", form), kw(key, 5)], form)
+            @test_logs (:warn, Regex("$key must be an integer, since the values of field 1 are integers .*its value is 1.5f0")) reading(
+                [kw("TFORM1", form), kw(key, 1.5f0)], form)
+        end
+        for form in ("E", "D"), key in ("TDMIN1", "TDMAX1", "TLMIN1", "TLMAX1")
+            @test_logs reading([kw("TFORM1", form), kw(key, 2.5f0)], form)
+            @test_logs (:warn, Regex("$key must be a floating-point number, since the values of field 1 are floating-point numbers .*its value is 5")) reading(
+                [kw("TFORM1", form), kw(key, 5)], form)
+        end
+        #  the physical values of an integer field that is scaled are floating-point numbers, unless the scale is 1 and the zero is an integer
+        @test_logs (:warn, r"TDMIN1 must be a floating-point number") reading([kw("TFORM1", "I"), kw("TSCAL1", 0.5f0), kw("TDMIN1", 5)], "I")
+        @test_logs reading([kw("TFORM1", "I"), kw("TSCAL1", 0.5f0), kw("TDMIN1", 2.5f0)], "I")
+        @test_logs reading([kw("TFORM1", "I"), kw("TZERO1", 32768), kw("TDMIN1", 5)], "I")
+        @test_logs (:warn, r"TDMIN1 must be an integer") reading([kw("TFORM1", "I"), kw("TZERO1", 32768), kw("TDMIN1", 5.5f0)], "I")
+        #  the other types have no minimum or maximum value to check, and the arrays of a variable-length field have the type of their elements
+        for form in ("A", "L", "X", "C", "M")
+            @test_logs reading([kw("TFORM1", form), kw("TDMIN1", 5)], form)
+        end
+        @test_logs (:warn, r"TDMIN1 must be a floating-point number") reading([kw("TFORM1", "1PE(2)"), kw("TDMIN1", 5)], "1PE(2)")
     end
 end
