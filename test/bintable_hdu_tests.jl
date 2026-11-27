@@ -1857,4 +1857,16 @@
         hdu.data.column1[1] = Union{Int16, Missing}[1, missing, 3]
         @test_throws ArgumentError Base.CoreLogging.with_logger(() -> written(hdu), Base.CoreLogging.NullLogger())
     end
+
+    ####    Test the number of fields (Sect. 7.3.1)    ####
+
+    @testset "number of fields" begin
+        #  a table has at most 999 fields, and more than that is an error when the HDU is created
+        hdu = HDU(Bintable, Tuple(fill(Int16[1, 2], 999)))
+        @test hdu.cards["TFIELDS"] == 999 && hdu.cards["NAXIS1"] == 1998 && hdu.cards["NAXIS2"] == 2
+        err = try HDU(Bintable, Tuple(fill(Int16[1], 1000))) catch e e end
+        @test err isa ArgumentError && err.msg == "The data have 1000 fields, but a binary table has at most 999 (Sect. 7.3.1)."
+        err = try HDU(Bintable, fill((a = Int16(1),), 2)) catch e e end
+        @test !(err isa ArgumentError)
+    end
 end

@@ -512,7 +512,10 @@ end
 #  The data format of data of `nrows` rows: the bytes of a row and the rows, which are followed by the heap of the variable-length
 #  arrays, whose bytes are PCOUNT, so that the heap begins after the table
 function heapformat(data, nrows::Integer)
-    columns = [columndescriptor(values) for values in columnsof(data)]
+    cells = columnsof(data)
+    length(cells) > MAXBINTABLEFIELDS && throw(ArgumentError("The data have $(length(cells)) fields, but a binary table has at most " *
+        "$MAXBINTABLEFIELDS (Sect. 7.3.1)."))
+    columns = [columndescriptor(values) for values in cells]
     shape = (sum(column[3] for column in columns; init = 0), nrows)
     param = sum(column[6] for column in columns; init = 0)
     DataFormat(BITS2TYPE[8], prod(shape) + param, shape, param, 1, prod(shape))
