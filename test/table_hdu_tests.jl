@@ -447,6 +447,25 @@
         @test_throws ArgumentError r"Column 2 of the data is not a vector" HDU(Table, ([1, 2], 3))
         hdu = HDU(Table, (a = [1, 2],))
         @test_throws ArgumentError r"Column 1 of the data, a, is not a vector" rowsof(HDU{Table}(getfield(hdu, :cards), (a = [1 2; 3 4],)))
+        #  the cards TFIELDS and TTYPEn that are not the number and the names of the fields of the data are set to what the data have, with a
+        #  warning, since the data are matched to the fields by name
+        for count in (1, 5)
+            hdu = @test_logs (:warn, "TFIELDS set to 2, the number of fields of the data.") HDU(
+                Table, (a = [1], b = [2]), Card{<:Any}[Card("TFIELDS", count)])
+            @test getfield(hdu, :cards)["TFIELDS"] == 2 && roundtrip(hdu).data == (a = [1], b = [2])
+        end
+        hdu = @test_logs (:warn, "TTYPE1 set to \"a\", the name of field 1 of the data, and not \"x\".") HDU(
+            Table, (a = [1],), Card{<:Any}[Card("TTYPE1", "x")])
+        @test getfield(hdu, :cards)["TTYPE1"] == "a" && roundtrip(hdu).data == (a = [1],)
+        hdu = @test_logs (:warn, "TTYPE2 set to \"b\", the name of field 2 of the data, and not \"y\".") HDU(
+            Table, [(a = 1, b = 2)], Card{<:Any}[Card("TTYPE2", "y")])
+        @test roundtrip(hdu).data == (a = [1], b = [2])
+        #  the cards that are the number and the names, the names of a tuple of columns, which has none, and a blank name are not changed
+        @test_logs HDU(Table, (a = [1], b = [2]), Card{<:Any}[Card("TFIELDS", 2), Card("TTYPE1", "a"), Card("TTYPE2", "b  ")])
+        hdu = @test_logs HDU(Table, ([1], [2]), Card{<:Any}[Card("TTYPE1", "x"), Card("TTYPE2", "")])
+        @test propertynames(roundtrip(hdu).data) == (:x, :column2)
+        @test_logs HDU(Table, missing, Card{<:Any}[Card("NAXIS", 2), Card("NAXIS1", 4), Card("NAXIS2", 1), Card("TFIELDS", 1), Card("TFORM1", "I4"),
+            Card("TBCOL1", 1), Card("TTYPE1", "x")])
         #  a column that has missing values has the TNULLn of the cards, which is in the header with the other cards of the fields
         hdu = HDU(Table, (a = [1, missing],), Card{<:Any}[Card("TNULL1", "-9"), Card("TUNIT1", "m")])
         @test_throws ArgumentError r"has more than the 1 characters of the field" rowsof(hdu)

@@ -268,22 +268,27 @@ end
 	verifyshape!(cards, mankeys, format)
 
 Correct BITPIX and the NAXIS keywords of `cards` to match the data format `format`, and return
-the cards. The data are described by NAXIS1 and the keywords after it. Random groups, whose NAXIS1 is 0,
-have their own method.
+the cards. The data are described by NAXIS1 and the keywords after it. A keyword that the cards do not have, e.g.,
+NAXIS when they have NAXIS1, is added. Random groups, whose NAXIS1 is 0, have their own method.
 """
 function verifyshape!(cards::Cards, mankeys::AbstractDict, format::DataFormat)
 	if haskey(mankeys, "BITPIX") && format.type != BITS2TYPE[mankeys["BITPIX"]]
 		setindex!(cards, TYPE2BITS[format.type], "BITPIX")
 		@warn "BITPIX set to $(TYPE2BITS[format.type])."
 	end
-	if haskey(mankeys, "NAXIS1") && format.shape != datasize(cards, 1)
-		N = length(format.shape)
-		setindex!(cards, N, "NAXIS")
-		for j = 1:N setindex!(cards, format.shape[j], "NAXIS$j") end
+	N = length(format.shape)
+	if haskey(mankeys, "NAXIS1") && (get(mankeys, "NAXIS", nothing) != N ||
+		any(j -> get(mankeys, "NAXIS$j", nothing) != format.shape[j], 1:N))
+
+		putcard!(cards, "NAXIS", N)
+		for j = 1:N putcard!(cards, "NAXIS$j", format.shape[j]) end
 		@warn "NAXIS$(1:N) set to $(format.shape)"
 	end
 	cards
 end
+
+#  Set the card of the keyword to the value, and add the card if the cards do not have the keyword
+putcard!(cards::Cards, key::AbstractString, value) = haskey(cards, key) ? setindex!(cards, value, key) : push!(cards, Card(key, value))
 
 """
 	verifycounts!(cards, mankeys, format)
