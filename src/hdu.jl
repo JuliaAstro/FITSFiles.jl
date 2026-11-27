@@ -345,6 +345,9 @@ function Base.read(io::IO, ::Type{HDU}; type = nothing, strict::Bool = true, uni
 	HDU{type_}(cards, data)
 end
 
+#  Verify the data against the header before the header is written. A type of HDU whose header does not have what the data need defines its own
+verifydata(::Type{<:AbstractHDU}, data, format::DataFormat, fields) = nothing
+
 #  The data of an HDU that has no data blocks are missing. A type of HDU whose data are an array that can have an axis of length 0, i.e.,
 #  an array of no values, defines its own
 emptydata(::Type{<:AbstractHDU}, format::DataFormat, fields; kwds...) = missing
@@ -381,6 +384,7 @@ function Base.write(io::IO, hdu::HDU{<:AbstractHDU}; checksum::Bool = false, kwd
 	format = DataFormat(type, missing, mankeys)
 	cards  = verify!(type, cards, format, mankeys)
 	fields = FieldFormat(type, format, reskeys, missing)
+	verifydata(type, getfield(hdu, :data), format, fields)
 	if checksum
 		#  The sums are of the bytes of the data, and then of the header, which has the sums
 		data = IOBuffer()

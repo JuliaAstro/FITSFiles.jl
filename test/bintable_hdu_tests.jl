@@ -1033,7 +1033,10 @@
         @test_throws ArgumentError r"TFIELDS must be an integer" reread(
             bintablebytes(["TFIELDS =                  1.0"; cards[2:3]], 1, 2, UInt8[T, F]))
         @test_logs (:warn, r"THEAP 1 is less than NAXIS1\*NAXIS2, 2") reread(
-            bintablebytes([cards; "THEAP   =                    1"], 1, 2, UInt8[T, F]))
+            bintablebytes([cards; "THEAP   =                    1"], 1, 2, UInt8[T, F, 0, 0, 0, 0]; pcount = 4))
+        #  THEAP is not used if PCOUNT is 0, since there is no heap
+        @test_logs (:warn, r"THEAP must not be used if PCOUNT is 0") reread(
+            bintablebytes([cards; "THEAP   =                    2"], 1, 2, UInt8[T, F]))
 
         #  a variable-length array of logical values
         cardsp = ["TFIELDS =                    1", "TFORM1  = '1PL(3)  '", "TTYPE1  = 'flags   '"]
@@ -1114,5 +1117,85 @@
         @test FITSFiles.decodestring(UInt8['a', 'b', ' ', ' ']) == "ab"
         @test FITSFiles.decodestring(UInt8['a', ' ', 'b']) == "a b"
         @test FITSFiles.padstring("ab", 4) == UInt8['a', 'b', ' ', ' ']
+    end
+
+    ####    Test the variable-length arrays (Sect. 7.3.5)    ####
+
+    @testset "variable-length arrays" begin
+        written(hdu) = (io = IOBuffer(); write(io, hdu); take!(io))
+        reread(hdu; kwds...) = read(IOBuffer(written(hdu)), HDU; kwds...)
+        be(type, values) = collect(reinterpret(UInt8, hton.(type.(values))))
+        card(s) = rpad(s, 80)
+        #  the bytes of a Bintable HDU, which has the cards after TFIELDS
+        function tablebytes(cards, naxis1, naxis2, data; pcount = 0)
+            header = vcat(["XTENSION= 'BINTABLE'", "BITPIX  =                    8", "NAXIS   =                    2",
+                "NAXIS1  =                    $naxis1", "NAXIS2  =                    $naxis2",
+                "PCOUNT  =                    $pcount", "GCOUNT  =                    1", "TFIELDS =                    1"], cards, ["END"])
+            body = vcat(data, zeros(UInt8, mod(-length(data), 2880)))
+            vcat(collect(codeunits(rpad(join(card.(header)), 2880 * cld(80 * length(header), 2880)))), body)
+        end
+
+        #  data of arrays of different lengths are variable-length arrays, whose descriptor and heap are written and read
+        data = (v = [Int16[1, 2, 3], Int16[], Int16[4, 5]], n = Int16[7, 8, 9])
+        hdu = HDU(Bintable, data)
+        @test hdu.cards["TFORM1"] == "1PI(3)" && hdu.cards["TFORM2"] == "1I"
+        @test hdu.cards["NAXIS1"] == 10 && hdu.cards["PCOUNT"] == 10
+        again = reread(hdu)
+        @test again.data.v == data.v && again.data.n == data.n && eltype(again.data.v) == Vector{Int16}
+        @test written(again) == written(hdu)
+        records = reread(hdu; record = true).data
+        @test [r.v for r in records] == data.v && [r.n for r in records] == data.n
+        #  the same for records, and for other types of the elements
+        for values in ([Float64[1.5, 2.5], Float64[3.5]], [ComplexF32[1 + 2im], ComplexF32[3im, 4]], [UInt8[1], UInt8[2, 3, 4]],
+                       [Bool[true, false], Bool[true]], [Int64[1], Int64[2, 3]])
+            hdu = HDU(Bintable, [(v = values[1],), (v = values[2],)])
+            @test occursin("1P", hdu.cards["TFORM1"])
+            again = reread(hdu)
+            @test again.data.v == values && written(again) == written(hdu)
+        end
+        #  arrays of the same length are a fixed-size array
+        @test HDU(Bintable, (v = [Int16[1, 2], Int16[3, 4]],)).cards["TFORM1"] == "2I"
+
+        #  the undefined values of an array are missing, with TNULLn
+        header = ["TFORM1  = '1PI(3)  '", "TNULL1  =               -32768"]
+        bytes = tablebytes(header, 8, 2, vcat(be(Int32, [3, 0, 2, 6]), be(Int16, [1, -32768, 3, -32768, 5])); pcount = 10)
+        arrays = read(IOBuffer(bytes), HDU).data.column1
+        @test isequal(arrays, [[1, missing, 3], [missing, 5]])
+
+        #  a heap that begins after a gap (THEAP), and the arrays are written as they were read
+        header = ["TFORM1  = '1PI(3)  '", "THEAP   =                   20"]
+        bytes = tablebytes(header, 8, 2, vcat(be(Int32, [3, 0, 2, 6]), zeros(UInt8, 4), be(Int16, [1, 2, 3, 4, 5])); pcount = 14)
+        hdu = read(IOBuffer(bytes), HDU)
+        @test hdu.data.column1 == [Int16[1, 2, 3], Int16[4, 5]]
+        @test written(hdu) == bytes
+        #  a heap that has more bytes than the arrays have is kept, and the bytes that no array uses are written as zeros
+        bytes = tablebytes(["TFORM1  = '1PI(3)  '"], 8, 2, vcat(be(Int32, [3, 0, 2, 6]), be(Int16, [1, 2, 3, 4, 5, 6, 7])); pcount = 14)
+        again = reread(read(IOBuffer(bytes), HDU))
+        @test again.cards["PCOUNT"] == 14 && length(written(again)) == length(bytes) && again.data.column1 == [Int16[1, 2, 3], Int16[4, 5]]
+        #  the arrays have more bytes than the header leaves for the heap
+        hdu = read(IOBuffer(bytes), HDU)
+        hdu.data.column1[1] = Int16[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+        @test_throws ArgumentError written(hdu)
+        #  the arrays that share the storage are read, and are not written as they were
+        bytes = tablebytes(["TFORM1  = '1PI(3)  '"], 8, 2, vcat(be(Int32, [3, 0, 3, 0]), be(Int16, [1, 2, 3])); pcount = 6)
+        hdu = read(IOBuffer(bytes), HDU)
+        @test hdu.data.column1 == [Int16[1, 2, 3], Int16[1, 2, 3]]
+        @test_throws ArgumentError written(hdu)
+
+        #  array descriptors of 64 bits (Q)
+        bytes = tablebytes(["TFORM1  = '1QJ(2)  '"], 16, 2, vcat(be(Int64, [2, 0, 1, 8]), be(Int32, [10, 20, 30])); pcount = 12)
+        hdu = read(IOBuffer(bytes), HDU)
+        @test hdu.data.column1 == [Int32[10, 20], Int32[30]] && written(hdu) == bytes
+
+        #  an array that is not in the heap, or has a negative length, is read as empty, with a warning (the elements are undefined)
+        for descriptor in ([3, 0, 5, 1000], [3, 0, -2, 0], [3, 0, 2, -6], [3, 0, 2, 8])
+            bytes = tablebytes(["TFORM1  = '1PI(3)  '"], 8, 2, vcat(be(Int32, descriptor), be(Int16, [10, 20, 30, 40, 50])); pcount = 10)
+            hdu = @test_logs (:warn, r"array descriptor .* of row 2 of field column1 is not in the heap of 10 bytes") read(
+                IOBuffer(bytes), HDU)
+            @test hdu.data.column1 == [Int16[10, 20, 30], Int16[]]
+        end
+        #  an array of no elements has no storage, whatever the offset is
+        bytes = tablebytes(["TFORM1  = '1PI(3)  '"], 8, 2, vcat(be(Int32, [3, 0, 0, 1000]), be(Int16, [10, 20, 30])); pcount = 6)
+        @test @test_logs(read(IOBuffer(bytes), HDU)).data.column1 == [Int16[10, 20, 30], Int16[]]
     end
 end
