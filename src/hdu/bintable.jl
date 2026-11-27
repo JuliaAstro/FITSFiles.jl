@@ -759,6 +759,130 @@ function scalefloats(column, field::BinaryField, scale::Bool)
         map(cell -> ScaledArray(cell, field.scale, field.zero), column)
 end
 
+####    The data of a binary table that is mapped    ####
+
+#  The data of a binary table that is read from a file, memory-mapped (see `mapdata`): the fields of numbers of a fixed number of elements, which are
+#  the bytes of the rows of the table in the file, are mapped, and the other fields, which are logicals, bits, characters, variable-length arrays, and
+#  complex numbers, are read at once. The records (`record = true`) are not mapped.
+mappable(::Type{Bintable}) = true
+mappable(::Type{Bintable}, keywds::NamedTuple) = !get(keywds, :record, false)
+
+#  Is a field mapped? It has a fixed number of numbers that are not complex, whose physical values are known without reading the data.
+mappedfield(field::BinaryField) = isnothing(field.pntr) && field.type <: Union{Integer, AbstractFloat} && !(field.type <: Bool)
+
+function mapdata(::Type{Bintable}, data::LazyArray)
+    get(data.keywds, :record, false) && throw(ArgumentError("The data of a binary table that are records cannot be mapped."))
+    format, fields, scale = data.format, data.fields, get(data.keywds, :scale, true)
+    L, N = format.shape[1], format.shape[2]
+    mapped = any(mappedfield, fields)
+    bytes = mapped ? (format.leng == 0 ? UInt8[] : mappedvalues(data)) : UInt8[]
+    columns = Any[]
+    io = openlazy(data)
+    try
+        for field in fields
+            push!(columns, mappedfield(field) ? mappedcolumn(bytes, field, format, scale, data) :
+                read(io, field, format, data.begpos; scale))
+        end
+    finally
+        close(io)
+    end
+    (; [Symbol(field.name) => column for (field, column) in zip(fields, columns)]...)
+end
+
+function mappedcolumn(bytes::Vector{UInt8}, field::BinaryField, format::DataFormat, scale::Bool, source::LazyArray)
+    type, leng = field.type, field.leng
+    N = format.shape[2]
+    scale = scale && !isnothing(field.scale)
+    #  The values of a row are in the second and later dimensions if there are more than one: the dimensions TDIMn, or the elements
+    dims = arraydims(field)
+    shape = !isnothing(dims) ? (N, dims...) : leng == 1 ? (N,) : (N, leng)
+    #  The values that are read: the undefined values are the raw ones equal to TNULLn (Sect. 7.3.2), and the scaled values are the physical values (Eq. 7)
+    decode(raw) = (values = setmissing(raw, field.null); scale ? physical(values, type, field.scale, field.zero) : values)
+    probe = field.null isa Integer && typemin(type) <= field.null <= typemax(type) ? type[0, field.null] : zeros(type, 1)
+    scaled1 = scale ? physicalfunction(type, field.scale, field.zero) : identity
+    value = isnothing(field.null) ? scaled1 : x -> x == field.null ? missing : scaled1(x)
+    column = MappedColumn(bytes, format.shape[1], first(field.slice) - 1, shape, decode, value, probe, source)
+    scalefloats(column, field, scale)
+end
+
+"""
+    MappedColumn(bytes, rowlen, offset, size, decode, value, probe, source)
+
+The values of a field of numbers of a fixed number of elements of a binary table that is read in place from its file, which is memory-mapped, so that
+only the values that are indexed are read from the file. The `bytes` are the bytes of the table in the file, whose rows are `rowlen` bytes, and the
+field begins `offset` bytes after the beginning of a row. The first axis of the array is the rows, and the values of a row are the later axes, which
+are `size`. The function `decode` is that of an array of the values of the file to the values of the field, and `value` is that of one value, as
+for a [`FITSFiles.MappedArray`](@ref), and the type of the values is that of `decode` of the values of the `probe`. The `source` is the lazy array of
+the HDU that the values are read from, which the data are copied from when the HDU is written. The array is read-only.
+"""
+struct MappedColumn{T, N, R, F, G, S} <: AbstractArray{T, N}
+    bytes::Vector{UInt8}
+    rowlen::Int
+    offset::Int
+    size::NTuple{N, Int}
+    decode::F
+    value::G
+    source::S
+end
+
+function MappedColumn(bytes::Vector{UInt8}, rowlen::Integer, offset::Integer, size::NTuple{N, Int}, decode, value, probe::AbstractVector{R},
+    source) where {N, R}
+
+    T = eltype(decode(probe))
+    MappedColumn{T, N, R, typeof(decode), typeof(value), typeof(source)}(bytes, rowlen, offset, size, decode, value, source)
+end
+
+lazysource(column::MappedColumn) = column.source
+Base.size(column::MappedColumn) = column.size
+Base.IndexStyle(::Type{<:MappedColumn}) = IndexCartesian()
+
+#  The unsigned integer of the size of a type, whose bytes, which are in the order of the file (big-endian), are the bytes of the value
+unsignedtype(::Type{R}) where R = sizeof(R) == 1 ? UInt8 : sizeof(R) == 2 ? UInt16 : sizeof(R) == 4 ? UInt32 : UInt64
+
+#  The value of the type `R` of the bytes that begin at the place `pos`, which are in the order of the file, so the order of the machine is not used
+@inline function rawelement(::Type{R}, bytes::Vector{UInt8}, pos::Integer) where R
+    U = unsignedtype(R)
+    bits = zero(U)
+    @inbounds for i = 0:sizeof(U)-1
+        bits = (bits << 8) | U(bytes[pos + i])
+    end
+    reinterpret(R, bits)
+end
+
+#  The value of the file of the row `j` and the element `k` of the row
+@inline rawvalue(column::MappedColumn{T, N, R}, j::Integer, k::Integer) where {T, N, R} =
+    rawelement(R, column.bytes, column.offset + (j - 1)*column.rowlen + (k - 1)*sizeof(R) + 1)
+
+#  The element of a row of the indices `I` of the axes after the first
+@inline elementindex(column::MappedColumn, I::Tuple{}) = 1
+@inline elementindex(column::MappedColumn, I::Tuple) = LinearIndices(Base.tail(column.size))[I...]
+
+Base.@propagate_inbounds function Base.getindex(column::MappedColumn{T, N}, I::Vararg{Int, N}) where {T, N}
+    @boundscheck checkbounds(column, I...)
+    column.value(rawvalue(column, I[1], elementindex(column, Base.tail(I))))
+end
+
+#  A slice, of ranges, integers, and colons, is read from the file as an array of the values that are indexed
+function Base.getindex(column::MappedColumn{T, N, R}, I::Vararg{Union{Colon, Integer, AbstractRange{<:Integer}}, N}) where {T, N, R}
+    checkbounds(column, I...)
+    ranges = map((i, n) -> i isa Colon ? (1:n) : i isa Integer ? (i:i) : i, I, size(column))
+    raw = Array{R}(undef, map(length, ranges))
+    for (n, index) in enumerate(CartesianIndices(ranges))
+        raw[n] = rawvalue(column, index[1], elementindex(column, Base.tail(Tuple(index))))
+    end
+    keep = Tuple(length(range) for (range, i) in zip(ranges, I) if !(i isa Integer))
+    length(keep) == 0 ? column.value(only(raw)) : column.decode(reshape(raw, keep))
+end
+
+Base.getindex(column::MappedColumn, i::Int) = column[CartesianIndices(column)[i].I...]
+
+Base.setindex!(column::MappedColumn, value, I...) = throw(ArgumentError("A mapped field of the data of an HDU is read-only, since its values are " *
+    "those of the file. Change a copy of the array, e.g., `collect(column)`."))
+
+Base.Array(column::MappedColumn{T, N}) where {T, N} = column[ntuple(_ -> Colon(), Val(N))...]
+Base.collect(column::MappedColumn) = Array(column)
+Base.copy(column::MappedColumn) = Array(column)
+
 """
     ScaledTable(records, scales)
 
@@ -823,12 +947,21 @@ function applydims(column, field::BinaryField)
         #  The cells of a variable-length array, or of a bit array, are the elements of the arrays that are the rows
         return map(cell -> n <= length(cell) ? reshape(cell[1:n], dims) : cell, column)
     end
-    if n > field.leng
-        @warn "TDIM of field $(field.name), $(join(dims, " × ")), has $n elements, more than the $(field.leng) of its TFORM " *
-            "(Sect. 7.3.2), so it is not used."
-        return column
-    end
+    isnothing(arraydims(field)) && return column
     reshape(column[:, 1:n], (size(column, 1), dims...))
+end
+
+#  The dimensions TDIMn of the array of each row of a field of numbers, if they are used: there are two or more, and they have no more elements than
+#  the field has, which is a warning if they have more (Sect. 7.3.2). They are nothing if they are not used.
+function arraydims(field::BinaryField)
+    dims = field.dims
+    (isnothing(dims) || length(dims) < 2) && return nothing
+    if prod(dims) > field.leng
+        @warn "TDIM of field $(field.name), $(join(dims, " × ")), has $(prod(dims)) elements, more than the $(field.leng) of its TFORM " *
+            "(Sect. 7.3.2), so it is not used."
+        return nothing
+    end
+    dims
 end
 
 #  The elements of the variable-length array of the descriptor (`K`, `beg`) of row `j`, which are read from the heap that begins at the
