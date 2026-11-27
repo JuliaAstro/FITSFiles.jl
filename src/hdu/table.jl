@@ -16,6 +16,9 @@ of ASCII data structured as vector of records.
 struct Table <: AbstractHDU end
 XTENSIONTYPE["TABLE"] = Table
 
+#  The maximum number of fields of the table (Sect. 7.2.1)
+const MAXTABLEFIELDS = 999
+
 #  The mandatory and reserved keywords of the HDU (see `getreservedkeys`)
 union!(MANDATORYKEYS, ["XTENSION", "PCOUNT", "GCOUNT", "TFIELDS", "TFORM", "TBCOL"])
 union!(RESERVEDKEYS, ["INHERIT", "TFIELDS", "TFORM", "TBCOL", "TSCAL", "TZERO", "TNULL", "TTYPE", "TUNIT", "TDISP",
@@ -387,7 +390,7 @@ function verifyfields!(::Type{Table}, cards::Cards, mankeys::AbstractDict)
 	N = get(mankeys, "TFIELDS", nothing)
 	isnothing(N) && return cards
 	N < 0 && throw(ArgumentError("TFIELDS must be non-negative, but its value is $N."))
-	N > MAXFIELDS && @warn "TFIELDS $N is more than the maximum of $MAXFIELDS."
+	N > MAXTABLEFIELDS && @warn "TFIELDS $N is more than the maximum of $MAXTABLEFIELDS."
 	for j = 1:N
 		haskey(mankeys, "TFORM$j") || throw(ArgumentError("TFORM$j is missing, but TFIELDS is $N."))
 		haskey(mankeys, "TBCOL$j") || throw(ArgumentError("TBCOL$j is missing, but TFIELDS is $N."))

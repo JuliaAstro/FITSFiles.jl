@@ -4,6 +4,16 @@
 #  HDU, the IMAGE extension, and random groups, has its own field type and its own functions of the scale of the array, which
 #  use them
 
+#  The types of the values of the arrays of the HDUs, which BITPIX gives (Table 8 of the standard)
+const BITS2TYPE = Dict(8 => UInt8, 16 => Int16, 32 => Int32, 64 => Int64,
+	-32 => Float32, -64 => Float64)
+const TYPE2BITS = Dict(UInt8 => 8, Int16 => 16, Int32 => 32, Int64 => 64,
+	Float32 => -32, Float64 => -64)
+
+#  The valid values of BITPIX, and the largest number of axes
+const BITPIXVALUES = (8, 16, 32, 64, -32, -64)
+const MAXAXES = 999
+
 const MISSTYPE = (UInt8, Int16, Int32, Int64)
 #  The unsigned integers and the signed bytes are stored as the integers of the same size with an offset in
 #  BZERO (Table 11 of the standard): the type of the array => the type of the physical values and BZERO.
@@ -11,6 +21,7 @@ const OFFSETTYPE = Dict(Int16 => (UInt16, 2^15), Int32 => (UInt32, 2^31), Int64 
 	UInt8 => (Int8, -2^7))
 #  The type of the array of the physical type, which is the key of OFFSETTYPE
 const RAWTYPE = Dict(physical => raw for (raw, (physical, _)) in OFFSETTYPE)
+
 """
     scaled(data, scale, zero)
 
@@ -165,4 +176,25 @@ function setscalecard!(cards::Cards, key::AbstractString, value::Number, default
         push!(cards, Card(key, value))
     end
     cards
+end
+
+####    Utility functions
+"""
+	leastfloat(real::Union{Real, Nothing})
+
+Convert an integer to the smallest float type of Float32, Float64, and BigFloat that holds the
+integer, i.e., a Float32 for a 32-bit integer, a Float64 for a 64-bit integer, and otherwise a
+BigFloat. A value that is not an integer is returned as it is.
+"""
+function leastfloat(value::Union{Real, Nothing})
+	if typeof(value) <: Integer
+		if typemin(Int32) <= value <= typemax(Int32)
+			return convert(Float32, value)
+		elseif typemin(Int64) <= value <= typemax(Int64)
+			return convert(Float64, value)
+		else
+			return convert(BigFloat, value)
+		end
+	end
+	value
 end

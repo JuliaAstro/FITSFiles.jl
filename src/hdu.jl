@@ -69,21 +69,10 @@ const INFOTYPELEN = 8
 const INFOCARDLEN = 6
 const INFOLTYPLEN = 8
 
-const BITS2TYPE = Dict(8 => UInt8, 16 => Int16, 32 => Int32, 64 => Int64,
-	-32 => Float32, -64 => Float64)
-const TYPE2BITS = Dict(UInt8 => 8, Int16 => 16, Int32 => 32, Int64 => 64,
-	Float32 => -32, Float64 => -64)
-
-#  The valid values of BITPIX (Table 8 of the standard), and the largest number of axes
-const BITPIXVALUES = (8, 16, 32, 64, -32, -64)
-const MAXAXES = 999
-
     #  Combine XTENSION values in card.jl and hdu.jl. The trailing spaces of a value are not
     #  significant, so the keys are not padded.
 #  The XTENSION value is padded to 8 characters.
 const XTENSIONLENGTH = 8
-#  The maximum number of fields of a table (Sects. 7.2.1 and 7.3.1)
-const MAXFIELDS = 999
 #  The HDU type of the value of XTENSION, which each type of extension adds to when it is defined
 const XTENSIONTYPE = Dict{String, Type}()
 
@@ -430,26 +419,6 @@ function Base.write(io::IO, cards::Cards)
     end
 end
 
-####    Utility functions
-"""
-	leastfloat(real::Union{Real, Nothing})
-
-Convert an integer to the smallest float type of Float32, Float64, and BigFloat that holds the
-integer, i.e., a Float32 for a 32-bit integer, a Float64 for a 64-bit integer, and otherwise a
-BigFloat. A value that is not an integer is returned as it is.
-"""
-function leastfloat(value::Union{Real, Nothing})
-	if typeof(value) <: Integer
-		if typemin(Int32) <= value <= typemax(Int32)
-			return convert(Float32, value)
-		elseif typemin(Int64) <= value <= typemax(Int64)
-			return convert(Float64, value)
-		else
-			return convert(BigFloat, value)
-		end
-	end
-	value
-end
 
 
 

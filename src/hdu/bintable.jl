@@ -9,6 +9,9 @@ array of binary data structured as a vector of records.
 struct Bintable <: AbstractHDU end
 XTENSIONTYPE["BINTABLE"] = Bintable
 
+#  The maximum number of fields of the table (Sect. 7.3.1)
+const MAXBINTABLEFIELDS = 999
+
 #  The mandatory and reserved keywords of the HDU (see `getreservedkeys`)
 union!(MANDATORYKEYS, ["XTENSION", "PCOUNT", "GCOUNT", "THEAP", "TFIELDS", "TFORM"])
 union!(RESERVEDKEYS, ["INHERIT", "TFIELDS", "TFORM", "TSCAL", "TZERO", "TNULL", "TTYPE", "TUNIT", "TDISP", "TDIM",
@@ -609,7 +612,7 @@ function verifyfields!(::Type{Bintable}, cards::Cards, mankeys::AbstractDict)
 	N = get(mankeys, "TFIELDS", nothing)
 	isnothing(N) && return cards
 	N < 0 && throw(ArgumentError("TFIELDS must be non-negative, but its value is $N."))
-	N > MAXFIELDS && @warn "TFIELDS $N is more than the maximum of $MAXFIELDS."
+	N > MAXBINTABLEFIELDS && @warn "TFIELDS $N is more than the maximum of $MAXBINTABLEFIELDS."
 	for j = 1:N
 		haskey(mankeys, "TFORM$j") || throw(ArgumentError("TFORM$j is missing, but TFIELDS is $N."))
 	end
