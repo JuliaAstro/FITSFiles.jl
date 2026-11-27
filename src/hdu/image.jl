@@ -215,6 +215,25 @@ function Base.read(io::IO, ::Type{Image}, format::DataFormat,
     physicalfloat(fields) ? ScaledArray(values, fields.scale, fields.zero) : values
 end
 
+#  The data array of an IMAGE extension that is read from a file, memory-mapped (see `mapdata`). Its values are those of the array that is read, which
+#  have `missing` for the raw values equal to BLANK, and are the physical values of the BSCALE and the BZERO, unless the HDU was read with
+#  `scale = false`.
+mappable(::Type{Image}) = true
+function mapdata(::Type{Image}, data::LazyArray)
+	fields, scale = data.fields, get(data.keywds, :scale, true)
+	#  The values of the array that is read: the undefined values are the raw ones equal to BLANK (Sect. 4.4.2.5), and the physical values of
+	#  floating-point stored values have the type of the stored values, so the array says that they are
+	decode(raw) = (values = setmissing(raw, fields.miss); scale ? physical(values, fields.type, fields.scale, fields.zero) : values)
+	#  The values have the undefined value, which gives them the type that has missing, if the header has a BLANK that a value of the type can be
+	probe = fields.miss isa Integer && typemin(fields.type) <= fields.miss <= typemax(fields.type) ? fields.type[0, fields.miss] : zeros(fields.type, 1)
+	#  The value that is indexed has the same type and value as the value of the array that is read
+	physical1 = physicalfunction(fields.type, fields.scale, fields.zero)
+	scaled1 = scale ? physical1 : identity
+	value = isnothing(fields.miss) ? scaled1 : x -> x == fields.miss ? missing : scaled1(x)
+	mapped = MappedArray(mappedvalues(data), data.format.shape, decode; probe, value, source = data)
+	scale && physicalfloat(fields) ? ScaledArray(mapped, fields.scale, fields.zero) : mapped
+end
+
 #  Are the physical values of the data the same type as the stored values, which are floating-point? They are if the data are not scaled
 #  by a BSCALE of 1 and a BZERO of 0.
 physicalfloat(fields::ImageField) = fields.type <: AbstractFloat && !(fields.scale == 1 && fields.zero == 0)

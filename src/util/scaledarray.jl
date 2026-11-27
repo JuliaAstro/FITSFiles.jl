@@ -28,5 +28,9 @@ Base.getindex(array::ScaledArray{T, N}, I::Vararg{Int, N}) where {T, N} = array.
 Base.setindex!(array::ScaledArray, value, i::Int) = (array.parent[i] = value; array)
 Base.setindex!(array::ScaledArray{T, N}, value, I::Vararg{Int, N}) where {T, N} = (array.parent[I...] = value; array)
 
+#  A slice, which is of ranges and integers, is the plain array of the values of the parent, which reads only those values if the parent is a
+#  `MappedArray`
+Base.getindex(array::ScaledArray, I::Vararg{Union{Colon, Integer, AbstractRange{<:Integer}}}) = array.parent[I...]
+
 #  A copy has the same scale and zero, and is the physical values, as the array is
 Base.copy(array::ScaledArray) = ScaledArray(copy(array.parent), array.scale, array.zero)

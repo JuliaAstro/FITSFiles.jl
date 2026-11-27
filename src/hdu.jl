@@ -288,6 +288,38 @@ function Base.show(io::IO, ::MIME"text/plain", hdu::HDU)
 	print(io, "      $typ  $nam  $ver  $crd  $eltype   $siz")
 end
 
+"""
+	mapdata(hdu::HDU)
+
+The data array of an HDU that is read from a file, memory-mapped, so that the values of the array are read from the file when they are indexed, and the
+file is not read at once. It is an `AbstractArray` of the values that `hdu.data` is, of the same type and with the same scale, and has the same size, e.g., a
+[`FITSFiles.ScaledArray`](@ref) of the values of floating-point stored values that have a BSCALE and a BZERO. It is for the primary HDU, the IMAGE
+extension, and the conforming HDU, i.e., for the data of an array, and an error for the data of another type of HDU. The data of the HDUs of a file are
+mapped when it is read by the keyword `access = :mapped` of [`fits`](@ref) and `read(io, HDU)`, so that `hdu.data` is the mapped array.
+
+Slices, e.g., `array[1:100, 5, :]`, and `collect(array)` read the values at once, but each value of an array that is read by value is read with a function
+call. The array reads the file as it is when it is indexed, so it is not valid if the file is truncated or changed. It is an `ArgumentError` if the file
+has changed since the HDU was read, or does not have the data of the header. An HDU whose data are read, e.g., from a buffer, or is made, has its data
+returned as they are, and an HDU that has no data returns `missing`.
+"""
+function mapdata(hdu::HDU)
+	data = getfield(hdu, :data)
+	data isa LazyArray ? mapdata(typeofhdu(hdu), data) : data
+end
+
+mapdata(type::Type{<:AbstractHDU}, ::LazyArray) = throw(ArgumentError("The data of an HDU of the type $type are not an array, so they " *
+	"cannot be mapped."))
+
+#  The data of a type of HDU can be mapped, which the type defines (see `mapdata`)
+mappable(::Type{<:AbstractHDU}) = false
+
+#  The lazy array that the data of an HDU are read from, if they are not read: the lazy array that is the data, or that the mapped array of the
+#  data is read from, or nothing
+lazysource(data) = nothing
+lazysource(data::LazyArray) = data
+lazysource(data::MappedArray) = data.source
+lazysource(data::ScaledArray) = lazysource(data.parent)
+
 function Base.getproperty(hdu::HDU, name::Symbol)
 	if name === :data && getfield(hdu, :data) isa LazyArray
 		desc = getfield(hdu, :data)
@@ -307,12 +339,17 @@ end
     Base.read(io::IO, ::Type{HDU}; <keywords>)
 
 Read the next header-data unit (HDU) from `io` and return it. The data of an HDU that is read
-from a file is a lazy array, which is read when the data is accessed, and the data of an HDU that
-is read from another stream is read at once. The fill of the last data block is zeros, or ASCII spaces for an ASCII table,
+from a file are by default a lazy array, which is read when the data are accessed (`access = :lazy`), and the data of an HDU that
+is read from another stream are read at once. The fill of the last data block is zeros, or ASCII spaces for an ASCII table,
 and a warning says if it is not (see [`verifyfill`](@ref)).
 
 # Keywords
 
+- `access::Symbol=:lazy`: how the data of an HDU that is read from a file are accessed. `:lazy` is the default: the file is scanned without reading
+  the data, which are read when `hdu.data` is accessed, as an ordinary array that can be changed. `:memory` reads the data at once. `:mapped` maps
+  the data of the primary HDU, an IMAGE extension, and a conforming HDU in memory (see [`mapdata`](@ref)), so that `hdu.data` is a read-only array
+  that reads only the values that are indexed from the file, and the data of the other types of HDU are lazy. The file must not be modified while
+  its data are lazy or mapped. A stream that is not a file is read at once, and `:mapped` is an error for it.
 - `type=nothing`: the HDU type, e.g., `Image`, which is otherwise determined by the mandatory
   keywords of the header
 - `strict::Bool=true`: numbers with a lower case exponent letter (d or e) are invalid cards,
@@ -323,7 +360,9 @@ and a warning says if it is not (see [`verifyfill`](@ref)).
 - `scale::Bool=true`: apply the scale and zero keywords to the data
 """
 function Base.read(io::IO, ::Type{HDU}; type = nothing, strict::Bool = true, units::Union{Bool, Module} = true,
-    checksum::Bool = false, kwds...)::HDU
+    checksum::Bool = false, access = :lazy, kwds...)::HDU
+    access in (:memory, :lazy, :mapped) || throw(ArgumentError("The access of the data is :memory, :lazy, or :mapped, but it is $(repr(access))."))
+    access == :mapped && !(io isa IOStream) && throw(ArgumentError("The data of an HDU can only be mapped from a file, and not from $(typeof(io))."))
     #  Read cards
     firstpos = checksum ? position(io) : 0
     cards, mankeys, reskeys = read(io, Card; strict, units)
@@ -338,10 +377,11 @@ function Base.read(io::IO, ::Type{HDU}; type = nothing, strict::Bool = true, uni
 	if format.leng > 0
 		#  The data begin at the position, and the next HDU begins after the blocks of the data
 		pos = position(io)
-		if io isa IOStream
-			# create a lazy array for the HDU data field and move to next HDU
+		if io isa IOStream && access != :memory
+			# create a lazy array for the HDU data field and move to next HDU, which is mapped if the data are
 			name, mtime = abspath(io.name[7:end-1]), stat(io).mtime
 			data = LazyArray(name, mtime, pos, format, fields, (;kwds...))
+			access == :mapped && mappable(type_) && (data = mapdata(type_, data))
 		else
 			data = read(io, type_, format, fields; kwds...)
 		end
@@ -377,8 +417,9 @@ physical values of floating-point stored values that were read with a BSCALE and
 with that scale and zero, and the stored values, `(value - BZERO)/BSCALE`, are written. The BSCALE and BZERO of the header of an HDU that
 is made from such data are those of the data.
 
-The data of an HDU that is read from a file are not read until they are accessed (see [`fits`](@ref)), and are written as they are, with the
-fill of the type of HDU after them, by copying their bytes from the file, so a file is written as it is read, and the data are not decoded. The header
+The data of an HDU that is read from a file are not read until they are accessed (see [`fits`](@ref)), or are mapped (`access = :mapped`),
+and are written as they are, with the fill of the type of HDU after them, by copying their bytes from the file, so a file is written as it is read,
+and the data are not decoded. The header
 may be changed, e.g., a card is added, but not the size and the type of the data, which is an `ArgumentError`, and the file must not have been modified
 since the HDU was read, which is an `ArgumentError` too. Read the data (`hdu.data`) to change them.
 
@@ -393,7 +434,7 @@ since the HDU was read, which is an `ArgumentError` too. Read the data (`hdu.dat
 #  The data of an HDU that are not read, which are copied as they are from the file that they are read from, since the header describes them:
 #  the bytes are those of the file, and the fill after them is that of the type of HDU. The format of the header must be that of the data that
 #  were read, so that the data have the same type and size.
-function Base.write(io::IO, ::Type{T}, data::LazyArray, format::DataFormat, fields; kwds...) where T<:AbstractHDU
+function rawcopy(io::IO, ::Type{T}, data::LazyArray, format::DataFormat) where T<:AbstractHDU
 	format == data.format || throw(ArgumentError("The header of the HDU has a data format that is not that of the data of the file " *
 		"that were not read, which are copied as they are: the header has the type $(format.type), the shape $(format.shape), the " *
 		"parameters $(format.param), and the groups $(format.group), and the data have the type $(data.format.type), the shape " *
@@ -411,6 +452,12 @@ function Base.write(io::IO, ::Type{T}, data::LazyArray, format::DataFormat, fiel
 	padblock(io, format, fillrule(T)[1])
 end
 
+#  The data of an HDU are written by the method of its type of HDU, or are copied from the file that they are read from if they are not read
+function writedata(io::IO, type::Type{<:AbstractHDU}, data, format::DataFormat, fields; kwds...)
+	source = lazysource(data)
+	isnothing(source) ? write(io, type, data, format, fields; kwds...) : rawcopy(io, type, source, format)
+end
+
 function Base.write(io::IO, hdu::HDU{<:AbstractHDU}; checksum::Bool = false, kwds...)
 
 	cards = getfield(hdu, :cards)
@@ -421,11 +468,11 @@ function Base.write(io::IO, hdu::HDU{<:AbstractHDU}; checksum::Bool = false, kwd
 	format = DataFormat(type, missing, mankeys)
 	cards  = verify!(type, cards, format, mankeys)
 	fields = FieldFormat(type, format, reskeys, missing)
-	verifydata(type, getfield(hdu, :data), format, fields)
+	isnothing(lazysource(getfield(hdu, :data))) && verifydata(type, getfield(hdu, :data), format, fields)
 	if checksum
 		#  The sums are of the bytes of the data, and then of the header, which has the sums
 		data = IOBuffer()
-		write(data, type, getfield(hdu, :data), format, fields; kwds...)
+		writedata(data, type, getfield(hdu, :data), format, fields; kwds...)
 		bytes = take!(data)
 		write(io, setchecksum!(copy(cards), bytes))
 		write(io, bytes)
@@ -433,7 +480,7 @@ function Base.write(io::IO, hdu::HDU{<:AbstractHDU}; checksum::Bool = false, kwd
 		#  Write cards
 		write(io, cards)
 		#  Write data
-		write(io, type, getfield(hdu, :data), format, fields; kwds...)
+		writedata(io, type, getfield(hdu, :data), format, fields; kwds...)
 	end
 end
 

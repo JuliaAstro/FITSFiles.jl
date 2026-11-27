@@ -125,6 +125,21 @@ function physical(data, type::Type, scale::Real, zero::Real)
     scaled(data, scale, zero)
 end
 
+#  The function of one stored value of the type `type` to its physical value, which is the value that `physical` gives for each value of an array of the
+#  type, with the same type: the value of the offset convention of Table 11, the stored value if the scale is 1 and the zero is 0, or the scaled
+#  value (Eq. 3), which is the value that `scaled` gives. A mapped array reads the values that it is indexed by.
+function physicalfunction(type::Type, scale::Real, zero::Real)
+    T = offsettype(type, scale, zero)
+    isnothing(T) || return x -> offsetvalue(x, T)
+    scale == 1 && zero == 0 && return identity
+    if type <: Integer && sizeof(type) >= 4
+        scale, zero = convert(promote_type(typeof(scale), Float64), scale), convert(promote_type(typeof(zero), Float64), zero)
+    end
+    S = promote_type(typeof(scale), typeof(zero), type)
+    W = promote_type(S, Float64)
+    x -> S(muladd(W(scale), W(x), W(zero)))
+end
+
 #  The stored value of a physical value, which is (value - BZERO)/BSCALE (Eq. 3 of the standard), rounded to the
 #  nearest integer for integer data of the type `type`. An undefined value, which is missing, or NaN for integer data that has a BLANK,
 #  `miss`, is missing. The stored value is checked, if `check` is true, by applying the scale and the zero to it, with muladd, which
