@@ -258,7 +258,7 @@ function FieldFormat(::Type{Bintable}, mankey::DataFormat, reskeys::Dict{S, V},
         name = typeof(data[1]) <: NamedTuple ? rstrip(String(keys(data[1])[j])) :
             rstrip(get(reskeys, "TTYPE$j", "field$j"))
         pntr  = nothing
-        type, leng, byts = fielddescriptor(definedvalue(record[j] for record in data))
+        type, leng, byts = fielddescriptor(fieldvalue(record[j] for record in data))
         supp  = ""
         # unit_ = unit(data[1][j]) != NoUnits ? unit(data[1][j]) :
         #     get(reskeys, "TUNIT$j", "")
@@ -307,7 +307,7 @@ function FieldFormat(::Type{Bintable}, mankey::DataFormat, reskeys::Dict{S, V},
         name  = typeof(data) <: NamedTuple ? rstrip(String(keys(data)[j])) :
             rstrip(get(reskeys, "TTYPE$j", "column$j"))
         pntr  = nothing
-        type, leng, byts = fielddescriptor(definedvalue(data[j]))
+        type, leng, byts = fielddescriptor(fieldvalue(data[j]))
         supp  = ""
         # unit_ = unit(data[j]) != NoUnits ? unit(data[j]) :
         #     get(reskeys, "TUNIT$j", "")
@@ -332,12 +332,12 @@ function FieldFormat(::Type{Bintable}, mankey::DataFormat, reskeys::Dict{S, V},
 end
 
 function recordlength(data::AbstractArray)
-	sum([sizeoffield(definedvalue(record[j] for record in data))
+	sum([sizeoffield(fieldvalue(record[j] for record in data))
 		for j in 1:length(data[1])])
 end
 
 function recordlength(data::U) where U <: Union{Tuple, NamedTuple}
-	sum([sizeoffield(definedvalue(column)) for column in data])
+	sum([sizeoffield(fieldvalue(column)) for column in data])
 end
 
 sizeoffield(f) = typeof(f) <: BitVector ? sizeofbitvector(f) : sizeof(f)
@@ -353,12 +353,23 @@ function definedvalue(values)
 	throw(ArgumentError("the type of a field of missing values cannot be determined"))
 end
 
+#  The value that gives the type and the size of a field from the values of its column: the first value that is not missing, and the
+#  longest string of a column of strings, whose width is the number of bytes of the longest (Sect. 7.3.3.1)
+function fieldvalue(values)
+    value = definedvalue(values)
+    value isa AbstractString || return value
+    for other in values
+        !ismissing(other) && ncodeunits(other) > ncodeunits(value) && (value = other)
+    end
+    value
+end
+
 sizeofbitvector(v::BitVector)::Integer = (length(v)-1)÷8 + 1
 sizeofbitvector(len::Integer)::Integer = (len-1)÷8 + 1
 
 function fielddescriptor(field)
     if typeof(field) <: AbstractString
-        type, leng = String, length(field)
+        type, leng = String, ncodeunits(field)
         byts = leng
     elseif typeof(field) <: BitVector
         type, leng = BitVector, length(field)
@@ -469,7 +480,7 @@ function Base.read(io::IO, field::BinaryField, format::DataFormat,
         column = Array{String}(undef, N)
         for j = 1:N
             seek(io, begpos + L*(j-1) + M)
-            column[j] = rstrip(type(read(io, length(field.slice))))
+            column[j] = decodestring(read(io, length(field.slice)))
         end
     elseif leng == 1
         column = Array{type}(undef, N)
@@ -501,7 +512,7 @@ function Base.read(io::IO, field::BinaryField; scale::Bool = true)
 
     n = position(io)
     if type <: AbstractString
-        value = type(read(io, length(field.slice)))
+        value = decodestring(read(io, length(field.slice)))
     elseif type <: BitVector
         value = read(io, type, leng)
     elseif leng == 0
@@ -533,7 +544,7 @@ function Base.write(io::IO, field::BinaryField, value::U; kwds...) where
     value = unsetmissing(value, field.null, type)
 
     if type <: AbstractString
-        write(io, rpad(value, field.leng))
+        write(io, padstring(value, field.leng))
     elseif type <: BitVector
         write(io, type, value)
     elseif leng == 0
@@ -543,6 +554,22 @@ function Base.write(io::IO, field::BinaryField, value::U; kwds...) where
     else
         write(io, hton.(value))
     end
+end
+
+#  The string of the bytes of a field of characters, which ends at the first ASCII NULL, since the characters after it are not defined, and
+#  without the spaces that fill the field (Sect. 7.3.3.1)
+function decodestring(bytes::AbstractVector{UInt8})
+    nul = findfirst(==(0x00), bytes)
+    String(rstrip(String(bytes[1:(isnothing(nul) ? length(bytes) : nul - 1)])))
+end
+
+#  The bytes of a string in a field of `width` bytes, which are filled with spaces. A string that is longer than the field is an error,
+#  since its bytes would be those of the fields after it.
+function padstring(value::AbstractString, width::Integer)
+    bytes = codeunits(value)
+    length(bytes) > width && throw(ArgumentError("The string $(repr(value)) has $(length(bytes)) bytes, but the field has " *
+        "$width (Sect. 7.3.3.1)."))
+    vcat(bytes, fill(0x20, width - length(bytes)))
 end
 
 #  The values of the bytes of a logical field, which are an ASCII T for true, an ASCII F for false, and a 0

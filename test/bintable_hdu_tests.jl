@@ -1084,4 +1084,35 @@
         @test_logs (:warn, r"TDIM1 is not") read(buffer, HDU)
     end
 
+    ####    Test the character fields (Sect. 7.3.3.1)    ####
+
+    @testset "character fields" begin
+        written(hdu) = (io = IOBuffer(); write(io, hdu); take!(io))
+        reread(hdu; kwds...) = read(IOBuffer(written(hdu)), HDU; kwds...)
+
+        #  the width of a field is the number of bytes of the longest string, so no string is cut or shifts the fields after it
+        for hdu in (HDU(Bintable, (s = ["ab", "cdef", ""], n = Int16[1, 2, 3])),
+                    HDU(Bintable, [(s = "ab", n = Int16(1)), (s = "cdef", n = Int16(2)), (s = "", n = Int16(3))]))
+            @test hdu.cards["TFORM1"] == "4A" && hdu.cards["NAXIS1"] == 6
+            again = reread(hdu)
+            @test again.data.s == ["ab", "cdef", ""] && again.data.n == Int16[1, 2, 3]
+            @test written(again) == written(hdu)
+            #  the records have the same strings, without the spaces that fill the field
+            records = reread(hdu; record = true).data
+            @test [r.s for r in records] == ["ab", "cdef", ""] && [r.n for r in records] == Int16[1, 2, 3]
+            @test all(r -> r.s isa String, records)
+        end
+
+        #  a string that is longer than the field is an error, since it would shift the fields after it
+        hdu = HDU(Bintable, (s = ["ab", "cd"], n = Int16[1, 2]))
+        hdu.data.s[2] = "cdefgh"
+        @test_throws ArgumentError("The string \"cdefgh\" has 6 bytes, but the field has 2 (Sect. 7.3.3.1).") written(hdu)
+
+        #  a string ends at the first ASCII NULL, and the characters after it are not defined
+        @test FITSFiles.decodestring(UInt8['a', 'b', 0, 'x', 'y']) == "ab"
+        @test FITSFiles.decodestring(UInt8[0, 'x', 'y']) == ""
+        @test FITSFiles.decodestring(UInt8['a', 'b', ' ', ' ']) == "ab"
+        @test FITSFiles.decodestring(UInt8['a', ' ', 'b']) == "a b"
+        @test FITSFiles.padstring("ab", 4) == UInt8['a', 'b', ' ', ' ']
+    end
 end
