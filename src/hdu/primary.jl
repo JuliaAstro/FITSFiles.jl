@@ -163,7 +163,7 @@ function DataFormat(::Type{Primary}, data::AbstractArray, mankeys::Dict{S, V}) w
     #  The type of the stored values, which excludes the undefined (missing) ones, and is the integer of the same
     #  size for the physical types of Table 11 (e.g., an Int16 for a UInt16)
     type  = nonmissingtype(eltype(data))
-    type  = get(RAWTYPE, type, type)
+    type  = storedtype(type)
     leng  = length(data)
     shape = size(data)
     param = get(mankeys, "PCOUNT", 0)
@@ -187,6 +187,11 @@ function FieldFormat(::Type{Primary}, format::DataFormat, reskeys::Dict{S, V},
 end
 
 createdata(::Type{Primary}, format::DataFormat, ::PrimaryField; kwds...) = zerosarray(format)
+
+#  The data of an array that has an axis of length 0, which has no data blocks (Sect. 3.3.2), are an empty array of the axes, and the
+#  data of an array that has no axes are missing
+emptydata(::Type{Primary}, format::DataFormat, fields::PrimaryField; kwds...) =
+    length(format.shape) > 0 ? read(IOBuffer(UInt8[]), Primary, format, fields; kwds...) : missing
 
 #  The BZERO card of the offset convention, if the header does not have one.
 function offsetcards!(cards::Cards, fields::PrimaryField)

@@ -998,15 +998,15 @@
         #  the parameters and the array have their own offsets: the other values are scaled
         arrayonly = filebytes(grouphdr(extra = [kw("BZERO", "32768")]), bytesof(unsigned))
         arraydata = reading(arrayonly).data
-        @test eltype(arraydata.param1) == Float32 && eltype(arraydata.data) == UInt16
+        @test eltype(arraydata.param1) == Int16 && eltype(arraydata.data) == UInt16
         @test arraydata.param1 == Float32[-32768, 32767] && written(reading(arrayonly)) == arrayonly
         paramonly = filebytes(grouphdr(extra = [kw("PZERO2", "32768")]), bytesof(unsigned))
-        @test eltype(reading(paramonly).data.param1) == Float32 && eltype(reading(paramonly).data.param2) == UInt16
-        @test eltype(reading(paramonly).data.data) == Float32 && written(reading(paramonly)) == paramonly
+        @test eltype(reading(paramonly).data.param1) == Int16 && eltype(reading(paramonly).data.param2) == UInt16
+        @test eltype(reading(paramonly).data.data) == Int16 && written(reading(paramonly)) == paramonly
         #  an offset of another type, or a scale that is not 1, is a scaled value
         other = filebytes(grouphdr(bitpix = 32, extra = [kw("PZERO1", "32768"), kw("BZERO", "32768")]),
             bytesof(Int32.(unsigned)))
-        @test eltype(reading(other).data.param1) == Float32 && eltype(reading(other).data.data) == Float32
+        @test eltype(reading(other).data.param1) == Float64 && eltype(reading(other).data.data) == Float64
         scaledoffset = filebytes(grouphdr(extra = [kw("PSCAL1", "2.0"), kw("PZERO1", "32768")]), bytesof(unsigned))
         @test reading(scaledoffset).data.param1 == Float32[-32768, 32767] .* 2 .+ 32768
         @test written(reading(scaledoffset)) == scaledoffset
@@ -1048,7 +1048,7 @@
         blankbytes = filebytes(grouphdr(extra = [kw("BLANK", "-32768")]), bytesof(blankvalues))
         blanked = reading(blankbytes).data
         @test isequal(blanked.data, Union{Float32, Missing}[10 missing 12; 20 21 22])
-        @test blanked.param1 == Float32[1, -32768] && eltype(blanked.param1) == Float32
+        @test blanked.param1 == Int16[1, -32768] && eltype(blanked.param1) == Int16
         @test isequal(reading(blankbytes; scale = false).data.data, Union{Int16, Missing}[10 missing 12; 20 21 22])
         @test reading(blankbytes; scale = false).data.param1 == Int16[1, -32768]
         blankrecords = reading(blankbytes; record = true).data
@@ -1079,15 +1079,16 @@
             @test isequal(reading(bytes; scale = false).data.data, Union{type, Missing}[10 missing 12; 20 21 22])
             @test written(reading(bytes)) == bytes
         end
-        #  a value that is changed to missing, or to NaN, is written as BLANK
+        #  a value that is changed to missing is written as BLANK (NaN is not an integer, so the integers cannot be NaN)
         undefined = reading(blankbytes)
         undefined.data.data[1, 1] = missing
-        undefined.data.data[2, 3] = NaN
+        undefined.data.data[2, 3] = missing
         @test isequal(reading(written(undefined); scale = false).data.data,
             Union{Int16, Missing}[missing missing 12; 20 21 missing])
         @test reading(written(undefined); scale = false).data.param1 == Int16[1, -32768]
         #  missing or NaN is an error if there is no BLANK, which is the value that stands for it
-        noblank = reading(filebytes(grouphdr(), bytesof(blankvalues)))
+        #  (the array is floating-point if it is scaled, since integers are not NaN)
+        noblank = reading(filebytes(grouphdr(extra = [kw("BSCALE", "2.0")]), bytesof(blankvalues)))
         noblank.data.data[1, 1] = NaN
         @test_throws ArgumentError written(noblank)
         @test_throws ArgumentError("The array data of group 1: NaN cannot be written as integer data that does not " *

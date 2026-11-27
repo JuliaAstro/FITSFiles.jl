@@ -157,7 +157,7 @@
                     "BSCALE  =                  0.1                                                  ")])
 
     @test (ndims(hdu.data) == 2 && size(hdu.data) == (3, 3) && length(hdu.data) == 9 &&
-           eltype(hdu.data) == Float32 && all(hdu.data .== 1.1f0))
+           eltype(hdu.data) == Float64 && all(isapprox.(hdu.data, 1.1f0)))
 
     #  test Image type with scale == false
     data = ones(Int32, (3,3))
@@ -236,7 +236,7 @@
                     "BSCALE  =                  0.1                                                  ")])
 
     @test (ndims(hdu.data) == 2 && size(hdu.data) == (3, 3) && length(hdu.data) == 9 &&
-           eltype(hdu.data) == Float32 && all(hdu.data .== 1.1f0))
+           eltype(hdu.data) == Float64 && all(isapprox.(hdu.data, 1.1f0)))
 
     rm(temppath)
 
@@ -449,7 +449,8 @@
         #  a floating-point BZERO of the offset is the convention, and another offset or no offset is not
         @test eltype(reading(filebytes(header(16, 3, "BZERO   = 32768.0"), stored)).data) === UInt16
         @test eltype(reading(filebytes(header(16, 3, kw("BZERO", 100)), stored)).data) <: AbstractFloat
-        @test eltype(reading(filebytes(header(16, 3), stored)).data) <: AbstractFloat
+        #  the data of a BSCALE of 1 and a BZERO of 0 are the stored values
+        @test eltype(reading(filebytes(header(16, 3), stored)).data) === Int16
         #  the undefined values of the stored values are undefined in the physical values
         bytes = filebytes(header(16, 3, kw("BZERO", 32768), kw("BLANK", -32768)), bytesof(Int16[-32768, 0, 32767]))
         hdu = reading(bytes)
@@ -489,13 +490,13 @@
         ####    The scaled data are written as the stored values (Eq. 3 of the standard)
 
         cases = (
-            "default" => (filebytes(header(), stored), Float32),
+            "default" => (filebytes(header(), stored), Int16),
             "BSCALE and BZERO" => (filebytes(header(16, 3, kw("BSCALE", 2.5), kw("BZERO", 10)), stored), Float32),
             "BSCALE" => (filebytes(header(16, 3, kw("BSCALE", 0.5)), stored), Float32),
             "BZERO" => (filebytes(header(16, 3, kw("BZERO", -7)), stored), Float32),
             "BLANK" => (filebytes(header(16, 3, kw("BSCALE", 2.5), kw("BLANK", -32768)), bytesof(Int16[-5, -32768, 300])), Float32),
             "offset of Table 11" => (filebytes(header(16, 3, kw("BZERO", 32768)), stored), UInt16),
-            "32 bits" => (filebytes(header(32, 3, kw("BSCALE", 0.5), kw("BZERO", 10)), bytesof(Int32[-5, 0, 3000])), Float32),
+            "32 bits" => (filebytes(header(32, 3, kw("BSCALE", 0.5), kw("BZERO", 10)), bytesof(Int32[-5, 0, 3000])), Float64),
             "bytes" => (filebytes(header(8, 3, kw("BSCALE", 2.0), kw("BZERO", -3)), UInt8[0, 7, 255]), Float32),
             "floating-point" => (filebytes(header(-32), bytesof(Float32[1.5, NaN, -3])), Float32),
             "double precision" => (filebytes(header(-64), bytesof(Float64[1.5, Inf, -3])), Float64))
@@ -504,6 +505,60 @@
             @test hdu isa HDU{Image} && nonmissingtype(eltype(hdu.data)) === type
             @test @test_logs(written(hdu)) == codeunits(bytes)
         end
+
+        ####    The data of a BSCALE of 1 and a BZERO of 0 are the stored integers, which are exact (Eq. 3 of the standard)
+
+        for (bitpix, values) in ((16, Int16[32767, -32768, 1]), (32, Int32[16777217, 2147483647, -2147483648]),
+                                 (64, Int64[2^40 + 1, 2^62 + 1, typemin(Int64)]))
+            bytes = filebytes(header(bitpix, 3), bytesof(values))
+            hdu = reading(bytes)
+            @test hdu.data == values && eltype(hdu.data) === eltype(values)
+            @test written(hdu) == codeunits(bytes)
+            #  the defaults of the header are the same as no keywords
+            same = reading(filebytes(header(bitpix, 3, kw("BSCALE", 1.0), kw("BZERO", 0.0)), bytesof(values)))
+            @test same.data == values && eltype(same.data) === eltype(values)
+        end
+        @test eltype(reading(filebytes(header(8, 3), UInt8[0, 7, 255])).data) === UInt8
+        #  the scaled values of 32- and 64-bit integers are at least Float64, since a Float32 holds integers to 2^24 only
+        for (bitpix, values) in ((32, Int32[16777217, -5, 3]), (64, Int64[2^40 + 1, -5, 3]))
+            hdu = reading(filebytes(header(bitpix, 3, kw("BSCALE", 0.5f0), kw("BZERO", 1.0f0)), bytesof(values)))
+            @test eltype(hdu.data) === Float64 && hdu.data == 1.0 .+ 0.5 .* Float64.(values)
+        end
+        #  and those of 8- and 16-bit integers are Float32 for a Float32 scale
+        @test eltype(reading(filebytes(header(16, 3, kw("BSCALE", 0.5f0)), bytesof(Int16[1, 2, 3]))).data) === Float32
+
+        ####    An array with an axis of length 0 has no data blocks, and the data are an empty array of the axes (Sect. 7.1.1)
+
+        for (bitpix, shape, type) in ((16, (3, 0), Int16), (-32, (0, 3), Float32), (8, (0, 2, 2), UInt8), (64, (0,), Int64))
+            hdr = ["XTENSION= 'IMAGE   '", kw("BITPIX", bitpix), kw("NAXIS", length(shape)),
+                [kw("NAXIS$j", n) for (j, n) in enumerate(shape)]..., kw("PCOUNT", 0), kw("GCOUNT", 1)]
+            bytes = filebytes(hdr, UInt8[])
+            hdu = reading(bytes)
+            @test hdu isa HDU{Image} && hdu.data isa Array{type, length(shape)} && size(hdu.data) == shape
+            @test written(hdu) == codeunits(bytes)
+            made = HDU(Image, zeros(type, shape))
+            @test size(made.data) == shape && size(reading(written(made)).data) == shape
+        end
+        ####    Data of a type that BITPIX does not have are an error that says which types it has (Table 8)
+
+        for data in (Float16[1 2; 3 4], [true false], ComplexF32[1 2; 3 4], ['a' 'b'], BigFloat[1 2])
+            for type in (Image, Primary)
+                err = try HDU(type, data) catch e e end
+                @test err isa ArgumentError && occursin("element type $(eltype(data))", err.msg) &&
+                    occursin("Table 8", err.msg) && occursin("Float64", err.msg) && occursin("UInt16", err.msg)
+            end
+        end
+        #  an array has at most 999 axes, which is an error when the HDU is created
+        @test HDU(Image, Array{Int8}(undef, ntuple(_ -> 1, 20))).cards["NAXIS"] == 20
+        err = try HDU(Image, Array{Int8}(undef, ntuple(_ -> 1, FITSFiles.MAXAXES + 1))) catch e e end
+        @test err isa ArgumentError && occursin("1000 axes", err.msg) && occursin("0 to 999 axes", err.msg)
+        #  the types of BITPIX and the physical types of Table 11 are not
+        for type in (UInt8, Int8, Int16, UInt16, Int32, UInt32, Int64, UInt64, Float32, Float64)
+            @test HDU(Image, type[1 2; 3 4]).data == type[1 2; 3 4]
+        end
+        #  an array that has no axes has no data
+        noaxes = ["XTENSION= 'IMAGE   '", kw("BITPIX", 16), kw("NAXIS", 0), kw("PCOUNT", 0), kw("GCOUNT", 1)]
+        @test ismissing(reading(filebytes(noaxes, UInt8[])).data)
         bytes = filebytes(header(16, 3, kw("BSCALE", 2.5), kw("BZERO", 10)), stored)
         hdu = reading(bytes)
         @test hdu.data == Float32[-2.5, 10, 760]
@@ -584,7 +639,7 @@
         #  and the fill of the last block is not required
         hdu = @test_logs reading(filebytes(header(16, 3), bytesof(Int16[1, 2, 3]); pad = false))
         @test hdu.data == [1, 2, 3]
-        #  an array of two axes is in the order of the first axis, as is an array of three, and no axes or a zero axis has no data
+        #  an array of two axes is in the order of the first axis, as is an array of three, and no axes has no data and a zero axis has an empty array
         bytes = filebytes(["XTENSION= 'IMAGE   '", kw("BITPIX", 16), kw("NAXIS", 2), kw("NAXIS1", 2), kw("NAXIS2", 3),
             kw("PCOUNT", 0), kw("GCOUNT", 1)], bytesof(Int16[1, 2, 3, 4, 5, 6]))
         @test reading(bytes).data == [1 3 5; 2 4 6]
@@ -593,7 +648,8 @@
         @test size(reading(bytes).data) == (2, 1, 2) && vec(reading(bytes).data) == [1, 2, 3, 4]
         for axes in ([kw("NAXIS", 0)], [kw("NAXIS", 2), kw("NAXIS1", 3), kw("NAXIS2", 0)])
             hdu = @test_logs reading(filebytes(["XTENSION= 'IMAGE   '", kw("BITPIX", 16), axes..., kw("PCOUNT", 0), kw("GCOUNT", 1)]))
-            @test ismissing(hdu.data) && @test_logs(written(hdu)) == codeunits(filebytes(
+            #  no axes have no data, and an axis of length 0 has an empty array
+            @test (length(axes) == 1 ? ismissing(hdu.data) : size(hdu.data) == (3, 0)) && @test_logs(written(hdu)) == codeunits(filebytes(
                 ["XTENSION= 'IMAGE   '", kw("BITPIX", 16), axes..., kw("PCOUNT", 0), kw("GCOUNT", 1)]))
         end
 

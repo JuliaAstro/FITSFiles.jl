@@ -144,7 +144,7 @@
                     "BSCALE  =                  0.1                                                  ")])
 
     @test (ndims(hdu.data) == 2 && size(hdu.data) == (3, 3) && length(hdu.data) == 9 &&
-           eltype(hdu.data) == Float32 && all(hdu.data .== 1.1f0))
+           eltype(hdu.data) == Float64 && all(isapprox.(hdu.data, 1.1f0)))
 
     #  test Primary type with scale == false
     data = ones(Int32, (3,3))
@@ -214,7 +214,7 @@
                     "BSCALE  =                  0.1                                                  ")])
 
     @test (ndims(hdu.data) == 2 && size(hdu.data) == (3, 3) && length(hdu.data) == 9 &&
-           eltype(hdu.data) == Float32 && all(hdu.data .== 1.1f0))
+           eltype(hdu.data) == Float64 && all(isapprox.(hdu.data, 1.1f0)))
 
     rm(temppath)
 
@@ -269,6 +269,22 @@
         @test hdu.data == Int16[1 3; 2 4]
         hdu = @test_logs (:warn, r"SIMPLE is F") reading(filebytes([simplef, bitpix, kw("NAXIS", 0)]))
         @test hdu isa HDU{Conform} && ismissing(hdu.data)
+        #  an axis of length 0 has no data blocks, and the data are an empty array of the axes, written as it was read
+        for (bits, shape, type) in ((16, (3, 0), Int16), (-32, (0, 3), Float32), (8, (0, 2, 2), UInt8), (64, (0,), Int64))
+            cards = [simplef, kw("BITPIX", bits), kw("NAXIS", length(shape)), [kw("NAXIS$j", n) for (j, n) in enumerate(shape)]...]
+            bytes = filebytes(cards, UInt8[])
+            hdu = @test_logs (:warn, r"SIMPLE is F") reading(bytes)
+            @test hdu isa HDU{Conform} && hdu.data isa Array{type, length(shape)} && size(hdu.data) == shape
+            @test @test_logs((:warn, r"SIMPLE is F"), written(hdu)) == codeunits(bytes)
+        end
+        #  a conforming extension that is not implemented is read the same way
+        extension = ["XTENSION= 'FOREIGN '", kw("BITPIX", 16), kw("NAXIS", 2), kw("NAXIS1", 3), kw("NAXIS2", 0),
+            kw("PCOUNT", 0), kw("GCOUNT", 1)]
+        hdu = reading(filebytes(extension, UInt8[]))
+        @test hdu isa HDU{Conform} && hdu.data isa Matrix{Int16} && size(hdu.data) == (3, 0)
+        #  no groups have no data
+        nogroups = ["XTENSION= 'FOREIGN '", kw("BITPIX", 16), kw("NAXIS", 1), kw("NAXIS1", 3), kw("PCOUNT", 0), kw("GCOUNT", 0)]
+        @test ismissing(reading(filebytes(nogroups, UInt8[])).data)
 
         #  but the other mandatory keywords must conform
         @test_throws ArgumentError("BITPIX must be one of 8, 16, 32, 64, -32, or -64, but its value is 12.") reading(
@@ -423,7 +439,8 @@
         cards = [simple, bitpix, naxis, naxis1]
         @test eltype(scaledreading(filebytes([cards; "BZERO   = 32768.0"], data)).data) === UInt16
         @test eltype(scaledreading(filebytes([cards; kw("BZERO", 100)], data)).data) <: AbstractFloat
-        @test eltype(scaledreading(filebytes(cards, data)).data) <: AbstractFloat
+        #  the data of a BSCALE of 1 and a BZERO of 0 are the stored values
+        @test eltype(scaledreading(filebytes(cards, data)).data) === Int16
         #  the undefined values of the stored values are undefined in the physical values
         hdu = scaledreading(filebytes([cards; kw("BZERO", 32768); kw("BLANK", -32768)], bytesof(Int16[-32768, 0, 32767])))
         @test isequal(hdu.data, [missing, 32768, 65535]) && nonmissingtype(eltype(hdu.data)) === UInt16
@@ -507,20 +524,31 @@
         hdu = @test_logs (:warn, "NAXIS1 is 0, which is the signature of random groups, but GROUPS is F (Sect. 6.1.1), " *
             "so it is read as a primary array without data, and PCOUNT and GCOUNT are not used.") reading(
             filebytes(groupsf, data))
-        @test hdu isa HDU{Primary} && ismissing(hdu.data)
-        #  a primary array that has an axis of 0 has no data, with or without PCOUNT and GCOUNT, and without a warning
+        @test hdu isa HDU{Primary} && hdu.data isa Matrix{Int16} && size(hdu.data) == (0, 3)
+        #  a primary array that has an axis of 0 has no data blocks, and the data are an empty array, with or without PCOUNT and GCOUNT, and without a warning
         for cards in ([simple, bitpix, kw("NAXIS", 2), kw("NAXIS1", 0), kw("NAXIS2", 3)],
             [simple, bitpix, kw("NAXIS", 2), kw("NAXIS1", 0), kw("NAXIS2", 3), counts...],
             [simple, bitpix, kw("NAXIS", 1), kw("NAXIS1", 0), kw("GROUPS", "F")])
-            @test ismissing(@test_logs(reading(filebytes(cards, data))).data)
+            @test isempty(@test_logs(reading(filebytes(cards, data))).data)
         end
+        #  the empty array has the type and the axes of the header, and is written as it was read
+        for (bits, shape, type) in ((16, (3, 0), Int16), (-32, (0, 3), Float32), (8, (0, 2, 2), UInt8), (64, (0,), Int64))
+            hdr = [simple, kw("BITPIX", bits), kw("NAXIS", length(shape)), [kw("NAXIS$j", n) for (j, n) in enumerate(shape)]...]
+            bytes = filebytes(hdr, UInt8[])
+            hdu = @test_logs reading(bytes)
+            @test hdu isa HDU{Primary} && hdu.data isa Array{type, length(shape)} && size(hdu.data) == shape
+            @test @test_logs(written(hdu)) == codeunits(bytes)
+            @test size(HDU(Primary, zeros(type, shape)).data) == shape
+        end
+        #  an array that has no axes has no data
+        @test ismissing(@test_logs(reading(filebytes([simple, bitpix, kw("NAXIS", 0)], UInt8[]))).data)
         #  GROUPS must be a logical, and a value that is not is not the signature, even if it is equal to T
         for groups in ("1", "'T'", "1.0")
             value = groups == "'T'" ? "T" : groups == "1" ? 1 : 1.0f0
             hdu = @test_logs (:warn, "GROUPS must be a logical, T or F, but its value is $(repr(value)). It is read as it is.") reading(
                 filebytes([simple, bitpix, kw("NAXIS", 2), kw("NAXIS1", 0), kw("NAXIS2", 3), kw("GROUPS", groups), counts...],
                 data))
-            @test hdu isa HDU{Primary} && ismissing(hdu.data)
+            @test hdu isa HDU{Primary} && hdu.data isa Matrix{Int16} && size(hdu.data) == (0, 3)
         end
         #  GROUPS of F is not the signature, whatever NAXIS1 is
         hdu = @test_logs reading(filebytes([simple, bitpix, kw("NAXIS", 2), kw("NAXIS1", 3), kw("NAXIS2", 2),
@@ -618,14 +646,14 @@
 
         #  the data that are read scaled are written as they were read, whether or not the data are scaled by BSCALE and BZERO
         cases = (
-            "default" => (filebytes(primary, stored), Float32),
+            "default" => (filebytes(primary, stored), Int16),
             "BSCALE and BZERO" => (withcards(kw("BSCALE", 2.5), kw("BZERO", 10)), Float32),
             "BSCALE" => (withcards(kw("BSCALE", 0.5)), Float32),
             "BZERO" => (withcards(kw("BZERO", -7)), Float32),
             "BLANK" => (filebytes([primary; kw("BSCALE", 2.5); kw("BLANK", -32768)], bytesof(Int16[-5, -32768, 300])),
                 Float32),
             "offset of Table 11" => (withcards(kw("BZERO", 32768)), UInt16),
-            "32 bits" => (filebytes([simple(32); kw("BSCALE", 0.5); kw("BZERO", 10)], bytesof(Int32[-5, 0, 3000])), Float32),
+            "32 bits" => (filebytes([simple(32); kw("BSCALE", 0.5); kw("BZERO", 10)], bytesof(Int32[-5, 0, 3000])), Float64),
             "bytes" => (filebytes([simple(8); kw("BSCALE", 2.0); kw("BZERO", -3)], UInt8[0, 7, 255]), Float32),
             "floating-point" => (filebytes(simple(-32), bytesof(Float32[1.5, NaN, -3])), Float32),
             "double precision" => (filebytes(simple(-64), bytesof(Float64[1.5, Inf, -3])), Float64))

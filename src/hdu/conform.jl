@@ -75,6 +75,11 @@ function createdata(::Type{Conform}, format::DataFormat, fields::ConformField;
     zerosarray(format)
 end
 
+#  The data of an array that has an axis of length 0, which has no data blocks, are an empty array of the axes, and the data of an
+#  array that has no axes, or has no groups (GCOUNT of 0), are missing
+emptydata(::Type{Conform}, format::DataFormat, fields::ConformField; kwds...) =
+    length(format.shape) > 0 && prod(format.shape) == 0 ? read(IOBuffer(UInt8[]), Conform, format, fields; kwds...) : missing
+
 """
 	verifyconform(cards, mankeys)
 
