@@ -1,17 +1,21 @@
-#=    Improvements
-
- * type mappings, e.g., F6.2 to Float32, etc.
- * more tests
-
- =#
-
 ####    Table HDU functions
 
 """
 	Table header-data unit (HDU)
 
 A Table HDU consists of a vector of cards and optionally a 2-dimensional array
-of ASCII data structured as vector of records.
+of ASCII data, which is a named tuple of the columns of the fields, or a vector of records, a named tuple for each row
+(`record = true`), or a vector of the strings of the rows.
+
+The fields of the table that is made from data have the formats TFORMn and the first columns TBCOLn of the cards that are given, and otherwise the
+format of the values of the field and the column that follows the one space after the previous field. The keywords `formats` and `columns` of
+`HDU(Table, data, cards; formats, columns)` are vectors that have a format string (Table 15 of the standard, e.g., `"F8.3"`) and a first column
+(the first column of a row is 1) for each field, and override the cards.
+
+The values of a field of type `A` are strings, of type `I` are `Int64`, and of types `F`, `E`, and `D` are `Float64`, with `missing` for an
+undefined value, which is the TNULLn string of the field (Sect. 7.2.2 of the standard). A blank field is the value 0, as the standard
+says (Sect. 7.2.5). The values of a field that has a TSCALn and a TZEROn that are not 1 and 0 are the physical values, which are `Float64`
+(Eq. 7), unless `scale = false`.
 """
 struct Table <: AbstractHDU end
 
@@ -31,11 +35,20 @@ union!(RESERVEDKEYS, ["INHERIT", "TFIELDS", "TFORM", "TBCOL", "TSCAL", "TZERO", 
 #  The fill after the data is ASCII spaces (see `verifyfill`)
 fillrule(::Type{Table}) = (0x20, "ASCII spaces", "Sect. 7.2.3")
 
-const TABLEFMT = Regex("(?<t>[AIFED])(?<w>\\d+)(\\.(?<f>\\d+))?")
+#  The types of the values of the fields of the formats of Table 15
+const TABLETYPE = Dict("A" => String, "I" => Int64, "F" => Float64, "E" => Float64, "D" => Float64)
 
-const TABLETYPE = Dict(
-    "A" => String, "I" => Int64, "F" => Float64, "E" => Float64, "D" => Float64,
-    String => "A", Int64 => "I", Float64 => "F", Float32 => "E", Float64 => "D")
+#  The formats of Table 15: Aw, Iw, Fw.d, Ew.d, and Dw.d, in upper case
+const TABLEFORM = r"^(?:([AI])([0-9]+)|([FED])([0-9]+)\.([0-9]+))$"
+
+#  The display formats of Table 16: Aw, Iw.m, Bw.m, Ow.m, Zw.m, Fw.d, Ew.dEe, ENw.d, ESw.d, Gw.dEe, and Dw.dEe, in upper case
+const TABLEDISPFORM = r"^(A\d+|[IBOZ]\d+(\.\d+)?|F\d+\.\d+|(E|EN|ES|G|D)\d+\.\d+(E\d+)?)$"
+
+#  The display formats that a field of the format code of Table 15 has (Sects. 7.2.2 and 7.3.4): the integer formats are for integers, and the
+#  real formats are for the values that are not integers, which a scale makes of integers
+const TABLEDISPCODES = let real = ["F", "E", "D", "EN", "ES", "G"]
+	Dict("A" => ["A"], "I" => ["I", "B", "O", "Z", real...], "F" => real, "E" => real, "D" => real)
+end
 
 """
     TableField(name, type, slice, unit, form, disp, zero, scale, null,
@@ -57,81 +70,389 @@ struct TableField <: AbstractField
     "The display of the field"
     disp::String
     "The offset of the field"
-    zero::Union{AbstractFloat, Nothing}
+    zero::Union{Float64, Nothing}
     "The scale of the field"
-    scale::Union{AbstractFloat, Nothing}
+    scale::Union{Float64, Nothing}
     "The null value of the field"
     null::Union{String, Nothing}
-    "The minimum display value of the field"
-    dmin::Union{AbstractFloat, Nothing}
-    "The maximum display value of the field"
-    dmax::Union{AbstractFloat, Nothing}
     "The minimum physical value of the field"
-    lmin::Union{AbstractFloat, Nothing}
+    dmin::Union{Real, Nothing}
     "The maximum physical value of the field"
-    lmax::Union{AbstractFloat, Nothing}
+    dmax::Union{Real, Nothing}
+    "The minimum valid physical value of the field"
+    lmin::Union{Real, Nothing}
+    "The maximum valid physical value of the field"
+    lmax::Union{Real, Nothing}
 end
 
-function Base.read(io::IO, type::Type{Table}, format::DataFormat,
-    fields::Vector{TableField}; record::Bool = false, kwds...)
+"""
+    ScaledRows(records, scales)
 
-    begpos = position(io)
-    M, N = format.shape[1], format.shape[2]
-    #  Read data array
-    if record
-        row = [String(read(io, M)) for j = 1:N]
-        data = [(; [read(row[j], field; kwds...) for field in fields]...)
-            for j = 1:N]
-    else
-        data = (; [Symbol(field.name) =>
-            read(io, field, format, begpos; kwds...) for field in fields]...)
+The records of an ASCII table (`record = true`) that has fields of floating-point values that are scaled by a TSCALn and a TZEROn. The
+values of those fields are the physical values (see [`ScaledArray`](@ref)), which the dictionary `scales` has the scale and the zero of,
+by the name of the field, and are written as the stored values. The records are the values of `parent`.
+"""
+struct ScaledRows{R, V<:AbstractVector{R}} <: AbstractVector{R}
+    parent::V
+    scales::Dict{Symbol, Tuple{Float64, Float64}}
+end
+
+Base.parent(rows::ScaledRows) = rows.parent
+Base.size(rows::ScaledRows) = size(rows.parent)
+Base.IndexStyle(::Type{<:ScaledRows}) = IndexLinear()
+Base.getindex(rows::ScaledRows, i::Int) = rows.parent[i]
+Base.setindex!(rows::ScaledRows, value, i::Int) = (rows.parent[i] = value; rows)
+Base.copy(rows::ScaledRows) = ScaledRows(copy(rows.parent), rows.scales)
+
+#  The code, the width, and the number of decimals of the format of a field (Table 15): the decimals are 0 for the formats that do not have
+#  them. A format that is not one of Table 15 is an error.
+function tableformat(form::AbstractString, name::AbstractString = "TFORM")
+	m = match(TABLEFORM, rstrip(form))
+	code, width, decimals = isnothing(m) ? (nothing, nothing, nothing) :
+		isnothing(m[1]) ? (m[3], tryparse(Int, m[4]), tryparse(Int, m[5])) : (m[1], tryparse(Int, m[2]), 0)
+	(isnothing(width) || isnothing(decimals) || width < 1) && throw(ArgumentError("$name must be a format of Table 15, " *
+		"Aw, Iw, Fw.d, Ew.d, or Dw.d, in upper case, with a width of at least 1 (Sect. 7.2.1), but its value is $(repr(form))."))
+	(code, width, decimals)
+end
+
+#  The value of a string keyword of a field, or the default if the header does not have it or it is not a string
+tablestring(keys::AbstractDict, key::AbstractString, default::AbstractString) =
+    get(keys, key, default) isa AbstractString ? rstrip(get(keys, key, default)) : default
+
+#  The value of a keyword that is a number, or nothing
+tablenumber(keys::AbstractDict, key::AbstractString) = get(keys, key, nothing) isa Real && !(get(keys, key, nothing) isa Bool) ?
+    get(keys, key, nothing) : nothing
+
+#  The Float64 of a number of a header, which a card has as a Float32 if the Float32 has the digits of the number, e.g., 0.1f0 for 0.1, whose
+#  Float64 is not 0.1 but the number that has the digits of the Float32
+tablefloat(value::Real) = value isa Float32 ? Base.parse(Float64, string(value)) : Float64(value)
+
+#  The name of a field, which is the default if the name is empty, and which no other field has, since the columns of the data are named by the
+#  fields, and the columns of two fields that have the same name would be one.
+function tablename(name::AbstractString, default::AbstractString, names::Set{String})
+    name = isempty(name) ? default : String(name)
+    unique = name
+    while unique in names
+        unique = unique == name ? "$(name)_$(length(names) + 1)" : unique * "_"
     end
-    #  Seek to the end of the block
-    # seek(io, begpos + BLOCKLEN*div(M*N, BLOCKLEN, RoundUp))
-
-    ####    Apply WCS
-    data
+    push!(names, unique)
+    unique
 end
 
-#  The value of a field in row `j` of the data, which is a vector of records or a named tuple of columns,
-#  where each column has one value for each row.
-getcell(::Type{Table}, data::AbstractArray, field, j::Integer) = data[j][Symbol(field.name)]
-getcell(::Type{Table}, data::NamedTuple, field, j::Integer) = data[Symbol(field.name)][j]
+#  The descriptor of the field j of the header, which begins in the column `start`, has the format `form`, and has the name `name`
+function tablefield(keys::AbstractDict, j::Integer, name::AbstractString, form::AbstractString, start::Integer)
+    code, width, _ = tableformat(form, "TFORM$j")
+    type = TABLETYPE[code]
+    #  A field of characters has no scale and zero (Sect. 7.2.2)
+    scale = code == "A" ? nothing : tablefloat(something(tablenumber(keys, "TSCAL$j"), 1.0))
+    zero_ = code == "A" ? nothing : tablefloat(something(tablenumber(keys, "TZERO$j"), 0.0))
+    null = get(keys, "TNULL$j", nothing)
+    null = null isa AbstractString ? String(rstrip(null)) : nothing
+    TableField(name, type, start:start+width-1, tablestring(keys, "TUNIT$j", ""), String(rstrip(form)), tablestring(keys, "TDISP$j", ""),
+        zero_, scale, null, tablenumber(keys, "TDMIN$j"), tablenumber(keys, "TDMAX$j"), tablenumber(keys, "TLMIN$j"),
+        tablenumber(keys, "TLMAX$j"))
+end
 
-function Base.write(io::IO, ::Type{Table}, data::Union{AbstractArray, NamedTuple},
-    format::DataFormat, fields::Vector{TableField}; kwds...)
+####    Verify the header and the data
 
-    #  Write data array
-    N = format.shape[2]
-    if N > 0
-        for j=1:N
-            begpos = position(io)
-            for field in fields
-                write(io, getcell(Table, data, field, j), field, begpos; kwds...)
-            end
-            write(io, repeat(" ", format.shape[1]-(position(io)-begpos)))
+#  The `formats` and the `columns` of the fields of a table that is made from data, which are the cards TFORMn and TBCOLn of the fields (the
+#  cards that are given are replaced), and TFIELDS for the strings of the rows, whose fields only the cards describe
+function keywordcards!(::Type{Table}, cards::Cards, data::Union{AbstractArray, Tuple, NamedTuple}; formats = nothing, columns = nothing,
+    kwds...)
+
+    isnothing(formats) && isnothing(columns) && return cards
+    given = tablecolumns(data)
+    n = isnothing(given) ? length(something(formats, columns)) : length(given)
+    for (name, values) in (("formats", formats), ("columns", columns))
+        isnothing(values) && continue
+        length(values) == n || throw(ArgumentError("The keyword $name has $(length(values)) values, but the data have $n fields."))
+    end
+    setcard!(key, value) = haskey(cards, key) ? (cards[key] = value) : push!(cards, Card(key, value))
+    isnothing(given) && setcard!("TFIELDS", n)
+    for j = 1:n
+        if !isnothing(formats)
+            formats[j] isa AbstractString || throw(ArgumentError("formats[$j] must be a character string, but its value is $(repr(formats[j]))."))
+            tableformat(formats[j], "formats[$j]")
+            setcard!("TFORM$j", String(rstrip(formats[j])))
         end
-        #  Pad last block with spaces
-        padblock(io, format, 0x20)
+        if !isnothing(columns)
+            columns[j] isa Integer && columns[j] >= 1 || throw(ArgumentError("columns[$j] must be an integer of at least 1, the first column " *
+                "of a row, but its value is $(repr(columns[j]))."))
+            setcard!("TBCOL$j", Int(columns[j]))
+        end
     end
+    cards
 end
+
+#  The keywords of the cards that are given with the data of an HDU that is made are verified (see `verifycardkeys`)
+verifycards!(::Type{Table}, cards::Cards, mankeys::AbstractDict, reskeys::AbstractDict, format::DataFormat) =
+    verifycardkeys(Table, cards, mankeys, reskeys)
 
 function verify!(::Type{Table}, cards::Cards, mankeys::AbstractDict, reskeys::AbstractDict)
+    #  A header that is being created does not have the keywords yet, and is arranged when it is created.
+    created = !haskey(mankeys, "XTENSION")
+    #  The data cannot be read without BITPIX and NAXIS (Sect. 7.2.1)
+    for key in ("BITPIX", "NAXIS")
+        created || haskey(mankeys, key) || throw(ArgumentError(
+            "$key is missing, but it is a mandatory keyword of a TABLE extension (Sect. 7.2.1)."))
+    end
     cards = invoke(verify!, Tuple{Type{<:AbstractHDU}, Cards, AbstractDict, AbstractDict}, Table, cards,
         mankeys, reskeys)
     verifyrows(Table, mankeys)
     #  An ASCII table has a single table and no heap (Sect. 7.2.1)
     verifyvalue(mankeys, "PCOUNT", 0:0, "the integer 0")
     verifyvalue(mankeys, "GCOUNT", 1:1, "the integer 1")
-    #  The number of fields and the first columns of the fields are integers (Sect. 7.2.1)
+    #  The number of fields and the first columns of the fields are integers (Sect. 7.2.1), and the scale, the zero, and the minimum and
+    #  maximum values are numbers (Sect. 7.2.2), which the values of the fields are made of
     verifyinteger(mankeys, r"^(TFIELDS|TBCOL\d+)$")
-    verifyfields!(Table, cards, mankeys)
+    verifynumber(reskeys, r"^(TSCAL|TZERO|TDMIN|TDMAX|TLMIN|TLMAX)\d+$")
+    verifyfields!(Table, cards, mankeys; created)
+    created && return cards
+    verifykeys(Table, cards, mankeys, reskeys)
+end
+
+#  The keywords that are in order and in fixed format, and the keywords of the fields (Sects. 4.4.1.2, 7.2.1, and 7.2.2)
+function verifykeys(::Type{Table}, cards::Cards, mankeys::AbstractDict, reskeys::AbstractDict)
+    #  PCOUNT and GCOUNT have the values 0 and 1 if they are missing, so the data can be read without them
+    for (key, value) in ("PCOUNT" => 0, "GCOUNT" => 1)
+        haskey(mankeys, key) || @warn "$key is missing, but it is a mandatory keyword of a TABLE extension " *
+            "(Sect. 7.2.1), and has the value $value. It is read as $value."
+    end
+    #  The mandatory keywords are the first keywords, in order and in fixed format
+    required = filter(key -> haskey(mankeys, key), ["XTENSION", "BITPIX", "NAXIS", "NAXIS1", "NAXIS2", "PCOUNT", "GCOUNT", "TFIELDS"])
+    verifyorder(cards, required; section = "Sects. 4.4.1.2 and 7.2.1",
+        names = "XTENSION, BITPIX, NAXIS, NAXIS1, NAXIS2, PCOUNT, GCOUNT, and TFIELDS")
+    verifyfixed(cards, required)
+    #  The keywords of the primary header, and of the physical blocks, are not in an extension (Sects. 4.4.1.1, 4.4.2.1, and 7.2.2)
+    haskey(mankeys, "SIMPLE") && @warn "SIMPLE must not appear in an extension header (Sect. 4.4.1.1). It is read as it is."
+    for key in ("EXTEND", "BLOCKED")
+        haskey(reskeys, key) && @warn "$key must not appear in a TABLE extension header (Sects. 4.4.2.1 and 7.2.2). " *
+            "It is read as it is."
+    end
+    verifyfieldkeys(Table, mankeys, reskeys)
+    cards
 end
 
 function verify!(::Type{Table}, cards::Cards, format::DataFormat,
     mankeys::AbstractDict)
 
     verifyshape!(cards, mankeys, format)
+end
+
+#  The structure of an ASCII table extension, which is an array of bytes with NAXIS = 2 axes, the length of a row and the number
+#  of rows (Sect. 7.2.1)
+function verifyrows(::Type{Table}, mankeys::AbstractDict)
+	verifyvalue(mankeys, "BITPIX", 8:8, "the integer 8")
+	verifyvalue(mankeys, "NAXIS", 2:2, "the integer 2")
+	verifyaxes(mankeys)
+end
+
+"""
+	verifyfields!(Table, cards, mankeys; created = false)
+
+Verify the keywords that describe the fields of an ASCII table extension, and return the cards unchanged
+(Sect. 7.2.1 of the standard). It is an error, since the fields cannot be read, if TFIELDS
+is negative, if TFORMn is missing or is not one of the formats of Table 15 (Aw, Iw, Fw.d, Ew.d, or Dw.d, in upper case) for an n from 1 to
+TFIELDS, if TBCOLn is missing or less than 1, since the first column of a row is numbered 1, or if a field is not within the NAXIS1
+characters of a row. A header that is being created (`created`) does not need TFORMn and TBCOLn, which are made from the data. It is a warning,
+since the extra keywords are not used, if TFIELDS is more than 999, the maximum, or if TFORMn or TBCOLn
+is present for an n greater than TFIELDS. A header with no TFIELDS is not verified.
+"""
+function verifyfields!(::Type{Table}, cards::Cards, mankeys::AbstractDict; created::Bool = false)
+	N = get(mankeys, "TFIELDS", nothing)
+	isnothing(N) && return cards
+	N < 0 && throw(ArgumentError("TFIELDS must be non-negative, but its value is $N."))
+	N > MAXTABLEFIELDS && @warn "TFIELDS $N is more than the maximum of $MAXTABLEFIELDS."
+	row = get(mankeys, "NAXIS1", nothing)
+	for j = 1:N
+		form = get(mankeys, "TFORM$j", nothing)
+		if isnothing(form)
+			created || throw(ArgumentError("TFORM$j is missing, but TFIELDS is $N."))
+		else
+			form isa AbstractString || throw(ArgumentError("TFORM$j must be a character string, but its value is $(repr(form))."))
+			tableformat(form, "TFORM$j")
+		end
+		start = get(mankeys, "TBCOL$j", nothing)
+		if isnothing(start)
+			created || throw(ArgumentError("TBCOL$j is missing, but TFIELDS is $N."))
+		else
+			start >= 1 || throw(ArgumentError(
+				"TBCOL$j must be at least 1, the first column of a row, but its value is $start."))
+			if !created && !isnothing(form) && row isa Integer
+				last = start + tableformat(form, "TFORM$j")[2] - 1
+				last <= row || throw(ArgumentError("Field $j, whose TFORM$j is $(repr(rstrip(form))) and TBCOL$j is $start, ends in " *
+					"column $last, but a row has NAXIS1 = $row characters (Sects. 7.2.1 and 7.2.4)."))
+			end
+		end
+	end
+	for key in sort!(collect(keys(mankeys)))
+		m = match(r"^(TFORM|TBCOL)(\d+)$", key)
+		!isnothing(m) && Base.parse(Int, m[2]) > N &&
+			@warn "$key is beyond TFIELDS $N, and is not used."
+	end
+	cards
+end
+
+#  The keywords that describe the fields (Sect. 7.2.2): TTYPEn, TUNITn, TNULLn, and TDISPn are character strings, TUNITn is a units
+#  string, the names of the fields are unique without regard to the case, the fields do not overlap, TSCALn and TZEROn are not used for the
+#  fields of type A, TNULLn is not longer than its field, TDISPn is a display format of Table 16 that suits the type of the field, and the
+#  minimum and maximum values have the data type of the physical values.
+function verifyfieldkeys(::Type{Table}, mankeys::AbstractDict, reskeys::AbstractDict)
+    N = get(mankeys, "TFIELDS", 0)
+    N isa Integer || return
+    verifystring(reskeys, r"^(TTYPE|TUNIT|TNULL|TDISP)\d+$")
+    verifyunit(reskeys, r"^TUNIT\d+$")
+    names, spans = Dict{String, Int}(), Tuple{Int, Int, Int}[]
+    for j = 1:N
+        form = get(reskeys, "TFORM$j", nothing)
+        form isa AbstractString || continue
+        code, width, _ = tableformat(form, "TFORM$j")
+        start = get(reskeys, "TBCOL$j", nothing)
+        start isa Integer && push!(spans, (start, start + width - 1, j))
+        (haskey(reskeys, "TSCAL$j") || haskey(reskeys, "TZERO$j")) && code == "A" &&
+            @warn "TSCAL$j and TZERO$j must not be used for a field of format A (Sect. 7.2.2). They are not used."
+        null = get(reskeys, "TNULL$j", nothing)
+        null isa AbstractString && length(rstrip(null)) > width && @warn "TNULL$j, $(repr(rstrip(null))), is longer than the $width " *
+            "characters of its field (Sect. 7.2.2), so no value is undefined. The undefined values cannot be written."
+        verifyextremes(Table, reskeys, j, code)
+        disp = get(reskeys, "TDISP$j", nothing)
+        if disp isa AbstractString && !occursin(TABLEDISPFORM, strip(disp))
+            @warn "TDISP$j must be a display format of Table 16 (Sect. 7.2.2), but its value is $(repr(disp)). It is read as it is."
+        elseif disp isa AbstractString
+            shown = match(r"^[A-Z]+", strip(disp)).match
+            shown in TABLEDISPCODES[code] || @warn "TDISP$j, $(repr(strip(disp))), is not a display format for a field of format " *
+                "$code (Sect. 7.2.2), which has the formats $(join(TABLEDISPCODES[code], ", ")). It is read as it is."
+        end
+        name = get(reskeys, "TTYPE$j", nothing)
+        if name isa AbstractString && !isempty(strip(name))
+            other = get(names, lowercase(rstrip(name)), 0)
+            if other > 0
+                renamed = rstrip(name) == rstrip(reskeys["TTYPE$other"]) ? " The column of the data of TTYPE$j is named $(rstrip(name))_$j." : ""
+                @warn "TTYPE$j and TTYPE$other have the same name, $(repr(rstrip(name))), without regard to the case, but the " *
+                    "names of the fields should be unique (Sect. 7.2.2).$renamed"
+            else
+                names[lowercase(rstrip(name))] = j
+            end
+        end
+    end
+    #  Fields may overlap, but this is not recommended (Sect. 7.2.4)
+    sort!(spans)
+    reach, last = 0, 0
+    for (start, stop, j) in spans
+        if start <= reach
+            @warn "Fields $last and $j overlap, but the fields of a row should not overlap (Sect. 7.2.4). They are read as they are."
+            break
+        end
+        reach, last = stop, j
+    end
+    nothing
+end
+
+#  The minimum and maximum values of a column, TDMINn and TDMAXn, and the minimum and maximum valid values, TLMINn and TLMAXn, have the data
+#  type of the physical values of the column, an integer or a floating-point number (Sect. 7.2.2). The physical values of a field of format I
+#  are integers if TSCALn is 1 and TZEROn is an integer, and those of a field of format F, E, or D are floating-point numbers.
+function verifyextremes(::Type{Table}, reskeys::AbstractDict, j::Integer, code::AbstractString)
+    code == "A" && return
+    scale, zero = get(reskeys, "TSCAL$j", 1), get(reskeys, "TZERO$j", 0)
+    integers = code == "I" && scale isa Real && zero isa Real && scale == 1 && isinteger(zero)
+    for key in ("TDMIN$j", "TDMAX$j", "TLMIN$j", "TLMAX$j")
+        value = get(reskeys, key, nothing)
+        (value isa Real && !(value isa Bool)) || continue
+        if integers && !(value isa Integer)
+            @warn "$key must be an integer, since the values of field $j are integers (Sect. 7.2.2), but its value is $(repr(value)). It is read as it is."
+        elseif !integers && value isa Integer
+            @warn "$key must be a floating-point number, since the values of field $j are floating-point numbers (Sect. 7.2.2), but its value is $(repr(value)). It is read as it is."
+        end
+    end
+end
+
+#  Verify the data against the header before the header is written (see `verifydata`): the values of each field are in a column of as many rows
+#  as the table has, or in each record, and the strings of the rows are not longer than a row
+function verifydata(::Type{Table}, data::Union{AbstractArray, Tuple, NamedTuple}, format::DataFormat, fields::Vector{TableField})
+    length(format.shape) == 2 || return nothing
+    M, N = format.shape
+    if data isa AbstractArray{<:AbstractString}
+        length(data) == N || throw(ArgumentError("The data have $(length(data)) rows, but the table has NAXIS2 = $N (Sect. 7.2.1)."))
+        for (j, row) in enumerate(data)
+            length(row) <= M || throw(ArgumentError("Row $j of the data has $(length(row)) characters, but a row has NAXIS1 = $M " *
+                "(Sect. 7.2.1)."))
+        end
+    elseif data isa AbstractArray
+        length(data) == N || throw(ArgumentError("The data have $(length(data)) records, but the table has NAXIS2 = $N (Sect. 7.2.1)."))
+        for (j, record) in enumerate(data)
+            length(record) == length(fields) || throw(ArgumentError("Record $j of the data has $(length(record)) values, but " *
+                "the table has TFIELDS = $(length(fields)) fields (Sect. 7.2.1)."))
+        end
+    else
+        length(data) == length(fields) || throw(ArgumentError("The data have $(length(data)) columns, but the table has " *
+            "TFIELDS = $(length(fields)) fields (Sect. 7.2.1)."))
+        for (k, column) in enumerate(data)
+            length(column) == N || throw(ArgumentError("Column $k of the data has $(length(column)) rows, but the table has " *
+                "NAXIS2 = $N (Sect. 7.2.1)."))
+        end
+    end
+    nothing
+end
+
+####    The format of the data
+
+#  The columns of the data: the values of each field, which are nothing for the strings of the rows, whose fields the header describes
+tablecolumns(data::Union{Tuple, NamedTuple}) = Any[data[k] for k = 1:length(data)]
+tablecolumns(data::AbstractArray{<:AbstractString}) = nothing
+function tablecolumns(data::AbstractArray)
+    if isempty(data)
+        eltype(data) <: Union{Tuple, NamedTuple} && isconcretetype(eltype(data)) ?
+            Any[Vector{T}() for T in fieldtypes(eltype(data))] : Any[]
+    else
+        Any[[record[k] for record in data] for k = 1:length(first(data))]
+    end
+end
+
+#  The names of the fields of the data, which a named tuple or a record that is a named tuple has, or nothing
+tablenames(data::NamedTuple) = String[String(name) for name in keys(data)]
+tablenames(data::AbstractArray) = isempty(data) ? (eltype(data) <: NamedTuple && isconcretetype(eltype(data)) ?
+    String[String(name) for name in fieldnames(eltype(data))] : nothing) :
+    first(data) isa NamedTuple ? String[String(name) for name in keys(first(data))] : nothing
+tablenames(data) = nothing
+
+#  The format of a field from its values: the characters of the longest string (A), the digits of the largest integer (I), or the digits of a
+#  floating-point number in exponential notation, which a Float64 has 17 of (D) and the other types of numbers have 9 of (E)
+function defaultform(j::Integer, values)
+    present = collect(skipmissing(values))
+    isempty(present) && (present = nonmissingtype(eltype(values)) <: AbstractString ? [""] :
+        nonmissingtype(eltype(values)) <: Integer ? [0] : nonmissingtype(eltype(values)) <: AbstractFloat ?
+        [one(nonmissingtype(eltype(values)))] : [nothing])
+    if all(value -> value isa AbstractString, present)
+        "A$(max(1, maximum(ncodeunits, present)))"
+    elseif all(value -> value isa Integer && !(value isa Bool), present)
+        "I$(max(1, maximum(value -> ncodeunits(string(value)), present)))"
+    elseif all(value -> value isa Real && !(value isa Bool), present)
+        any(value -> value isa Float64 || value isa Integer || value isa BigFloat, present) ? "D25.16" : "E16.8"
+    else
+        throw(ArgumentError("The values of field $j have the type $(join(unique(typeof.(present)), ", ")), but the values of a field of " *
+            "an ASCII table are strings (A), integers (I), or floating-point numbers (F, E, or D) (Table 15 of the standard)."))
+    end
+end
+
+#  The formats of the fields and the first columns of the fields, from TFORMn and TBCOLn of the header, and for the data that have columns,
+#  from the values of the field and the column that follows the one space after the previous field, if the header does not have them
+function tablelayout(columns, keys::AbstractDict)
+    n = isnothing(columns) ? get(keys, "TFIELDS", 0) : length(columns)
+    n > MAXTABLEFIELDS && throw(ArgumentError("The data have $n fields, but an ASCII table has at most $MAXTABLEFIELDS (Sect. 7.2.1)."))
+    forms, starts, next = String[], Int[], 1
+    for j = 1:n
+        form = get(keys, "TFORM$j", nothing)
+        if !(form isa AbstractString)
+            isnothing(columns) && throw(ArgumentError("TFORM$j is missing, but TFIELDS is $n."))
+            form = defaultform(j, columns[j])
+        end
+        start = get(keys, "TBCOL$j", nothing)
+        start isa Integer || (start = next)
+        push!(forms, String(rstrip(form)))
+        push!(starts, start)
+        next = start + tableformat(form, "TFORM$j")[2] + 1
+    end
+    (forms, starts)
 end
 
 function DataFormat(::Type{Table}, data::Missing, mankeys::Dict{S, V}) where
@@ -147,266 +468,49 @@ function DataFormat(::Type{Table}, data::Missing, mankeys::Dict{S, V}) where
     DataFormat(type, leng, shape, param, group, heap)
 end
 
+function DataFormat(::Type{Table}, data::Union{AbstractArray, Tuple, NamedTuple}, mankeys::Dict{S, V}) where
+    {S<:AbstractString, V<:ValueType}
+
+    #  The row has the fields, which follow each other, and the characters that the header has after them
+    columns = tablecolumns(data)
+    forms, starts = tablelayout(columns, mankeys)
+    ends = [start + tableformat(form)[2] - 1 for (form, start) in zip(forms, starts)]
+    rows = data isa AbstractArray ? length(data) : isempty(columns) ? 0 : length(first(columns))
+    rowlen = data isa AbstractArray{<:AbstractString} ? maximum(length, data; init = 0) : 0
+    M = max(maximum(ends; init = 0), rowlen, get(mankeys, "NAXIS1", 0))
+    DataFormat(BITS2TYPE[8], M*rows, (M, rows), 0, 1, 0)
+end
+
 function FieldFormat(::Type{Table}, format::DataFormat, reskeys::Dict{S, V},
     data::Missing; record::Bool = false, kwds...) where {S<:AbstractString, V<:ValueType}
 
     N = get(reskeys, "TFIELDS", 0)
-
+    names = Set{String}()
     fields = Vector{TableField}(undef, N)
     for j = 1:N
-        fmt   = match(TABLEFMT, reskeys["TFORM$j"])
-
-        name  = rstrip(get(reskeys, "TTYPE$j", record ? "field$j" : "column$j"))
-        type  = TABLETYPE[fmt[:t]]
-        leng  = Base.parse(Int64, fmt[:w])
-        k     = reskeys["TBCOL$j"]
-        unit  = get(reskeys, "TUNIT$j", "")
-        form  = fmt.match
-        disp  = get(reskeys, "TDISP$j", "")
-        tzero = leastfloat(get(reskeys, "TZERO$j",
-            type <: String ? nothing : 0.0f0))
-        tscal = leastfloat(get(reskeys, "TSCAL$j",
-            type <: String ? nothing : 1.0f0))
-        null  = get(reskeys, "TNULL$j", nothing)
-        dmin  = parsestring(get(reskeys, "TDMIN$j", nothing))
-        dmax  = parsestring(get(reskeys, "TDMAX$j", nothing))
-        lmin  = parsestring(get(reskeys, "TLMIN$j", nothing))
-        lmax  = parsestring(get(reskeys, "TLMAX$j", nothing))
-
-        fields[j] = TableField(name, type, k:k+leng-1, unit, form, disp,
-            tzero, tscal, null, dmin, dmax, lmin, lmax)
+        for key in ("TFORM$j", "TBCOL$j")
+            haskey(reskeys, key) || throw(ArgumentError("$key is missing, but TFIELDS is $N."))
+        end
+        name = tablename(tablestring(reskeys, "TTYPE$j", ""), record ? "field$j" : "column$j", names)
+        fields[j] = tablefield(reskeys, j, name, reskeys["TFORM$j"], reskeys["TBCOL$j"])
     end
     fields
-end
-
-function DataFormat(::Type{Table}, data::AbstractArray,
-    mankeys::Dict{S, V}) where {S<:AbstractString, V<:ValueType}
-
-    #  Determine format from data
-    n   = mankeys["TFIELDS"]
-    fmt = match(TABLEFMT, mankeys["TFORM$n"])
-    type  = BITS2TYPE[8]
-    shape = (mankeys["TBCOL$n"] + Base.parse(Int64, fmt[:w]) - 1, length(data))
-    leng  = prod(shape)
-    param = get(mankeys, "PCOUNT", 0)
-    group = get(mankeys, "GCOUNT", 1)
-    heap = 0
-    DataFormat(type, leng, shape, param, group, heap)
 end
 
 function FieldFormat(::Type{Table}, format::DataFormat, reskeys::Dict{S, V},
-    data::AbstractArray, columns=nothing, formats=nothing; kwds...) where
-    {S<:AbstractString, V<:ValueType}
+    data::Union{AbstractArray, Tuple, NamedTuple}; kwds...) where {S<:AbstractString, V<:ValueType}
 
-    N = get(reskeys, "TFIELDS", 0)
-
-    fields = Vector{TableField}(undef, N)
-    for j = 1:N
-        fmt = match(TABLEFMT, !isnothing(formats) ? formats[j] :
-            reskeys["TFORM$j"])
-
-        name  = rstrip(get(reskeys, "TTYPE$j", "field$j"))
-        type  = TABLETYPE[fmt[:t]]
-        leng  = Base.parse(Int64, fmt[:w])
-        k     = !isnothing(columns) ? columns[j] : reskeys["TBCOL$j"]
-        unit  = get(reskeys, "TUNIT$j", "")
-        form  = fmt.match
-        disp  = get(reskeys, "TDISP$j", "")
-        tzero = leastfloat(get(reskeys, "TZERO$j",
-            type <: String ? nothing : 0.0f0))
-        tscal = leastfloat(get(reskeys, "TSCAL$j",
-            type <: String ? nothing : 1.0f0))
-        null  = get(reskeys, "TNULL$j", nothing)
-        dmin  = parsestring(get(reskeys, "TDMIN$j", nothing))
-        dmax  = parsestring(get(reskeys, "TDMAX$j", nothing))
-        lmin  = parsestring(get(reskeys, "TLMIN$j", nothing))
-        lmax  = parsestring(get(reskeys, "TLMAX$j", nothing))
-
-        fields[j] = TableField(name, type, k:k+leng, unit, form, disp,
-            tzero, tscal, null, dmin, dmax, lmin, lmax)
+    columns = tablecolumns(data)
+    forms, starts = tablelayout(columns, reskeys)
+    given = tablenames(data)
+    names = Set{String}()
+    default = data isa AbstractArray ? "field" : "column"
+    fields = Vector{TableField}(undef, length(forms))
+    for j in eachindex(forms)
+        name = tablename(isnothing(given) ? tablestring(reskeys, "TTYPE$j", "") : given[j], "$default$j", names)
+        fields[j] = tablefield(reskeys, j, name, forms[j], starts[j])
     end
     fields
-end
-
-function DataFormat(::Type{Table}, data::U, mankeys::Dict{S, V}) where
-    {U<:Union{Tuple, NamedTuple}, S<:AbstractString, V<:ValueType}
-
-    #  Determine format from data
-    n   = mankeys["TFIELDS"]
-    fmt = match(TABLEFMT, mankeys["TFORM$n"])
-    type  = BITS2TYPE[8]
-    shape = (mankeys["TBCOL$n"] + Base.parse(Int64, fmt[:w]) - 1, length(data))
-    leng  = prod(shape)
-    param = get(mankeys, "PCOUNT", 0)
-    group = get(mankeys, "GCOUNT", 1)
-    heap = 0
-    DataFormat(type, leng, shape, param, group, heap)
-end
-
-function FieldFormat(::Type{Table}, format::DataFormat, reskeys::Dict{S, V},
-    data::U; columns=nothing, formats=nothing, kwds...) where
-    {U<:Union{Tuple, NamedTuple}, S<:AbstractString, V<:ValueType}
-
-    N = get(reskeys, "TFIELDS", 0)
-
-    fields = Vector{TableField}(undef, N)
-    for j = 1:N
-        fmt = match(TABLEFMT, !isnothing(formats) ? formats[j] :
-            reskeys["TFORM$j"])
-
-        name  = rstrip(get(reskeys, "TTYPE$j", "column$j"))
-        type  = TABLETYPE[fmt[:t]]
-        leng  = Base.parse(Int64, fmt[:w])
-        k     = !isnothing(columns) : columns[j] : reskeys["TBCOL$j"]
-        unit  = get(reskeys, "TUNIT$j", "")
-        form  = fmt.match
-        disp  = get(reskeys, "TDISP$j", "")
-        tzero = leastfloat(get(reskeys, "TZERO$j",
-            type <: String ? nothing : 0.0f0))
-        tscal = leastfloat(get(reskeys, "TSCAL$j",
-            type <: String ? nothing : 1.0f0))
-        null  = get(reskeys, "TNULL$j", nothing)
-        dmin  = parsestring(get(reskeys, "TDMIN$j", nothing))
-        dmax  = parsestring(get(reskeys, "TDMAX$j", nothing))
-        lmin  = parsestring(get(reskeys, "TLMIN$j", nothing))
-        lmax  = parsestring(get(reskeys, "TLMAX$j", nothing))
-
-        fields[j] = TableField(name, type, k:k+leng, unit, form, disp,
-            tzero, tscal, null, dmin, dmax, lmin, lmax)
-    end
-    fields
-end
-
-function createcards!(::Type{Table}, format::DataFormat,
-    fields::Vector{TableField}, cards::Cards; kwds...)
-
-    required = tablekeys(Table, format, length(fields))
-    for (j, field) in enumerate(fields)
-        push!(required, "TFORM$j" => field.form, "TBCOL$j" => first(field.slice))
-    end
-    arrangecards!(cards, required)
-end
-
-function createdata(::Type{Table}, format::DataFormat,
-    fields::Vector{TableField}; kwds...)
-    #  Create simple N-dimensional array of zeros of type BITPIX
-    if length(format.shape) == 2
-        [repeat(" ", format.shape[1]) for j=1:format.shape[2]]
-    else
-        missing
-    end
-end
-
-#  An entry is undefined if it is blank or it is the TNULLn string, which is implicitly space filled to the
-#  width of the field (Sect. 7.2.2 of the standard).
-isundefined(field::TableField, item::AbstractString) = isempty(item) || all(==(' '), item) ||
-    (!isnothing(field.null) && rpad(field.null, length(item)) == item)
-
-function Base.read(io::IO, field::TableField, format::DataFormat,
-    begpos::Integer; scale::Bool = true)
-
-    #  Without TSCAL/TZERO (the defaults are 1.0 and 0.0, Sect. 7.2.2) the data pass through unchanged;
-    #  scaling by the Float32 defaults would round integers above 2^24
-    scale = scale && !(field.scale == 1 && field.zero == 0)
-
-    type, leng = field.type, length(field.slice)
-    L, M, N = format.shape[1], first(field.slice)-1, format.shape[2]
-    #  Read data array
-    if type <: AbstractString
-        column = Array{String}(undef, N)
-        for j = 1:N
-            seek(io, begpos + L*(j-1) + M)
-            column[j] = rstrip(type(Base.read(io, leng)))
-        end
-    else
-        column = Array{Union{type, Missing}}(undef, N)
-        for j = 1:N
-            seek(io, begpos + L*(j-1) + M)
-            item = String(Base.read(io, leng))
-            if isundefined(field, item)
-                column[j] = missing
-            else
-                column[j] = Base.parse(type, replace(item, "D" => "e", "E" =>"e"))
-            end
-        end
-        #  The column has missing values only if there are undefined entries, and the scaling keeps them
-        column = any(ismissing, column) ? column : Array{type}(column)
-        column = scale ? scaled(column, field.scale, field.zero) : column
-    end
-    column
-end
-
-function Base.read(row::AbstractString, field::TableField; scale::Bool = true,
-    invalid::Bool = true)
-
-    #  Without TSCAL/TZERO (the defaults are 1.0 and 0.0, Sect. 7.2.2) the data pass through unchanged;
-    #  scaling by the Float32 defaults would round integers above 2^24
-    scale = scale && !(field.scale == 1 && field.zero == 0)
-
-    type, leng = field.type, length(field.slice)
-    item = row[field.slice]
-    if type <: AbstractString
-        value = rstrip(item)
-    elseif isundefined(field, item)
-        value = missing
-    else
-        value = Base.parse(type, replace(item, "D" => "e", "E" => "e"))
-        value = scale ? scaled(value, field.scale, field.zero) : value
-    end
-    #  Append units
-    # if !ismissing(format.unit) value *= uparse(format.unit) end
-    #  Create a Pair for name fields
-    isempty(field.name) ? value : Symbol(field.name) => value
-end
-
-#  An undefined value is the TNULLn string, space filled to the width of the field, or blanks if there
-#  is no TNULLn keyword.
-function Base.write(io::IO, ::Missing, field::TableField, begpos::Integer; kwds...)
-    write(io, repeat(" ", field.slice.start - (position(io) - begpos + 1)))
-    write(io, rpad(something(field.null, ""), length(field.slice)))
-end
-
-function Base.write(io::IO, data::ValueType, field::TableField, begpos::Integer; kwds...)
-    fmt = replace(field.form, "D" => "E", "I" => "i", "A" => "s")
-    value = Printf.format(Printf.Format("%$(fmt[2:end])$(fmt[1])"), data)
-    write(io, repeat(" ", field.slice.start - (position(io) - begpos + 1)))
-    write(io, occursin("D", field.form) ? replace(value, "E" => "D") : value)
-end
-
-#  The structure of an ASCII table extension, which is an array of bytes with NAXIS = 2 axes, the length of a row and the number
-#  of rows (Sect. 7.2.1)
-function verifyrows(::Type{Table}, mankeys::AbstractDict)
-	verifyvalue(mankeys, "BITPIX", 8:8, "the integer 8")
-	verifyvalue(mankeys, "NAXIS", 2:2, "the integer 2")
-	verifyaxes(mankeys)
-end
-
-"""
-	verifyfields!(Table, cards, mankeys)
-
-Verify the keywords that describe the fields of an ASCII table extension, and return the cards unchanged
-(Sect. 7.2.1 of the standard). It is an error, since the fields cannot be read, if TFIELDS
-is negative, if TFORMn is missing for an n from 1 to TFIELDS, or if TBCOLn is missing or less than 1, since the first column of a row is numbered 1. It is a warning,
-since the extra keywords are not used, if TFIELDS is more than 999, the maximum, or if TFORMn or TBCOLn
-is present for an n greater than TFIELDS. A header with no TFIELDS is not verified.
-"""
-function verifyfields!(::Type{Table}, cards::Cards, mankeys::AbstractDict)
-	N = get(mankeys, "TFIELDS", nothing)
-	isnothing(N) && return cards
-	N < 0 && throw(ArgumentError("TFIELDS must be non-negative, but its value is $N."))
-	N > MAXTABLEFIELDS && @warn "TFIELDS $N is more than the maximum of $MAXTABLEFIELDS."
-	for j = 1:N
-		haskey(mankeys, "TFORM$j") || throw(ArgumentError("TFORM$j is missing, but TFIELDS is $N."))
-		haskey(mankeys, "TBCOL$j") || throw(ArgumentError("TBCOL$j is missing, but TFIELDS is $N."))
-		mankeys["TBCOL$j"] >= 1 || throw(ArgumentError(
-			"TBCOL$j must be at least 1, the first column of a row, but its value is $(mankeys["TBCOL$j"])."))
-	end
-	for key in sort!(collect(keys(mankeys)))
-		m = match(r"^(TFORM|TBCOL)(\d+)$", key)
-		!isnothing(m) && Base.parse(Int, m[2]) > N &&
-			@warn "$key is beyond TFIELDS $N, and is not used."
-	end
-	cards
 end
 
 #  The keywords of a ASCII table extension from XTENSION to TFIELDS, where the shape is the length of a row and the number of rows
@@ -415,3 +519,266 @@ function tablekeys(::Type{Table}, format::DataFormat, nfields::Integer)
 	Pair{String, Any}["XTENSION" => "TABLE", "BITPIX" => 8, "NAXIS" => 2, "NAXIS1" => M,
 		"NAXIS2" => N, "PCOUNT" => 0, "GCOUNT" => 1, "TFIELDS" => nfields]
 end
+
+function createcards!(::Type{Table}, format::DataFormat,
+    fields::Vector{TableField}, cards::Cards; kwds...)
+
+    required = tablekeys(Table, format, length(fields))
+    for (j, field) in enumerate(fields)
+        push!(required, "TFORM$j" => field.form, "TBCOL$j" => first(field.slice))
+        #  The name of a field is its TTYPEn unless it is the default
+        field.name in ("column$j", "field$j") || push!(required, "TTYPE$j" => field.name)
+    end
+    arrangecards!(cards, required)
+end
+
+#  The data of a header that has no data are the blank rows of the table, or missing if the table has no rows
+function createdata(::Type{Table}, format::DataFormat,
+    fields::Vector{TableField}; kwds...)
+    length(format.shape) == 2 ? [repeat(" ", format.shape[1]) for j = 1:format.shape[2]] : missing
+end
+
+#  A table that has fields and no rows has no data blocks, and its data are the empty columns of the fields, or the empty vector of records. A
+#  table that has no fields has no data.
+function emptydata(::Type{Table}, format::DataFormat, fields::Vector{TableField}; kwds...)
+    length(format.shape) == 2 && format.shape[2] == 0 && !isempty(fields) ?
+        read(IOBuffer(UInt8[]), Table, format, fields; kwds...) : missing
+end
+
+####    Scaling
+
+#  Are the physical values of a field floating-point numbers like its stored values? They are if the field is scaled by a TSCAL that is not 1
+#  or a TZERO that is not 0 (Eq. 7). The values do not say that they are scaled, so they are a `ScaledArray`, which has the scale and the
+#  zero, and is written as the stored values.
+physicalfloat(field::TableField) = field.type <: AbstractFloat && !(field.scale == 1 && field.zero == 0)
+
+#  The TSCALn and TZEROn cards of the fields that are the physical values of floating-point stored values, which have the scale and the zero of
+#  the data
+function scalecards!(::Type{Table}, cards::Cards, data::Union{Tuple, NamedTuple})
+    for (j, column) in enumerate(data)
+        column isa ScaledArray || continue
+        setscalecard!(cards, "TSCAL$j", column.scale, 1)
+        setscalecard!(cards, "TZERO$j", column.zero, 0)
+    end
+    cards
+end
+function scalecards!(::Type{Table}, cards::Cards, data::ScaledRows)
+    names = isempty(data) ? something(tablenames(data), String[]) : String[String(name) for name in keys(first(data))]
+    for (j, name) in enumerate(names)
+        haskey(data.scales, Symbol(name)) || continue
+        setscalecard!(cards, "TSCAL$j", data.scales[Symbol(name)][1], 1)
+        setscalecard!(cards, "TZERO$j", data.scales[Symbol(name)][2], 0)
+    end
+    cards
+end
+
+#  The scale and the zero of the field k of the data, if its values are the physical values of floating-point stored values, and nothing if
+#  they are the stored values
+tablescale(data::Union{Tuple, NamedTuple}, k::Integer, field::TableField) =
+    data[k] isa ScaledArray ? (data[k].scale, data[k].zero) : nothing
+tablescale(data::ScaledRows, k::Integer, field::TableField) = get(data.scales, Symbol(field.name), nothing)
+tablescale(data, k::Integer, field::TableField) = nothing
+
+####    Read the data
+
+#  An entry is undefined if it is the TNULLn string, which is implicitly space filled to the width of the field (Sect. 7.2.2 of the
+#  standard). A blank entry has the value 0, or is an empty string (Sect. 7.2.5).
+isundefined(field::TableField, item::AbstractString) = !isnothing(field.null) && rpad(field.null, length(item)) == item
+
+function tablevalueerror(field::TableField, item::AbstractString, row::Integer, what::AbstractString)
+    ArgumentError("The value $(repr(item)) of field $(field.name) in row $row is not $what of the format $(field.form) (Sect. 7.2.5).")
+end
+
+#  The value of an integer field: a single optional sign and one or more digits, with spaces before or after them, or 0 if the field is blank
+function parseinteger(field::TableField, item::AbstractString, row::Integer)
+    text = strip(item, ' ')
+    isempty(text) && return 0
+    occursin(r"^[+-]?[0-9]+$", text) || throw(tablevalueerror(field, item, row, "an integer"))
+    value = tryparse(Int64, text)
+    isnothing(value) && throw(ArgumentError("The integer $(repr(strip(item))) of field $(field.name) in row $row is not in the range of " *
+        "an Int64, from $(typemin(Int64)) to $(typemax(Int64))."))
+    value
+end
+
+const REALFORM = r"^([+-]?)([0-9]*)(?:\.([0-9]*))?(?:[EeDd]([+-]?[0-9]+)|([+-][0-9]+))?$"
+
+#  The value of a real field (Sect. 7.2.5): the numeric string, a single optional sign and digits with an optional decimal point, then
+#  an exponent, which is E or D and a signed integer, or a signed integer. The decimal point that a numeric string does not have is before the
+#  rightmost `decimals` digits (the d of the format). The blank field is 0.
+function parsereal(field::TableField, item::AbstractString, row::Integer, decimals::Integer)
+    text = strip(item, ' ')
+    isempty(text) && return 0.0
+    m = match(REALFORM, text)
+    (isnothing(m) || (isempty(m[2]) && isempty(something(m[3], "")))) && throw(tablevalueerror(field, item, row, "a real number"))
+    digits, point = m[2], m[3]
+    if isnothing(point) && decimals > 0
+        digits = lpad(digits, decimals + 1, '0')
+        whole, fraction = digits[1:end-decimals], digits[end-decimals+1:end]
+    else
+        whole, fraction = isempty(digits) ? "0" : digits, isempty(something(point, "")) ? "0" : point
+    end
+    value = tryparse(Float64, "$(m[1])$whole.$(fraction)e$(something(m[4], m[5], "0"))")
+    (isnothing(value) || !isfinite(value)) && throw(ArgumentError("The number $(repr(strip(item))) of field $(field.name) in row $row is not in the range of a " *
+        "Float64."))
+    value
+end
+
+#  The characters of the rows that are not in a field are not read, and are written as spaces (Sect. 7.2.4)
+function verifyoutside(bytes::AbstractMatrix{UInt8}, fields::Vector{TableField})
+    M, N = size(bytes)
+    covered = falses(M)
+    for field in fields
+        covered[intersect(field.slice, 1:M)] .= true
+    end
+    outside = findall(!, covered)
+    (isempty(outside) || N == 0) && return nothing
+    for i in outside, j = 1:N
+        if bytes[i, j] != 0x20
+            @warn "The character $(repr(Char(bytes[i, j]))) of row $j, column $i, is not in a field and is not a space, but the " *
+                "characters of a row that are not in a field are not read, and are written as spaces (Sect. 7.2.4)."
+            return nothing
+        end
+    end
+    nothing
+end
+
+#  The values of a field in the bytes of the rows, which are a column of the matrix `bytes`, each, as a vector, with `missing` for an undefined
+#  entry. The values are scaled by the TSCALn and TZEROn of the field (Eq. 7), unless `scale` is false: the values of an integer field are
+#  floating-point numbers, and those of a floating-point field are a `ScaledArray`.
+function readcolumn(field::TableField, bytes::AbstractMatrix{UInt8}; scale::Bool = true)
+    code, _, decimals = tableformat(field.form)
+    type, N = field.type, size(bytes, 2)
+    if code == "A" && !all(byte -> 0x20 <= byte <= 0x7e, view(bytes, field.slice, :))
+        @warn "The characters of field $(field.name) are not all ASCII text characters, from 32 to 126 (Sect. 7.2.5). They are read as they are."
+    end
+    values = Vector{Union{type, Missing}}(undef, N)
+    for j = 1:N
+        item = String(bytes[field.slice, j])
+        values[j] = isundefined(field, item) ? missing : code == "A" ? rstrip(item) :
+            code == "I" ? parseinteger(field, item, j) : parsereal(field, item, j, decimals)
+    end
+    #  The column has missing values only if there are undefined entries
+    column = any(ismissing, values) ? values : Vector{type}(values)
+    (scale && code != "A" && !(field.scale == 1 && field.zero == 0)) || return column
+    column = scaled(column, field.scale, field.zero)
+    code == "I" ? column : ScaledArray(column, field.scale, field.zero)
+end
+
+function Base.read(io::IO, ::Type{Table}, format::DataFormat, fields::Vector{TableField};
+    record::Bool = false, scale::Bool = true, kwds...)
+
+    M, N = format.shape[1], format.shape[2]
+    bytes = reshape(readbytes(io, M*N), M, N)
+    verifyoutside(bytes, fields)
+    columns = [readcolumn(field, bytes; scale) for field in fields]
+    names = Tuple(Symbol(field.name) for field in fields)
+    if record
+        rows = [NamedTuple{names}(Tuple(column[j] for column in columns)) for j = 1:N]
+        scales = Dict{Symbol, Tuple{Float64, Float64}}(Symbol(field.name) => (field.scale, field.zero)
+            for field in fields if scale && physicalfloat(field))
+        isempty(scales) ? rows : ScaledRows(rows, scales)
+    else
+        NamedTuple{names}(Tuple(columns))
+    end
+end
+
+####    Write the data
+
+#  The value of the field k in row j of the data, which is a vector of records or a named tuple (or a tuple) of columns
+tablecell(data::AbstractArray, k::Integer, j::Integer) = data[j][k]
+tablecell(data::Union{Tuple, NamedTuple}, k::Integer, j::Integer) = data[k][j]
+
+#  The characters of a field are the restricted set of ASCII text characters, from 32 to 126 (Sect. 7.2.5)
+function checktext(text::AbstractString, name::AbstractString)
+    all(c -> ' ' <= c <= '~', text) || throw(ArgumentError("The string $(repr(text)) of $name has characters that are not " *
+        "ASCII text characters, from 32 to 126 (Sect. 7.2.5)."))
+    text
+end
+
+#  The stored value of a value of the field: the values of the data that are the physical values of floating-point stored values are inverted,
+#  if the data have the scale and the zero of the header, the physical values of an integer field with a scale or a zero are inverted and
+#  rounded (Eq. 7), and the other values are the stored values
+function storedreal(field::TableField, value::Real, code::AbstractString; check::Bool = true, physical = nothing)
+    scale, zero = field.scale, field.zero
+    if !isnothing(physical)
+        physical == (scale, zero) || throw(ArgumentError("The scale and the zero of the data of field $(field.name), " *
+            "$(physical[1]) and $(physical[2]), are not the TSCAL and the TZERO of the header, $scale and $zero."))
+        scale == 0 && throw(ArgumentError("The values cannot be written as stored values, since TSCAL is 0."))
+        return (Float64(value) - zero) / scale
+    end
+    value isa Integer && return value
+    code == "I" || return value
+    (scale == 1 && zero == 0) && throw(ArgumentError("The value $value of field $(field.name) is not an integer, but the " *
+        "field has the format $(field.form) of integers (Sect. 7.2.5)."))
+    isfinite(value) || throw(ArgumentError("The value $value of field $(field.name) cannot be written in the format " *
+        "$(field.form) of integers, which has no NaN or infinity (Sect. 7.2.5)."))
+    storedvalue(value, Int64, scale, zero, nothing, check; keys = ("TSCAL", "TZERO"))
+end
+
+#  The text of a value in a field, as wide as the field: a string is filled with spaces after it, a number is right-justified, and an undefined
+#  value is the TNULLn string, filled with spaces (Sects. 7.2.2 and 7.2.5). A value that has more characters than the field has would shift the
+#  fields after it, so it is an error.
+function fieldtext(field::TableField, value, format; check::Bool = true, physical = nothing)
+    code, width, _ = tableformat(field.form)
+    if ismissing(value)
+        isnothing(field.null) && throw(ArgumentError("A missing value cannot be written to field $(field.name), which has no " *
+            "TNULLn keyword (Sect. 7.2.2)."))
+        length(field.null) > width && throw(ArgumentError("TNULL of field $(field.name), $(repr(field.null)), has more than the " *
+            "$width characters of the field, so the undefined values cannot be written (Sect. 7.2.2)."))
+        return rpad(field.null, width)
+    end
+    if code == "A"
+        value isa AbstractString || throw(ArgumentError("The value $(repr(value)) of field $(field.name) is not a string, but the " *
+            "field has the format $(field.form) of characters (Sect. 7.2.5)."))
+        text = checktext(String(value), "field $(field.name)")
+    else
+        value isa Real && !(value isa Bool) || throw(ArgumentError("The value $(repr(value)) of field $(field.name) is not a number, " *
+            "but the field has the format $(field.form) (Sect. 7.2.5)."))
+        stored = storedreal(field, value, code; check, physical)
+        if code == "I"
+            text = string(stored)
+        else
+            isfinite(stored) || throw(ArgumentError("The value $value of field $(field.name) cannot be written in the format " *
+                "$(field.form), which has no NaN or infinity (Sect. 7.2.5)."))
+            text = Printf.format(format, Float64(stored))
+            code == "D" && (text = replace(text, "E" => "D"))
+        end
+    end
+    length(text) > width && throw(ArgumentError("The value $(repr(value)) of field $(field.name) has $(length(text)) characters, but " *
+        "the format $(field.form) has $width, and a longer value would shift the fields after it (Sect. 7.2.5)."))
+    code == "A" ? rpad(text, width) : lpad(text, width)
+end
+
+#  The format of the output of the real field, or nothing
+function outputformat(field::TableField)
+    code, width, decimals = tableformat(field.form)
+    code in ("F", "E", "D") ? Printf.Format("%$(width).$(decimals)$(code == "F" ? "f" : "E")") : nothing
+end
+
+function Base.write(io::IO, ::Type{Table}, data::Union{AbstractArray, Tuple, NamedTuple},
+    format::DataFormat, fields::Vector{TableField}; check::Bool = true, kwds...)
+
+    #  Each row has the characters of the fields, and spaces in the others, so that the fields that overlap or leave a gap are written as the
+    #  header says
+    format.leng > 0 || return nothing
+    M, N = format.shape[1], format.shape[2]
+    formats = [outputformat(field) for field in fields]
+    row = Vector{UInt8}(undef, M)
+    for j = 1:N
+        fill!(row, 0x20)
+        if data isa AbstractArray{<:AbstractString}
+            copyto!(row, 1, codeunits(checktext(data[j], "row $j")), 1, length(data[j]))
+        else
+            for (k, field) in enumerate(fields)
+                text = fieldtext(field, tablecell(data, k, j), formats[k]; check, physical = tablescale(data, k, field))
+                copyto!(row, first(field.slice), codeunits(text), 1, length(text))
+            end
+        end
+        write(io, row)
+    end
+    #  Pad last block with spaces
+    padblock(io, format, 0x20)
+end
+
+#  A table that has no data has no data blocks
+Base.write(io::IO, ::Type{Table}, data::Missing, format::DataFormat, fields::Vector{TableField}; kwds...) = nothing
