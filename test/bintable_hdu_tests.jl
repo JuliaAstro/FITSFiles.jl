@@ -1520,4 +1520,33 @@
         hdu.data.a[2] = Int16[1, 2]
         @test read(IOBuffer(written(hdu)), HDU).data.n == Int16[7, 8]
     end
+
+    ####    Test the names of the fields (Sect. 7.3.2)    ####
+
+    @testset "names of fields" begin
+        written(hdu) = (io = IOBuffer(); write(io, hdu); take!(io))
+        card(s) = rpad(s, 80)
+        kw(key, value) = key * repeat(" ", 8 - length(key)) * "= " * (value isa AbstractString ? "'" * rpad(value, 8) * "'" : lpad(value, 20))
+        function tablebytes(cards, naxis1, data)
+            header = vcat(["XTENSION= 'BINTABLE'", kw("BITPIX", 8), kw("NAXIS", 2), kw("NAXIS1", naxis1), kw("NAXIS2", 1),
+                kw("PCOUNT", 0), kw("GCOUNT", 1), kw("TFIELDS", length(cards) ÷ 2)], cards, ["END"])
+            vcat(collect(codeunits(rpad(join(card.(header)), 2880 * cld(80 * length(header), 2880)))),
+                data, zeros(UInt8, mod(-length(data), 2880)))
+        end
+        data = collect(reinterpret(UInt8, hton.(Int16[1, 2, 3])))
+
+        #  fields that have the same name are different columns, which the data name by their positions, and an empty name is the default
+        cards = [kw("TFORM1", "I"), kw("TTYPE1", "A"), kw("TFORM2", "I"), kw("TTYPE2", "A"), kw("TFORM3", "I"), kw("TTYPE3", "")]
+        bytes = tablebytes(cards[[1, 2, 3, 4, 5, 6]], 6, data)
+        hdu = @test_logs (:warn, r"TTYPE2 and TTYPE1 have the same name, \"A\", without regard to the case.* named A_2") read(IOBuffer(bytes), HDU)
+        @test keys(hdu.data) == (:A, :A_2, :column3) && values(hdu.data) == (Int16[1], Int16[2], Int16[3])
+        records = read(IOBuffer(bytes), HDU; record = true).data
+        @test keys(records[1]) == (:A, :A_2, :column3) && values(records[1]) == (1, 2, 3)
+        #  the columns are written as they were read
+        @test written(hdu) == bytes[1:end]
+        #  a name that is a repeat of a repeat
+        cards3 = [kw("TFORM1", "I"), kw("TTYPE1", "A_2"), kw("TFORM2", "I"), kw("TTYPE2", "A_2"), kw("TFORM3", "I"), kw("TTYPE3", "A_2")]
+        hdu = @test_logs (:warn, r"TTYPE2") (:warn, r"TTYPE3") read(IOBuffer(tablebytes(cards3, 6, data)), HDU)
+        @test length(unique(keys(hdu.data))) == 3 && values(hdu.data) == (Int16[1], Int16[2], Int16[3])
+    end
 end

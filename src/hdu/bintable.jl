@@ -288,9 +288,9 @@ function FieldFormat(::Type{Bintable}, mankeys::DataFormat, reskeys::Dict{S, V},
 
     #   Add support TTYPEn and TUNITn in data arrays
     N = get(reskeys, "TFIELDS", 0)
-    k, fields = 0, Vector{BinaryField}(undef, N)
+    k, fields, names = 0, Vector{BinaryField}(undef, N), Set{String}()
     for j = 1:N
-        name  = stringkey(reskeys, "TTYPE$j", record ? "field$j" : "column$j")
+        name  = uniquename(stringkey(reskeys, "TTYPE$j", record ? "field$j" : "column$j"), record ? "field$j" : "column$j", names)
         form  = match(BINARYFMT, reskeys["TFORM$j"])
         pntr  = !isempty(form[:p]) ? POINTERTYPE[form[:p]] : nothing
         type  = BINARYTYPE[form[:t]]
@@ -325,6 +325,19 @@ function FieldFormat(::Type{Bintable}, mankeys::DataFormat, reskeys::Dict{S, V},
         k += byts
     end
     fields
+end
+
+#  The name of a field, which is the default if the name is empty, and which no other field has, since the columns of the data are named by
+#  the fields, and the columns of two fields that have the same name would be one. The position of the field follows the name of the
+#  field that is a repeat of another.
+function uniquename(name::AbstractString, default::AbstractString, names::Set{String})
+    name = isempty(name) ? default : String(name)
+    unique = name
+    while unique in names
+        unique = unique == name ? "$(name)_$(length(names) + 1)" : unique * "_"
+    end
+    push!(names, unique)
+    unique
 end
 
 #  The string of a keyword of a field without the spaces at its end, or the default if the header does not have it or it is not a string
@@ -390,10 +403,10 @@ function FieldFormat(::Type{Bintable}, mankey::DataFormat, reskeys::Dict{S, V},
 
     #   Add support TTYPEn and TUNITn in data arrays
     N = length(data)
-    k, fields = 0, Vector{BinaryField}(undef, N)
+    k, fields, names = 0, Vector{BinaryField}(undef, N), Set{String}()
     for j = 1:N
         name  = typeof(data) <: NamedTuple ? rstrip(String(keys(data)[j])) :
-            stringkey(reskeys, "TTYPE$j", "column$j")
+            uniquename(stringkey(reskeys, "TTYPE$j", "column$j"), "column$j", names)
         type, leng, byts, pntr, supp, _, shape = columndescriptor(data[j])
         type, offset = rawtype(type), offsetof(type)
         # unit_ = unit(data[j]) != NoUnits ? unit(data[j]) :
@@ -921,8 +934,13 @@ function verifyfieldkeys(::Type{Bintable}, mankeys::AbstractDict, reskeys::Abstr
         name = get(reskeys, "TTYPE$j", nothing)
         if name isa AbstractString && !isempty(strip(name))
             other = get(names, lowercase(rstrip(name)), 0)
-            other > 0 ? @warn("TTYPE$j and TTYPE$other have the same name, $(repr(rstrip(name))), without regard to the case, " *
-                "but the names of the fields should be unique (Sect. 7.3.2).") : names[lowercase(rstrip(name))] = j
+            if other > 0
+                renamed = rstrip(name) == rstrip(reskeys["TTYPE$other"]) ? " The column of the data of TTYPE$j is named $(rstrip(name))_$j." : ""
+                @warn "TTYPE$j and TTYPE$other have the same name, $(repr(rstrip(name))), without regard to the case, but the " *
+                    "names of the fields should be unique (Sect. 7.3.2).$renamed"
+            else
+                names[lowercase(rstrip(name))] = j
+            end
         end
     end
     nothing
