@@ -3,9 +3,7 @@
     dir = mktempdir()
     newfile(name, hdus) = (path = joinpath(dir, name); write(path, hdus); path)
     #  the mapped data are the data that are read, of the same type and values, and the slices are those of the data
-    function same(path, j = 1; kwds...)
-        mapped = mapdata(fits(path; kwds...)[j])
-        eager = fits(IOBuffer(read(path)); kwds...)[j].data
+    function compare(mapped, eager)
         @test (mapped isa FITSFiles.ScaledArray) == (eager isa FITSFiles.ScaledArray) && mapped isa AbstractArray
         @test eltype(mapped) == eltype(eager) && size(mapped) == size(eager) && ndims(mapped) == ndims(eager)
         @test isequal(collect(mapped), collect(eager)) && isequal(Array(mapped), Array(eager))
@@ -15,6 +13,12 @@
             @test isequal(mapped[I...], eager[I...])
         end
         @test isequal(mapped[1], eager[1]) && isequal(mapped[end], eager[end]) && isequal(mapped[length(eager) ÷ 2 + 1], eager[length(eager) ÷ 2 + 1])
+        @test all(i -> isequal(mapped[i], eager[i]) && typeof(mapped[i]) == typeof(eager[i]), 1:length(eager))
+    end
+    function same(path, j = 1; kwds...)
+        mapped = mapdata(fits(path; kwds...)[j])
+        eager = fits(IOBuffer(read(path)); kwds...)[j].data
+        compare(mapped, eager)
         mapped, eager
     end
 
@@ -131,9 +135,7 @@
         @test mapdata(buffered) === getfield(buffered, :data) && mapdata(HDU(Primary, data)) == data
         #  an axis of length 0 has no data blocks, so the data are the empty array
         @test mapdata(fits(newfile("empty.fits", [HDU(Primary, zeros(Int16, 3, 0))]))[1]) == zeros(Int16, 3, 0)
-        #  the other types of data are not an array, which is an error that names the type
-        path = newfile("types.fits", [HDU(Random, (a = Int16[1, 3], data = Int16[10 11 12; 20 21 22]))])
-        @test_throws ArgumentError("The data of an HDU of the type Random are not an array, so they cannot be mapped.") mapdata(fits(path)[1])
+        #  the tables are not an array, which is an error that names the type
         path = newfile("tables.fits", [HDU(Primary), HDU(Table, (a = [1, 2],)), HDU(Bintable, (a = Int32[1, 2],))])
         @test_throws ArgumentError("The data of an HDU of the type Table are not an array, so they cannot be mapped.") mapdata(fits(path)[2])
         @test_throws ArgumentError("The data of an HDU of the type Bintable are not an array, so they cannot be mapped.") mapdata(fits(path)[3])
@@ -269,6 +271,84 @@
         array[1]; array[5, 5]
         @test (@allocated array[1234]) < 100 && (@allocated array[7, 9]) < 100
         @test sum(array) ≈ sum(collect(array))
+    end
+
+    ####    The random groups, whose fields are not together in the file    ####
+
+    @testset "Random groups" begin
+        #  the fields of random groups are those that are read: the same names, the types, the values, and the slices of the arrays and the parameters
+        function samegroups(path; kwds...)
+            mapped = mapdata(fits(path; kwds...)[1])
+            eager = fits(IOBuffer(read(path)); kwds...)[1].data
+            @test mapped isa NamedTuple && keys(mapped) == keys(eager)
+            for name in keys(eager)
+                compare(mapped[name], eager[name])
+            end
+            mapped, eager
+        end
+        data = reshape(Float32[1:36;], 3, 3, 4)
+        plain = (UU = Float32[1, 2, 3], DATE = Float32[1 2; 3 4; 5 6], data = data)
+        for hdu in (HDU(Random, plain), HDU(Random, (a = Int16[1, 3, 5], b = Int16[2, 4, 6])), HDU(Random, (p = UInt8[1, 2], data = UInt8[1 2 3; 4 5 6])),
+            HDU(Random, (p = Int32[1, 2], q = Int32[3, 4], data = reshape(Int32[1:24;], 2, 3, 4))),
+            HDU(Random, (p = rand(2), data = rand(2, 2, 2))), HDU(Random, (p = rand(Float32, 4), DATE = rand(Float32, 4, 3), data = rand(Float32, 4, 5))))
+            mapped, eager = samegroups(newfile("groups.fits", [hdu]))
+        end
+        mapped, eager = samegroups(newfile("groups.fits", [HDU(Random, plain)]))
+        @test mapped.UU isa FITSFiles.MappedField{Float32, 1} && mapped.DATE isa FITSFiles.MappedColumns && mapped.data isa FITSFiles.MappedField{Float32, 3}
+        @test size(mapped.UU) == (3,) && size(mapped.DATE) == (3, 2) && size(mapped.data) == (3, 3, 4)
+        @test copy(mapped.data) == eager.data && copy(mapped.data) isa Array{Float32, 3} && copy(mapped.UU) == eager.UU
+        @test mapped.data[2, 3, 4] === Float32(35) && mapped.DATE[3, 2] === 6f0 && mapped.UU[3] === 3f0 && mapped.data[:, 1, 1] == Float32[1, 2, 3]
+        @test mapped.data[2, :, :] isa Matrix{Float32} && mapped.UU[2:3] isa Vector{Float32} && mapped.DATE[:, 2] isa Vector{Float32}
+        #  the offsets of Table 11 of the parameters and the array, the scales, and the undefined values of the array, with the integers that are scaled
+        for cards in (Card{<:Any}[Card("PZERO1", 32768), Card("PZERO2", 32768), Card("BZERO", 32768)],
+            Card{<:Any}[Card("PSCAL1", 0.1), Card("PZERO1", 1.0), Card("PSCAL2", 0.5), Card("BSCALE", 0.25), Card("BZERO", 2.0)],
+            Card{<:Any}[Card("BLANK", -1), Card("BSCALE", 0.5)], Card{<:Any}[Card("BLANK", -1)],
+            Card{<:Any}[Card("PSCAL1", 2.0), Card("PZERO1", 10.0)])
+            ints = HDU(Random, (p = Int16[1, -2], q = Int16[3, 4], data = Int16[1 -1 3; -1 5 6]), cards)
+            mapped, eager = samegroups(newfile("groups.fits", [ints]))
+            mapped, eager = samegroups(newfile("groups.fits", [ints]); scale = false)
+        end
+        #  the physical values of floating-point stored values are a ScaledArray of every field, which have the scales and the zeros of the parameters
+        cards = Card{<:Any}[Card("PSCAL1", 2.0), Card("PZERO1", 10.0), Card("PSCAL2", 3.0), Card("PZERO2", -1.0), Card("PSCAL3", 0.5), Card("BSCALE", 2.0)]
+        mapped, eager = samegroups(newfile("groups.fits", [HDU(Random, plain, cards)]))
+        @test all(name -> mapped[name] isa FITSFiles.ScaledArray, keys(mapped)) && mapped.DATE.scale == eager.DATE.scale && mapped.DATE.zero == eager.DATE.zero
+        @test mapped.UU.scale == eager.UU.scale && mapped.data.parent isa FITSFiles.MappedField && mapped.DATE.parent isa FITSFiles.MappedColumns
+        mapped, eager = samegroups(newfile("groups.fits", [HDU(Random, plain, cards)]); scale = false)
+        @test !any(name -> mapped[name] isa FITSFiles.ScaledArray, keys(mapped))
+        #  a slice of a field of the groups and its bounds
+        @test_throws BoundsError mapped.data[4, 1, 1]
+        @test_throws BoundsError mapped.data[1, 4, 1]
+        @test_throws BoundsError mapped.data[1:4, 1, 1]
+        @test_throws BoundsError mapped.UU[0]
+        @test_throws BoundsError mapped.DATE[1, 3]
+        @test_throws ArgumentError r"A mapped field of the data of an HDU is read-only" mapped.UU[1] = 0
+        @test_throws ArgumentError r"The mapped parameters of the data of an HDU are read-only" mapped.DATE[1, 1] = 0
+
+        #  the access :mapped maps the groups, and is written as the file is, but the records cannot be mapped, and are lazy
+        path = newfile("access_groups.fits", [HDU(Random, plain, cards)])
+        original = read(path)
+        bytesof(hdus; kwds...) = (io = IOBuffer(); write(io, hdus; kwds...); take!(io))
+        hdus = fits(path; access = :mapped)
+        @test hdus[1].data isa NamedTuple && hdus[1].data.data isa FITSFiles.ScaledArray && hdus[1].data === hdus[1].data
+        @test bytesof(hdus) == original && bytesof(hdus; checksum = true) == bytesof(fits(path; access = :memory); checksum = true)
+        @test_throws ArgumentError r"The data of HDU 1 are not read, and are read from .*access_groups\.fits" write(path, hdus)
+        @test read(path) == original
+        @test getfield(fits(path; access = :mapped, record = true)[1], :data) isa FITSFiles.LazyArray
+        @test_throws ArgumentError("The data of random groups that are records cannot be mapped.") mapdata(fits(path; record = true)[1])
+        @test mapdata(hdus[1]) === hdus[1].data
+        #  a field that is read replaces a field that is mapped, and then the groups are written as the values are, which are those of the file
+        path = newfile("mixed.fits", [HDU(Random, plain)])
+        mapped = fits(path; access = :mapped)[1]
+        mixed = HDU{Random}(getfield(mapped, :cards), (UU = collect(mapped.data.UU), DATE = mapped.data.DATE, data = mapped.data.data))
+        @test bytesof([mixed]) == read(path)
+        #  and the parameter of a group that is indexed is read without the allocation of an array of a value
+        allocated3(x) = (x[2, 2, 2]; @allocated x[2, 2, 2])
+        allocated1(x) = (x[2]; @allocated x[2])
+        @test allocated3(mapped.data.data) < 200 && allocated1(mapped.data.UU) < 200
+        #  the file that was modified after the HDU was read is an error
+        sleep(0.05)
+        touch(path)
+        @test_throws ArgumentError r"has been modified since the HDU was read" bytesof([mapped])
     end
 
 end

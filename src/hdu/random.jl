@@ -435,6 +435,110 @@ is the number of groups, `(GCOUNT,)`.
 """
 Base.size(hdu::HDU{Random}) = (get(getfield(hdu, :cards), "GCOUNT", 0), datasize(getfield(hdu, :cards), 2)...)
 
+#  The random groups that are read from a file, memory-mapped (see `mapdata`), whose data are a named tuple of the parameters and the array of a
+#  group, in the order of the groups, the array that is read, as the data of a file that is read by `read` are, and the values are those that are read.
+#  A field is `MappedField`, whose values are not together in the file, since the groups are, and the parameters that have the same name are the
+#  columns of a matrix, `MappedColumns`.
+mappable(::Type{Random}) = true
+mappable(::Type{Random}, keywds::NamedTuple) = !get(keywds, :record, false)
+
+function mapdata(::Type{Random}, data::LazyArray)
+	get(data.keywds, :record, false) && throw(ArgumentError("The data of random groups that are records cannot be mapped."))
+	format, fields, scale = data.format, data.fields, get(data.keywds, :scale, true)
+	P, G, shape = format.param, format.group, format.shape
+	L = P + prod(shape)
+	#  The values of the groups, one group in each column: the parameters, and then the array
+	values = reshape(mappedvalues(data), L, G)
+	names = [field.name for field in fields]
+	ndxs = [name => findall(x -> x == name, names) for name in unique(names)]
+	#  The values of a field are those that the array that is read has: the undefined values of the array are the raw ones equal to BLANK, and the
+	#  physical values have the offsets and the scales of the field
+	function mappedfield(k)
+		field = fields[k]
+		rows = k <= P ? fill(k) : P .+ LinearIndices(shape)
+		isempty(shape) && k > P && (rows = fill(L))
+		decode(raw) = (v = setmissing(raw, field.miss); scale ? physical(v, field.type, field.scale, field.zero) : v)
+		physical1 = physicalfunction(field.type, field.scale, field.zero)
+		scaled1 = scale ? physical1 : identity
+		value = isnothing(field.miss) ? scaled1 : x -> x == field.miss ? missing : scaled1(x)
+		probe = field.miss isa Integer && typemin(field.type) <= field.miss <= typemax(field.type) ? field.type[0, field.miss] :
+			zeros(field.type, 1)
+		MappedField(values, rows, G, decode, value, probe, data)
+	end
+	columns = Any[mappedfield(k) for k = 1:P+1]
+	columns = [length(ndx) > 1 ? MappedColumns(Tuple(columns[ndx])) : columns[only(ndx)] for (name, ndx) in ndxs]
+	#  The physical values of floating-point stored values have the type of the stored values, so the columns say that they are
+	if physicalfloat(fields) && scale
+		columns = [ScaledArray(column, length(ndx) > 1 ? [fields[i].scale for i in ndx] : fields[first(ndx)].scale,
+			length(ndx) > 1 ? [fields[i].zero for i in ndx] : fields[first(ndx)].zero)
+			for (column, (name, ndx)) in zip(columns, ndxs)]
+	end
+	(; [Symbol(name) => column for ((name, ndx), column) in zip(ndxs, columns)]...)
+end
+
+#  A field of random groups that is read in place from the values of the groups, which are the columns of `values`: the value of the group `g` and
+#  the place `I` of the array of the field is the value at the row `rows[I]` of the column `g`. The first dimension is the groups, and the others are
+#  those of `rows`, which are the dimensions of the array of a group, or none for a parameter.
+struct MappedField{T, N, R, A <: AbstractMatrix{R}, B <: AbstractArray{Int}, F, G, S} <: AbstractArray{T, N}
+	values::A
+	rows::B
+	size::NTuple{N, Int}
+	decode::F
+	value::G
+	source::S
+end
+
+function MappedField(values::AbstractMatrix{R}, rows::AbstractArray{Int}, groups::Integer, decode, value, probe::AbstractVector{R}, source) where R
+	T = eltype(decode(probe))
+	size = (Int(groups), Base.size(rows)...)
+	MappedField{T, length(size), R, typeof(values), typeof(rows), typeof(decode), typeof(value), typeof(source)}(values, rows, size, decode, value, source)
+end
+
+Base.size(field::MappedField) = field.size
+
+Base.@propagate_inbounds function Base.getindex(field::MappedField{T, N}, I::Vararg{Int, N}) where {T, N}
+	@boundscheck checkbounds(field, I...)
+	field.value(ntoh(field.values[field.rows[I[2:end]...], I[1]]))
+end
+
+#  A slice, of ranges, integers, and colons, is read from the file as an array of the values that are indexed: the groups are the first dimension
+function Base.getindex(field::MappedField{T, N}, I::Vararg{Union{Colon, Integer, AbstractRange{<:Integer}}, N}) where {T, N}
+	ranges = map((i, n) -> i isa Colon ? (1:n) : i isa Integer ? (i:i) : i, I, field.size)
+	checkbounds(field, ranges...)
+	selected = field.rows[ranges[2:end]...]
+	rest = map(length, ranges[2:end])
+	block = ntoh.(field.values[selected isa AbstractArray ? vec(selected) : [selected], ranges[1]])
+	block = permutedims(reshape(block, rest..., length(ranges[1])), (N, 1:N-1...))
+	dropped = Tuple(d for d = 1:N if I[d] isa Integer)
+	block = isempty(dropped) ? block : dropdims(block; dims = dropped)
+	block isa AbstractArray && ndims(block) > 0 ? field.decode(block) : field.value(block isa AbstractArray ? only(block) : block)
+end
+
+Base.@propagate_inbounds Base.getindex(field::MappedField{T, N}, i::Int) where {T, N} = field[Tuple(CartesianIndices(field)[i])...]
+Base.setindex!(field::MappedField, value, I...) = throw(ArgumentError("A mapped field of the data of an HDU is read-only, since its values are " *
+	"those of the file. Change a copy of the field, e.g., `collect(field)`."))
+Base.Array(field::MappedField{T, N}) where {T, N} = field[ntuple(_ -> Colon(), Val(N))...]
+Base.collect(field::MappedField) = Array(field)
+Base.copy(field::MappedField) = Array(field)
+lazysource(field::MappedField) = field.source
+
+#  The parameters of random groups that have the same name, which are the columns of a matrix of the groups and the parameters, as the matrix that
+#  is read is, whose type is that of the matrix of the values of the columns
+struct MappedColumns{T, C <: Tuple} <: AbstractMatrix{T}
+	columns::C
+end
+
+MappedColumns(columns::Tuple) = MappedColumns{promote_type(map(eltype, columns)...), typeof(columns)}(columns)
+
+Base.size(columns::MappedColumns) = (length(first(columns.columns)), length(columns.columns))
+Base.@propagate_inbounds function Base.getindex(columns::MappedColumns{T}, i::Int, j::Int) where T
+	@boundscheck checkbounds(columns, i, j)
+	convert(T, columns.columns[j][i])
+end
+Base.setindex!(columns::MappedColumns, value, I...) = throw(ArgumentError("The mapped parameters of the data of an HDU are read-only, since " *
+	"their values are those of the file. Change a copy of the matrix, e.g., `collect(matrix)`."))
+lazysource(columns::MappedColumns) = lazysource(first(columns.columns))
+
 function DataFormat(::Type{Random}, data::Missing, mankeys::Dict{S, V}) where
     {S<:AbstractString, V<:ValueType}
 

@@ -91,8 +91,8 @@ The data of the HDUs of a file are not read until they are accessed (`hdu.data`)
 [`info`](@ref) its HDUs, and `size(hdu)` is the size of the data from the header. They are read from the file each time they are accessed,
 so the file must not have been modified since it was read, which is an `ArgumentError`, and an HDU that is written is written with the data
 as they are in the file (see [`Base.write(io::IO, hdu::HDU)`](@ref)). The keyword `access` chooses how the data of a file are accessed: `:lazy`
-is this default, `:memory` reads all of the data at once, and `:mapped` maps the data of the primary HDU, the IMAGE extensions, and the conforming
-HDUs, so that `hdu.data` is a read-only array that reads only the values that are indexed (see [`mapdata`](@ref) and [`Base.read(io::IO, ::Type{HDU})`](@ref)).
+is this default, `:memory` reads all of the data at once, and `:mapped` maps the data of the primary HDU, the IMAGE extensions, the conforming
+HDUs, and random groups, so that `hdu.data` is a read-only array that reads only the values that are indexed (see [`mapdata`](@ref) and [`Base.read(io::IO, ::Type{HDU})`](@ref)).
 
 # Keywords
 
