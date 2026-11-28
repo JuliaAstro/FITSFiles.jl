@@ -2113,6 +2113,50 @@
         #  the type of a column that has no array is that of its elements, and the cells that are missing have no storage
         @test FITSFiles.variabledescriptor(Vector{Int16}[], Int32)[1] == Int16 && FITSFiles.variabledescriptor(Int16[], Int32)[1] == Int16
         @test FITSFiles.variabledescriptor([Int16[1, 2], missing], Int32)[[1, 5, 6]] == (Int16, "2", 4)
+
+        #  the arrays have at least the elements that the dimensions TDIMn have (Sect. 7.3.2): an array that has fewer is not reshaped, with a warning
+        #  that counts the arrays, but not for an array of no elements, which TDIMn is not applicable to, and the arrays that have more are reshaped
+        cards = Card{<:Any}[Card("TDIM1", "(2,3)")]
+        arrays = [Int16[1, 2, 3, 4, 5, 6], Int16[1, 2, 3], Int16[], Int16[1, 2, 3, 4, 5, 6, 7]]
+        short = bytesof([HDU(Primary), HDU(Bintable, (v = arrays,), cards)])
+        read_ = @test_logs (:warn, r"TDIM of field v, 2 × 3, has 6 elements, but 1 of its arrays has fewer .*so it is not reshaped") fits(IOBuffer(short))[2].data.v
+        @test read_[1] == Int16[1 3 5; 2 4 6] && read_[2] == Int16[1, 2, 3] && read_[3] == Int16[] && read_[4] == Int16[1 3 5; 2 4 6]
+        read_ = @test_logs (:warn, r"but 2 of its arrays have fewer .*so they are not reshaped") fits(IOBuffer(bytesof([HDU(Primary),
+            HDU(Bintable, (v = [Int16[1], Int16[1, 2], Int16[1, 2, 3, 4, 5, 6]],), cards)])))[2].data.v
+        @test read_[3] == Int16[1 3 5; 2 4 6] && read_[1] == Int16[1]
+        @test_logs fits(IOBuffer(bytesof([HDU(Primary), HDU(Bintable, (v = [Int16[], Int16[1, 2, 3, 4, 5, 6]],), cards)])))
+        #  and the bit arrays, which are all of the repeat count of the field, whether they are read, or mapped
+        bits = (b = [BitVector([1, 0, 1]), BitVector([0, 1, 1])],)
+        path = joinpath(mktempdir(), "bits.fits")
+        write(path, [HDU(Primary), HDU(Bintable, bits, Card{<:Any}[Card("TDIM1", "(2,3)")])])
+        @test_logs (:warn, r"TDIM of field b, 2 × 3, has 6 elements, but 2 of its arrays have fewer") fits(path; access = :memory)
+        @test_logs (:warn, r"TDIM of field b, 2 × 3, has 6 elements, but 2 of its arrays have fewer") fits(path; access = :mapped)
+        @test_logs fits(path)
+        write(path, [HDU(Primary), HDU(Bintable, (b = [BitVector([1, 0, 1, 1, 0, 0]), BitVector([0, 1, 1, 0, 0, 1])],), Card{<:Any}[Card("TDIM1", "(2,3)")])])
+        @test_logs fits(path; access = :memory)
+        @test_logs fits(path; access = :mapped)
+
+        #  an array that is missing is an array of no elements, which is written without storage and is read as an empty array (Sect. 7.3.5)
+        for data in ((v = [Int16[1, 2], missing, Int16[3]],), (v = ["ab", missing, "c"],), (v = [BitVector([1, 0]), missing, BitVector([1])],),
+            [(v = Int16[1, 2],), (v = missing,), (v = Int16[3],)])
+            hdu = HDU(Bintable, data; variable = (v = 'P',))
+            read_ = fits(IOBuffer(bytesof([HDU(Primary), hdu])))[2].data.v
+            @test length(read_) == 3 && isempty(read_[2]) && !ismissing(read_[2]) && !ismissing(read_[1]) && !ismissing(read_[3])
+        end
+        @test fits(IOBuffer(bytesof([HDU(Primary), HDU(Bintable, (v = [Int16[1, 2], missing, Int16[3]],))])))[2].data.v == [Int16[1, 2], Int16[], Int16[3]]
+
+        #  a 32-bit descriptor (P) has the offset and the number of elements that are 32-bit integers, which is checked before the header or the data
+        #  are written (Sect. 7.3.5), and the field is written with a 64-bit descriptor (Q) if the header says Q
+        small = HDU(Bintable, (v = [1:2, 1:3],); variable = (v = 'P',))
+        huge = HDU{Bintable}(getfield(small, :cards), (v = [1:2^31, 1:2],))
+        @test_logs (:warn, r"The longest array of field v") match_mode = :any @test_throws ArgumentError(
+            "The array of row 1 of field v is at the offset 0 in the heap and has 2147483648 elements, which a 32-bit array descriptor (P) cannot " *
+            "address (Sect. 7.3.5). Use the 64-bit descriptor, Q, with the keyword variable or in TFORM1.") write(IOBuffer(), huge)
+        @test_throws ArgumentError r"The array of row 3 of field v is at the offset 2147483648 in the heap" write(IOBuffer(), HDU{Bintable}(
+            getfield(HDU(Bintable, (v = [1:2, 1:3, 1:4, 1:5],); variable = (v = 'P',)), :cards), (v = [1:2^27, 1:2^27, 1:2^27, 1:2],)))
+        quad = HDU(Bintable, (v = [1:2, 1:3],); variable = (v = 'Q',))
+        @test_logs (:warn, r"The longest array of field v") match_mode = :any @test_throws ArgumentError r"PCOUNT" write(IOBuffer(), HDU{Bintable}(
+            getfield(quad, :cards), (v = [1:2^31, 1:2],)))
     end
 
 end
