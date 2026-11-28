@@ -1,7 +1,10 @@
 function Card(key::K = "", value::V = missing, comment::C = ""; fixed::B = true,
 	append::B = false, slash::I = 32, lpad::I = 1, rpad::I = 1, upad::I = 1,
-	truncate::B = true, warn::B = true, splitat::Union{Char, Nothing} = ' ') where
+	truncate::B = true, warn::B = true, splitat::Union{Char, Nothing} = ' ',
+	exponent::Char = 'D') where
 	{B <: Bool, I <: Integer, K <: AbstractString, V <: ValueInput, C <: AbstractString}
+
+	checkexponent(exponent)
 
 	#  Convert key to uppercase and remove trailing spaces. The spaces at the ends of a comment are
 	#  not significant, since they are not read.
@@ -14,7 +17,7 @@ function Card(key::K = "", value::V = missing, comment::C = ""; fixed::B = true,
 	if length(upkey) > KEYLENGTH
 		tokens = replace(upkey, r"^HIERARCH +" => "")
 		warn && @warn "Keyword is longer than $KEYLENGTH characters, so a HIERARCH card is created." key=upkey
-		return Card("HIERARCH", tokens, value, comment; fixed, slash, lpad, rpad, upad)
+		return Card("HIERARCH", tokens, value, comment; fixed, slash, lpad, rpad, upad, exponent)
 	end
 
 	#  The units of a quantity are not part of the value.
@@ -27,15 +30,20 @@ function Card(key::K = "", value::V = missing, comment::C = ""; fixed::B = true,
 		cunits, ccomment, cpad, cstyle = commentunits(upkey, value, units, comment, upad)
 		isnothing(units) && !isnothing(cunits) &&
 			return makecard(upkey, value, cunits, ccomment, cstyle; fixed, append, slash, lpad, rpad,
-				upad = cpad, truncate, splitat)
+				upad = cpad, truncate, splitat, exponent)
 	end
-	makecard(upkey, value, units, comment, ""; fixed, append, slash, lpad, rpad, upad, truncate, splitat)
+	makecard(upkey, value, units, comment, ""; fixed, append, slash, lpad, rpad, upad, truncate, splitat,
+		exponent)
 end
+
+#  The exponent letter of a float is a D or an E, which the standard both allows.
+checkexponent(exponent::Char) = exponent in ('D', 'E') ||
+	throw(ArgumentError("The exponent letter is 'D' or 'E', not '$exponent'."))
 
 #  Make a card, or the cards of a long string, from the keyword, the value, the units, and the comment.
 function makecard(upkey::AbstractString, value, units, comment::AbstractString, ufmt::AbstractString;
 	fixed::Bool, append::Bool, slash::Integer, lpad::Integer, rpad::Integer, upad::Integer,
-	truncate::Bool, splitat::Union{Char, Nothing})
+	truncate::Bool, splitat::Union{Char, Nothing}, exponent::Char = 'D')
 
 	#  Check for invalid characters in key, value string, and comment.
 	if !ishierarch(upkey) && occursin(NON_KEY_TEXT, upkey)
@@ -100,16 +108,18 @@ function makecard(upkey::AbstractString, value, units, comment::AbstractString, 
 	end
 
 	typeof(cards) <: AbstractArray && return cards
+	format.expn = exponent
 	#  The comment of a commentary card is not on the card.
 	type <: Union{Comment, History} || (comment = fitcomment(comment, format))
 	Card(type, upkey, value, units, comment, format)
 end
 
 function Card(key::K, tokens::T, value::V, comment::C;
-	fixed::B = true, slash::I = 32, lpad::I = 1, rpad::I = 1, upad::I = 1) where
+	fixed::B = true, slash::I = 32, lpad::I = 1, rpad::I = 1, upad::I = 1, exponent::Char = 'D') where
 {B <: Bool, I <: Integer, K <: AbstractString, T <: AbstractString, V <: ValueInput,
 	C <: AbstractString}
 
+	checkexponent(exponent)
 	#  Convert key to uppercase and remove trailing SPECIAL_KEYS
 	upkey, uptoken = uppercase(strip(key)), uppercase(strip(tokens))
 	comment = strip(comment)
@@ -120,14 +130,15 @@ function Card(key::K, tokens::T, value::V, comment::C;
 	if startswith(comment, '[')
 		cunits, ccomment, cpad, cstyle = commentunits(upkey, value, units, comment, upad)
 		isnothing(units) && !isnothing(cunits) &&
-			return makehierarch(upkey, uptoken, value, cunits, ccomment, cstyle; fixed, slash, lpad, rpad, upad = cpad)
+			return makehierarch(upkey, uptoken, value, cunits, ccomment, cstyle; fixed, slash, lpad, rpad, upad = cpad, exponent)
 	end
-	makehierarch(upkey, uptoken, value, units, comment, ""; fixed, slash, lpad, rpad, upad)
+	makehierarch(upkey, uptoken, value, units, comment, ""; fixed, slash, lpad, rpad, upad, exponent)
 end
 
 #  Make a HIERARCH card from the keyword, the tokens, the value, the units, and the comment.
 function makehierarch(upkey::AbstractString, uptoken::AbstractString, value, units, comment::AbstractString,
-	ufmt::AbstractString; fixed::Bool, slash::Integer, lpad::Integer, rpad::Integer, upad::Integer)
+	ufmt::AbstractString; fixed::Bool, slash::Integer, lpad::Integer, rpad::Integer, upad::Integer,
+	exponent::Char = 'D')
 
 	#  Check for invalid characters in key, value string, and comment.
 	if !ishierarch(upkey) && occursin(NON_KEY_TEXT, upkey)
@@ -155,6 +166,7 @@ function makehierarch(upkey::AbstractString, uptoken::AbstractString, value, uni
 	else
 		throw(ArgumentError("Invalid card"))
 	end
+	format.expn = exponent
 	Card(type, uptoken, value, units, fitcomment(comment, format), format)
 end
 

@@ -844,6 +844,37 @@
     end
 
     #  A value that cannot be written as a FITS value is an error, and not a card that cannot be written.
+    @testset "exponent letter" begin
+        #  a float that is not 32-bit is written with the letter of the keyword, which is D unless it is E, and a 32-bit float is written with an E
+        @test repr(Card("FREQ", 2.2710000001e11)) == rpad("FREQ    =      2.2710000001D11", 80)
+        @test repr(Card("FREQ", 2.2710000001e11; exponent = 'D')) == repr(Card("FREQ", 2.2710000001e11))
+        @test repr(Card("FREQ", 2.2710000001e11; exponent = 'E')) == rpad("FREQ    =      2.2710000001E11", 80)
+        @test repr(Card("FREQ", 2.5f10; exponent = 'D')) == repr(Card("FREQ", 2.5f10; exponent = 'E'))
+        @test parse(Card, repr(Card("FREQ", 2.2710000001e11; exponent = 'E'))).value == 2.2710000001e11
+        #  the digits that are truncated in fixed format are the digits before the letter, and the card is not truncated in free format
+        @test repr(Card("TINY", 1.2345678901234567e-100; exponent = 'E')) == rpad("TINY    = 1.2345678901234E-100", 80)
+        @test repr(Card("TINY", 1.2345678901234567e-100; exponent = 'E', fixed = false)) == rpad("TINY    = 1.2345678901234567E-100", 80)
+        #  the real part and the imaginary part of a complex number, the HIERARCH cards, and a card that is made from a keyword that is too long
+        @test startswith(repr(Card("CPLX", 1.0e20 + 2.0e-20im; exponent = 'E')), "CPLX    = (1.0E20, 2.0E-20)")
+        @test startswith(repr(Card("CPLX", 1.0e20 + 2.0e-20im)), "CPLX    = (1.0D20, 2.0D-20)")
+        @test startswith(repr(Card("HIERARCH ESO TEL FREQ", 2.5e11; exponent = 'E', warn = false)), "HIERARCH ESO TEL FREQ = 2.5E11")
+        @test startswith(repr(Card("HIERARCH ESO TEL FREQ", 2.5e11 + 1.0e20im; exponent = 'E', warn = false)), "HIERARCH ESO TEL FREQ = (2.5E11, 1.0E20)")
+        @test startswith(repr(Card("HIERARCH ESO TEL FREQ", 2.5e11; warn = false)), "HIERARCH ESO TEL FREQ = 2.5D11")
+        @test startswith(repr(Card("HIERARCH ESO TEL FREQ", 2.5e11, "[Hz] frequency"; exponent = 'E', warn = false)), "HIERARCH ESO TEL FREQ = 2.5E11")
+        @test startswith(repr(Card("A_VERY_LONG_KEYWORD", 2.5e11; exponent = 'E', warn = false)), "HIERARCH A_VERY_LONG_KEYWORD = 2.5E11")
+        #  the letter is that of a copy of the card, and the integers and the strings have no exponent
+        card = Card("FREQ", 2.2710000001e11; exponent = 'E')
+        @test repr(copy(card)) == repr(card) && card == copy(card)
+        @test repr(Card("N", 3; exponent = 'E')) == repr(Card("N", 3)) && repr(Card("S", "E1"; exponent = 'E')) == repr(Card("S", "E1"))
+        #  a card that is parsed has the letter of its image, which the card is written with
+        @test repr(parse(Card, rpad("FREQ    =      2.2710000001E11", 80))) == rpad("FREQ    =      2.2710000001E11", 80)
+        @test repr(parse(Card, rpad("FREQ    =      2.2710000001D11", 80))) == rpad("FREQ    =      2.2710000001D11", 80)
+        #  the letter is D or E
+        @test_throws ArgumentError("The exponent letter is 'D' or 'E', not 'Q'.") Card("X", 1.0; exponent = 'Q')
+        @test_throws ArgumentError("The exponent letter is 'D' or 'E', not 'e'.") Card("HIERARCH A B", 1.0; exponent = 'e', warn = false)
+        @test_throws ArgumentError Card("X", 1; exponent = 'd')
+    end
+
     @testset "unsupported value types" begin
         for value in (1//2, pi, Complex(1//2, 1), (1//2) * Unitful.m, Complex(true, false), Rational(1, 3))
             @test_throws "is not supported." Card("KEY", value)

@@ -85,8 +85,8 @@ function layoutcard(::Type{Hierarch{V}}, token::S, value::V, comment::C; kwds...
 end
 
 #  Free-format value field of a HIERARCH card: strings are quoted, logicals are T or F,
-#  and floats use an E (single precision) or D (double precision) exponent.
-function valueimage(value::ValueType)
+#  and floats use an E (single precision) or the exponent letter `expn` (double precision).
+function valueimage(value::ValueType, expn::Char = 'D')
 	if ismissing(value)
 		""
 	elseif value isa AbstractString
@@ -94,11 +94,11 @@ function valueimage(value::ValueType)
 	elseif value isa Bool
 		value ? "T" : "F"
 	elseif value isa Complex
-		"(" * valueimage(real(value)) * ", " * valueimage(imag(value)) * ")"
+		"(" * valueimage(real(value), expn) * ", " * valueimage(imag(value), expn) * ")"
 	elseif value isa Float32
 		replace(string(value), "f" => "E", "e" => "E")
 	elseif value isa AbstractFloat
-		replace(string(value), "e" => "D")
+		replace(string(value), "e" => string(expn))
 	else
 		string(value)
 	end
