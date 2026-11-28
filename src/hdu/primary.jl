@@ -43,10 +43,10 @@ function verifygroups(mankeys::AbstractDict)
     verifylogical(mankeys, r"^GROUPS$")
     naxis1 = get(mankeys, "NAXIS1", nothing)
     if get(mankeys, "GROUPS", nothing) === true && naxis1 != 0
-        @warn "GROUPS is T, which says that the HDU has random groups, but NAXIS1 is $(isnothing(naxis1) ? "absent" : naxis1), " *
+        @problem "GROUPS is T, which says that the HDU has random groups, but NAXIS1 is $(isnothing(naxis1) ? "absent" : naxis1), " *
             "and not 0 (Sect. 6.1.1), so it is read as a primary array, and PCOUNT and GCOUNT are not used."
     elseif get(mankeys, "GROUPS", nothing) === false && naxis1 == 0 && get(mankeys, "NAXIS", 0) > 1
-        @warn "NAXIS1 is 0, which is the signature of random groups, but GROUPS is F (Sect. 6.1.1), so it is read as a primary " *
+        @problem "NAXIS1 is 0, which is the signature of random groups, but GROUPS is F (Sect. 6.1.1), so it is read as a primary " *
             "array without data, and PCOUNT and GCOUNT are not used."
     end
 end
@@ -74,13 +74,13 @@ end
 #  logicals, and INHERIT must not appear.
 function verifyprimarykeys(reskeys::AbstractDict)
     verifylogical(reskeys, r"^(EXTEND|BLOCKED)$")
-    haskey(reskeys, "INHERIT") && @warn "INHERIT must not appear in the primary header (Appendix K). It is read as it is."
+    haskey(reskeys, "INHERIT") && @problem "INHERIT must not appear in the primary header (Appendix K). It is read as it is."
 end
 
 function verify!(::Type{Primary}, cards::Cards, format::DataFormat,
     mankeys::AbstractDict)
 
-    !get(mankeys, "SIMPLE", true) && @warn "Primary HDU is nonconformant."
+    !get(mankeys, "SIMPLE", true) && @problem "Primary HDU is nonconformant."
     verifyshape!(cards, mankeys, format)
 end
 
@@ -150,7 +150,7 @@ end
 #  The BLANK keyword of an array is an integer, and is for integer data only (Sect. 4.4.2.5).
 function verifyblank(::Type{Primary}, mankeys::AbstractDict, reskeys::AbstractDict)
     verifyinteger(reskeys, r"^BLANK$")
-    haskey(reskeys, "BLANK") && get(mankeys, "BITPIX", 8) < 0 && @warn "BLANK is for integer data " *
+    haskey(reskeys, "BLANK") && get(mankeys, "BITPIX", 8) < 0 && @problem "BLANK is for integer data " *
         "(a positive BITPIX) only (Sect. 4.4.2.5), so it is not used."
 end
 

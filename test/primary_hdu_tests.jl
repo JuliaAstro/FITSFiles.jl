@@ -226,7 +226,8 @@
         rpad(join(rpad.(vcat(cards, ["END"]), 80)), 2880) * String(vcat(data, zeros(UInt8, nfill)))
     end
     reading(bytes; kwds...) = read(IOBuffer(bytes), HDU; scale = false, kwds...)
-    written(hdu) = (buffer = IOBuffer(); write(buffer, hdu); take!(buffer))
+    #  the files that are read are not all standard, so the HDUs are written with the check turned off, as they are read (see `problem`)
+    written(hdu; check = false) = (buffer = IOBuffer(); write(buffer, hdu; check); take!(buffer))
 
     ####    Test the verification of the header of a primary HDU (Sects. 3.3, 4.4.1, and 4.4.1.1)    ####
 
@@ -690,7 +691,7 @@
         @test scaledreading(written(hdu); scale = false).data == Int16[0, 1, -8]
         hdu.data .= Float32[11.2, 11.3, -10.0]
         @test_throws ArgumentError("The value 11.2 cannot be stored as Int16 data with BSCALE 2.5 and BZERO 10.0: the " *
-            "nearest stored value, 0, is the value 10.0. Use check = false to write the stored value.") written(hdu)
+            "nearest stored value, 0, is the value 10.0. Use check = false to write the stored value.") written(hdu; check = true)
         @test_throws ArgumentError writtenwith(hdu; check = true)
         #  the nearest stored values are written if the check is bypassed
         @test scaledreading(writtenwith(hdu; check = false)).data == Float32[10, 12.5, -10]
@@ -705,7 +706,7 @@
         values = HDU{Primary}(cards, Float64[1.1, 2.0, 3.5])
         @test scaledreading(written(values); scale = false).data == Float32[1.1, 2.0, 3.5]
         values = HDU{Primary}(cards, Float64[1.1, 1e300, 3.5])
-        @test_throws r"The value 1.0e300 cannot be stored as Float32 data with BSCALE 1.0 and BZERO 0.0" written(values)
+        @test_throws r"The value 1.0e300 cannot be stored as Float32 data with BSCALE 1.0 and BZERO 0.0" written(values; check = true)
         @test scaledreading(writtenwith(values; check = false); scale = false).data == Float32[1.1, Inf, 3.5]
 
         #  the undefined values are the BLANK, and are written as it

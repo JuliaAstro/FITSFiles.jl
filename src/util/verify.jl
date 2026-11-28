@@ -26,7 +26,7 @@ function verify!(::Type{<:AbstractHDU}, cards::Cards, mankeys::AbstractDict, res
 	#  The level of an extension is 1 for the highest level, and the levels of the extensions below it have higher values
 	#  (Sect. 4.4.2.6)
 	level = get(reskeys, "EXTLEVEL", 1)
-	level isa Integer && level < 1 && @warn "EXTLEVEL must be 1 or more, with 1 the highest level (Sect. 4.4.2.6), " *
+	level isa Integer && level < 1 && @problem "EXTLEVEL must be 1 or more, with 1 the highest level (Sect. 4.4.2.6), " *
 		"but its value is $level. It is read as it is."
 	verifystring(reskeys, r"^(ORIGIN|TELESCOP|INSTRUME|OBSERVER|OBJECT|AUTHOR|REFERENC|EXTNAME|CHECKSUM|DATASUM)$")
 	verifydate(reskeys, r"^DATE")
@@ -79,7 +79,7 @@ standard requires a floating-point number, e.g., DATAMIN = 0. A value that is no
 function verifyfloat(keys::AbstractDict, pattern::Regex)
 	for (key, value) in keys
 		occursin(pattern, key) && value isa Integer && !(value isa Bool) &&
-			@warn "$key must be a floating-point number, but its value is the integer $value. It is read as it is."
+			@problem "$key must be a floating-point number, but its value is the integer $value. It is read as it is."
 	end
 	nothing
 end
@@ -93,7 +93,7 @@ The value is read and written as it is.
 function verifystring(keys::AbstractDict, pattern::Regex)
 	for (key, value) in keys
 		occursin(pattern, key) && !(value isa AbstractString) &&
-			@warn "$key must be a character string, but its value is $(repr(value)). It is read as it is."
+			@problem "$key must be a character string, but its value is $(repr(value)). It is read as it is."
 	end
 	nothing
 end
@@ -107,7 +107,7 @@ The value is read and written as it is.
 function verifylogical(keys::AbstractDict, pattern::Regex)
 	for (key, value) in keys
 		occursin(pattern, key) && !(value isa Bool) &&
-			@warn "$key must be a logical, T or F, but its value is $(repr(value)). It is read as it is."
+			@problem "$key must be a logical, T or F, but its value is $(repr(value)). It is read as it is."
 	end
 	nothing
 end
@@ -141,7 +141,7 @@ function verifydate(keys::AbstractDict, pattern::Regex)
 	for (key, value) in keys
 		occursin(pattern, key) || continue
 		value isa AbstractString && isdatestring(strip(value)) && continue
-		@warn "$key must be a date of the form YYYY-MM-DD[Thh:mm:ss[.sss]] (Sect. 4.4.2.1), but its value is " *
+		@problem "$key must be a date of the form YYYY-MM-DD[Thh:mm:ss[.sss]] (Sect. 4.4.2.1), but its value is " *
 			"$(repr(value)). It is read as it is."
 	end
 	nothing
@@ -158,7 +158,7 @@ function verifyunit(keys::AbstractDict, pattern::Regex)
 	for (key, value) in keys
 		occursin(pattern, key) && value isa AbstractString && !isempty(strip(value)) &&
 			isnothing(parseunit(Unitful, value)) &&
-			@warn "$key must be a units string (Sect. 4.3), but its value is $(repr(value)). It is read as it is."
+			@problem "$key must be a units string (Sect. 4.3), but its value is $(repr(value)). It is read as it is."
 	end
 	nothing
 end
@@ -200,7 +200,7 @@ function verifyaxes(mankeys::AbstractDict)
 	end
 	for key in sort!(collect(keys(mankeys)))
 		m = match(r"^NAXIS(\d+)$", key)
-		!isnothing(m) && Base.parse(Int, m[1]) > max(N, 0) && @warn "$key is beyond NAXIS $N, and is not used."
+		!isnothing(m) && Base.parse(Int, m[1]) > max(N, 0) && @problem "$key is beyond NAXIS $N, and is not used."
 	end
 	nothing
 end
@@ -223,7 +223,7 @@ function verifyxtension!(cards::Cards)
 	value, format = card.value, card.format
 	if value isa AbstractString && rstrip(uppercase(value)) in XTENSION_VALUES && format.vbeg > 0 &&
 		format.vend - format.vbeg - 1 < XTENSIONLENGTH
-		@warn "The XTENSION value '$value' is not padded to $XTENSIONLENGTH characters."
+		@problem "The XTENSION value '$value' is not padded to $XTENSIONLENGTH characters."
 	end
 	cards
 end
@@ -242,7 +242,7 @@ function verifyorder(cards::Cards, required::AbstractVector{<:AbstractString};
 		found = j <= length(cards) ? uppercase(cards[j].key) : "END"
 		if found != key
 			found = isempty(found) ? "a blank card" : found
-			@warn "Keyword $j of the header is $found, but the Standard requires $key ($section): " *
+			@problem "Keyword $j of the header is $found, but the Standard requires $key ($section): " *
 				"$names come first, in order, with no other keyword between them. The cards are not reordered."
 			break
 		end
@@ -258,7 +258,7 @@ Warn if the value of a card of the keywords `required` is not in fixed format, a
 """
 function verifyfixed(cards::Cards, required::AbstractVector{<:AbstractString})
 	free = unique([uppercase(card.key) for card in cards if uppercase(card.key) in required && !card.format.fixd])
-	isempty(free) || @warn "The value of $(join(free, ", ")) is not in fixed format (Sect. 4.4.1): " *
+	isempty(free) || @problem "The value of $(join(free, ", ")) is not in fixed format (Sect. 4.4.1): " *
 		"a fixed-format value is right-justified in bytes 11 to 30, and a string begins in byte 11. " *
 		"The cards are not changed."
 	cards

@@ -244,11 +244,11 @@ end
 function verifykeys(::Type{Table}, cards::Cards, mankeys::AbstractDict, reskeys::AbstractDict)
     #  PCOUNT and GCOUNT have the values 0 and 1 if they are missing, so the data can be read without them
     for (key, value) in ("PCOUNT" => 0, "GCOUNT" => 1)
-        haskey(mankeys, key) || @warn "$key is missing, but it is a mandatory keyword of a TABLE extension " *
+        haskey(mankeys, key) || @problem "$key is missing, but it is a mandatory keyword of a TABLE extension " *
             "(Sect. 7.2.1), and has the value $value. It is read as $value."
     end
     #  A header without TFIELDS has no fields
-    haskey(mankeys, "TFIELDS") || @warn "TFIELDS is missing, but it is a mandatory keyword of a TABLE extension (Sect. 7.2.1), and " *
+    haskey(mankeys, "TFIELDS") || @problem "TFIELDS is missing, but it is a mandatory keyword of a TABLE extension (Sect. 7.2.1), and " *
         "the table has no fields. It is read as 0."
     #  The mandatory keywords are the first keywords, in order and in fixed format
     required = filter(key -> haskey(mankeys, key), ["XTENSION", "BITPIX", "NAXIS", "NAXIS1", "NAXIS2", "PCOUNT", "GCOUNT", "TFIELDS"])
@@ -256,14 +256,14 @@ function verifykeys(::Type{Table}, cards::Cards, mankeys::AbstractDict, reskeys:
         names = "XTENSION, BITPIX, NAXIS, NAXIS1, NAXIS2, PCOUNT, GCOUNT, and TFIELDS")
     verifyfixed(cards, required)
     #  The keywords of the primary header, and of the physical blocks, are not in an extension (Sects. 4.4.1.1, 4.4.2.1, and 7.2.2)
-    haskey(mankeys, "SIMPLE") && @warn "SIMPLE must not appear in an extension header (Sect. 4.4.1.1). It is read as it is."
+    haskey(mankeys, "SIMPLE") && @problem "SIMPLE must not appear in an extension header (Sect. 4.4.1.1). It is read as it is."
     for key in ("EXTEND", "BLOCKED")
-        haskey(reskeys, key) && @warn "$key must not appear in a TABLE extension header (Sects. 4.4.2.1 and 7.2.2). " *
+        haskey(reskeys, key) && @problem "$key must not appear in a TABLE extension header (Sects. 4.4.2.1 and 7.2.2). " *
             "It is read as it is."
     end
     #  The keywords that describe arrays are not used for a table (Sect. 4.4.2.5)
     for key in ("BSCALE", "BZERO", "BUNIT", "BLANK", "DATAMIN", "DATAMAX")
-        haskey(reskeys, key) && @warn "$key must not be used in a TABLE extension header (Sect. 4.4.2.5), since it describes " *
+        haskey(reskeys, key) && @problem "$key must not be used in a TABLE extension header (Sect. 4.4.2.5), since it describes " *
             "an array, and the header describes a table. It is read as it is, and is not used."
     end
     verifyfieldkeys(Table, mankeys, reskeys)
@@ -306,7 +306,7 @@ function verifyfields!(::Type{Table}, cards::Cards, mankeys::AbstractDict; creat
 	N = get(mankeys, "TFIELDS", nothing)
 	isnothing(N) && return cards
 	N < 0 && throw(ArgumentError("TFIELDS must be non-negative, but its value is $N."))
-	N > MAXTABLEFIELDS && @warn "TFIELDS $N is more than the maximum of $MAXTABLEFIELDS."
+	N > MAXTABLEFIELDS && @problem "TFIELDS $N is more than the maximum of $MAXTABLEFIELDS."
 	row = get(mankeys, "NAXIS1", nothing)
 	for j = 1:N
 		form = get(mankeys, "TFORM$j", nothing)
@@ -332,7 +332,7 @@ function verifyfields!(::Type{Table}, cards::Cards, mankeys::AbstractDict; creat
 	for key in sort!(collect(keys(mankeys)))
 		m = match(r"^(TFORM|TBCOL)(\d+)$", key)
 		!isnothing(m) && Base.parse(Int, m[2]) > N &&
-			@warn "$key is beyond TFIELDS $N, and is not used."
+			@problem "$key is beyond TFIELDS $N, and is not used."
 	end
 	cards
 end
@@ -354,22 +354,22 @@ function verifyfieldkeys(::Type{Table}, mankeys::AbstractDict, reskeys::Abstract
         start = get(reskeys, "TBCOL$j", nothing)
         start isa Integer && push!(spans, (start, start + width - 1, j))
         (haskey(reskeys, "TSCAL$j") || haskey(reskeys, "TZERO$j")) && code == "A" &&
-            @warn "TSCAL$j and TZERO$j must not be used for a field of format A (Sect. 7.2.2). They are not used."
+            @problem "TSCAL$j and TZERO$j must not be used for a field of format A (Sect. 7.2.2). They are not used."
         null = get(reskeys, "TNULL$j", nothing)
-        null isa AbstractString && length(rstrip(null)) > width && @warn "TNULL$j, $(repr(rstrip(null))), is longer than the $width " *
+        null isa AbstractString && length(rstrip(null)) > width && @problem "TNULL$j, $(repr(rstrip(null))), is longer than the $width " *
             "characters of its field (Sect. 7.2.2), so no value is undefined. The undefined values cannot be written."
         verifyextremes(Table, reskeys, j, code)
         for (low, high) in (("TDMIN", "TDMAX"), ("TLMIN", "TLMAX"))
             a, b = get(reskeys, "$low$j", nothing), get(reskeys, "$high$j", nothing)
-            a isa Real && b isa Real && !(a isa Bool) && !(b isa Bool) && a > b && @warn "$low$j, $a, is more than $high$j, $b, but " *
+            a isa Real && b isa Real && !(a isa Bool) && !(b isa Bool) && a > b && @problem "$low$j, $a, is more than $high$j, $b, but " *
                 "$low$j is the minimum and $high$j is the maximum (Sect. 7.2.2). They are read as they are."
         end
         disp = get(reskeys, "TDISP$j", nothing)
         if disp isa AbstractString && !occursin(TABLEDISPFORM, strip(disp))
-            @warn "TDISP$j must be a display format of Table 16 (Sect. 7.2.2), but its value is $(repr(disp)). It is read as it is."
+            @problem "TDISP$j must be a display format of Table 16 (Sect. 7.2.2), but its value is $(repr(disp)). It is read as it is."
         elseif disp isa AbstractString
             shown = match(r"^[A-Z]+", strip(disp)).match
-            shown in TABLEDISPCODES[code] || @warn "TDISP$j, $(repr(strip(disp))), is not a display format for a field of format " *
+            shown in TABLEDISPCODES[code] || @problem "TDISP$j, $(repr(strip(disp))), is not a display format for a field of format " *
                 "$code (Sect. 7.2.2), which has the formats $(join(TABLEDISPCODES[code], ", ")). It is read as it is."
         end
         name = get(reskeys, "TTYPE$j", nothing)
@@ -411,9 +411,9 @@ function verifyextremes(::Type{Table}, reskeys::AbstractDict, j::Integer, code::
         value = get(reskeys, key, nothing)
         (value isa Real && !(value isa Bool)) || continue
         if integers && !(value isa Integer)
-            @warn "$key must be an integer, since the values of field $j are integers (Sect. 7.2.2), but its value is $(repr(value)). It is read as it is."
+            @problem "$key must be an integer, since the values of field $j are integers (Sect. 7.2.2), but its value is $(repr(value)). It is read as it is."
         elseif !integers && value isa Integer
-            @warn "$key must be a floating-point number, since the values of field $j are floating-point numbers (Sect. 7.2.2), but its value is $(repr(value)). It is read as it is."
+            @problem "$key must be a floating-point number, since the values of field $j are floating-point numbers (Sect. 7.2.2), but its value is $(repr(value)). It is read as it is."
         end
     end
 end

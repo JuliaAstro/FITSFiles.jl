@@ -11,10 +11,10 @@ is. Return the HDU. The EXTEND keyword of the primary header is advisory (Sect. 
 function verifyposition(hdu::HDU, j::Integer)
 	simple = haskey(getfield(hdu, :cards), "SIMPLE")
 	if j == 1 && !simple
-		@warn "The first HDU of a FITS file must be the primary HDU, which has SIMPLE (Sect. 3.1), but it is an " *
+		@problem "The first HDU of a FITS file must be the primary HDU, which has SIMPLE (Sect. 3.1), but it is an " *
 			"extension, which has XTENSION. It is read as it is."
 	elseif j > 1 && simple
-		@warn "HDU $j of a FITS file has SIMPLE, but only the first HDU is a primary HDU (Sects. 3.1 and 3.4.3): " *
+		@problem "HDU $j of a FITS file has SIMPLE, but only the first HDU is a primary HDU (Sects. 3.1 and 3.4.3): " *
 			"the HDUs after it are conforming extensions, which have XTENSION. It is read as it is."
 	end
 	hdu
@@ -141,15 +141,23 @@ end
     Base.write(io::IO, hdus::AbstractVector{<:HDU})
     Base.write(filename::AbstractString, hdus::AbstractVector{<:HDU})
 
-Write a vector of header-data units (HDUs), of any type of HDU, e.g., the `Vector{HDU{Primary}}` of `[HDU(data, cards)]`, to a file, with a
-warning if the first HDU is not a primary HDU or a later one is (Sect. 3.1 of the standard). The keyword `checksum::Bool=false` sets the
+Write a vector of header-data units (HDUs), of any type of HDU, e.g., the `Vector{HDU{Primary}}` of `[HDU(data, cards)]`, to a file, with an
+error if the first HDU is not a primary HDU or a later one is (Sect. 3.1 of the standard), before anything is written, unless `check = false` is given, which
+is a warning (see [`Base.write(io::IO, hdu::HDU)`](@ref)). A file is written to a file next to it, which replaces it when the HDUs are written, so that a file is not
+changed by a write that fails. The keyword `checksum::Bool=false` sets the
 DATASUM and CHECKSUM keywords of each HDU (see [`Base.write(io::IO, hdu::HDU)`](@ref)). The data of the HDUs of a file that are not read are
 copied from the file, so the vector is not written to that file, which is an `ArgumentError` that leaves the file as it is.
 """
 function Base.write(io::IO, hdus::AbstractVector{<:HDU}; kwds...)
-    for (j, hdu) in enumerate(hdus)
-        verifyname(view(hdus, 1:j))
-        write(io, verifyposition(hdu, j); kwds...)
+    #  The order of the HDUs is a problem that is an error, unless the check is turned off (see `problem`), before anything is written
+    task_local_storage(STRICTWRITE, get(kwds, :check, true) ? :file : nothing) do
+        for (j, hdu) in enumerate(hdus)
+            verifyname(view(hdus, 1:j))
+            verifyposition(hdu, j)
+        end
+    end
+    for hdu in hdus
+        write(io, hdu; kwds...)
     end
 end
 
@@ -165,9 +173,16 @@ function Base.write(file::AbstractString, hdus::AbstractVector{<:HDU}; kwds...)
         !isnothing(source) && isfile(file) && isfile(source.filnam) && samefile(file, source.filnam) && throw(ArgumentError(
             "The data of HDU $j are not read, and are read from $(source.filnam), which opening it for writing empties. Write to another file."))
     end
-    io = open(file, write=true)
-    write(io, hdus; kwds...)
-    close(io)
+    #  The HDUs are written to a file next to the file, which replaces it when they are written, so that a problem of an HDU, which is an error unless the
+    #  check is turned off (see `problem`), does not leave the file empty or with some of the HDUs
+    tmp = tempname(dirname(abspath(file)); cleanup = false)
+    try
+        open(io -> write(io, hdus; kwds...), tmp, write = true)
+        mv(tmp, file; force = true)
+    catch
+        rm(tmp; force = true)
+        rethrow()
+    end
 end
 
 """

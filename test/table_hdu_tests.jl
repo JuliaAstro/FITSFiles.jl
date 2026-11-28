@@ -213,7 +213,7 @@
         @test rowsof(hdu)[1:8] == "   1-9  "
         @test_throws ArgumentError("A missing value cannot be written to field a, which has no TNULLn keyword (Sect. 7.2.2).") rowsof(
             HDU(Table, (a = [1, missing],), Card{<:Any}[Card("TFORM1", "I4")]))
-        @test_throws ArgumentError r"has more than the 4 characters of the field" rowsof(
+        @test_throws ArgumentError r"TNULL1, \"NOT DEFINED\", is longer than the 4 characters of its field" rowsof(
             HDU(Table, (a = [1, missing],), Card{<:Any}[Card("TFORM1", "I4"), Card("TNULL1", "NOT DEFINED")]))
         #  an undefined value is read again as an undefined value
         @test isequal(roundtrip(hdu).data.a, [1, missing])
@@ -468,7 +468,7 @@
             Card("TBCOL1", 1), Card("TTYPE1", "x")])
         #  a column that has missing values has the TNULLn of the cards, which is in the header with the other cards of the fields
         hdu = HDU(Table, (a = [1, missing],), Card{<:Any}[Card("TNULL1", "-9"), Card("TUNIT1", "m")])
-        @test_throws ArgumentError r"has more than the 1 characters of the field" rowsof(hdu)
+        @test_throws ArgumentError r"TNULL1, \"-9\", is longer than the 1 characters of its field" rowsof(hdu)
         hdu = HDU(Table, (a = [1, missing],), Card{<:Any}[Card("TFORM1", "I3"), Card("TNULL1", "-9"), Card("TUNIT1", "m")])
         @test rowsof(hdu)[1:6] == "  1-9 " && getfield(hdu, :cards)["TUNIT1"] == "m"
         #  the data and the cards must have the same number of fields and of rows
