@@ -460,7 +460,9 @@ since the HDU was read, which is an `ArgumentError` too. Read the data (`hdu.dat
 
 - `check::Bool=true`: check that the stored value of each value of the data gives the value again when BSCALE and BZERO
   are applied to it, and raise an error if it does not, e.g., a value of 11.2 for integer data with a BSCALE of 2.5 and a
-  BZERO of 10, whose nearest stored value is 0 and gives 10.0; if false, the nearest stored value is written
+  BZERO of 10, whose nearest stored value is 0 and gives 10.0; if false, the nearest stored value is written. The characters of the strings
+  of a binary table are the ASCII text characters (Sect. 7.3.3.1), and a string that has others, e.g., one that was read with a warning, is an
+  error unless `check` is false, where its bytes are written as they are
 - `checksum::Bool=false`: set the DATASUM and CHECKSUM keywords to the checksums of the data and of the HDU
   (Sect. 4.4.2.7 of the standard), which replace the keywords of the header, if it has them
 """
