@@ -646,13 +646,16 @@
     end
 
     @testset "namedata" begin
-        #  tuples of the parameters followed by the data are named for random groups, and are unchanged for the other HDUs
+        #  tuples of the parameters followed by the data are named for random groups, the columns and the records of tuples of a binary table are named by
+        #  its fields, and the tuples of the other HDUs are unchanged
         one = HDU(Random, (Int16[1, 3], Int16[10 11 12; 20 21 22]))
         @test keys(one.data) == (:param1, :data) && one.data.param1 == Int16[1, 3]
         many = HDU(Random, [(Int16(1), Int16[1, 2, 3]), (Int16(3), Int16[4, 5, 6])])
         @test keys(many.data[1]) == (:param1, :data) && many.data[2].data == Int16[4, 5, 6]
         columns = (Int32[1, 2], [1.5, 2.5])
-        @test HDU(Bintable, columns).data == columns
+        named = HDU(Bintable, columns).data
+        @test named isa NamedTuple && keys(named) == (:column1, :column2) && named.column1 == columns[1] && named.column2 == columns[2]
+        @test HDU(Bintable, [(1, "a"), (2, "b")]).data == [(column1 = 1, column2 = "a"), (column1 = 2, column2 = "b")]
         @test FITSFiles.namedata(Primary, columns, nothing, nothing) === columns
     end
 end

@@ -47,7 +47,8 @@ HDU types are: Primary, Random, Image, Table, Bintable, and Conform.
   `variable = (events = 'P', spectra = 'Q')`. The keyword has priority over the TFORMn card of the field, which has priority over the data, whose
   arrays are variable-length if their lengths differ, so that arrays of the same length are variable-length with the keyword or a TFORMn that
   has a `P` or a `Q` (Sect. 7.3.5). The arrays of the field are arrays, strings, or bit arrays, a number is an array of one element, and
-  the rows of a matrix are its arrays.
+  the rows of a matrix are its arrays. The data are the fields of the table, so a TFORMn or a TFIELDS card that is not the format or the number of the
+  fields of the data is set to it, with a warning, as it is for a table.
 
 The following keywords format the cards that are created, and are those of [`Card`](@ref), which
 describes them.

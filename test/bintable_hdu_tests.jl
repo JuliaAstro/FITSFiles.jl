@@ -2159,4 +2159,68 @@
             getfield(quad, :cards), (v = [1:2^31, 1:2],)))
     end
 
+    @testset "data and cards" begin
+        bytesof(hdus; kwds...) = (io = IOBuffer(); write(io, hdus; kwds...); take!(io))
+        reread(data, cards = Card{<:Any}[]; kwds...) = fits(IOBuffer(bytesof([HDU(Primary), HDU(Bintable, data, cards)])); kwds...)[2]
+        #  every field has an entry in each of the NAXIS2 rows, so the columns of the data have the same number of rows (Sects. 7.3.1 and 7.3.3.1)
+        @test_throws ArgumentError("The columns of the data have different numbers of rows, but every field of a binary table has an entry in " *
+            "each of the NAXIS2 rows (Sects. 7.3.1 and 7.3.3.1): a has 2, b has 3.") HDU(Bintable, (a = [1, 2], b = [1, 2, 3]))
+        @test_throws ArgumentError r"column1 has 2, column2 has 3, column3 has 2" HDU(Bintable, ([1, 2], [1, 2, 3], ["a", "b"]))
+        @test getfield(HDU(Bintable, (a = [1, 2], b = [1.5 2.5; 3.5 4.5])), :cards)["NAXIS2"] == 2
+
+        #  the columns of a tuple, and the records of tuples, are named by the fields, as the columns and the records of the header are, and are written
+        columns = (Int32[1, 2], ["a", "b"], FITSFiles.ScaledArray(Float32[1, 2], 2f0, 1f0))
+        hdu = HDU(Bintable, columns)
+        @test keys(hdu.data) == (:column1, :column2, :column3) && hdu.data.column2 == ["a", "b"] && hdu.data.column3 isa FITSFiles.ScaledArray
+        @test getfield(hdu, :cards)["TTYPE1"] == "column1" && getfield(hdu, :cards)["TSCAL3"] == 2.0f0 && getfield(hdu, :cards)["TZERO3"] == 1.0f0
+        read_ = reread(columns).data
+        @test read_.column1 == Int32[1, 2] && read_.column2 == ["a", "b"] && read_.column3 == Float32[1, 2] && read_.column3 isa FITSFiles.ScaledArray
+        named = reread(columns, Card{<:Any}[Card("TTYPE2", "label")])
+        @test keys(named.data) == (:column1, :label, :column3)
+        records = [(1, "a"), (2, "b")]
+        @test HDU(Bintable, records).data == [(column1 = 1, column2 = "a"), (column1 = 2, column2 = "b")]
+        @test reread(records).data == (column1 = [1, 2], column2 = ["a", "b"])
+        @test reread(records; record = true).data == [(column1 = 1, column2 = "a"), (column1 = 2, column2 = "b")]
+
+        #  the data are the fields, so a TFORMn or TFIELDS card that is not their format or their number is set to what they have, with a warning, and the
+        #  cards of the same format are kept, with the characters after the data type, and the largest number of elements of the arrays of a field
+        for (card, data, form) in (("1E", Int32[1], "1J"), ("4A", Int32[1], "1J"), ("8X", UInt8[5], "1B"), ("2J", Int32[1], "1J"),
+            ("1D", Int64[1], "1K"), ("1K", [1.5], "1D"), ("1PJ(100)", [Int16[1, 2], Int16[3, 4]], "1PI(2)"), ("", [1.5], "1D"))
+            cards = Card{<:Any}[Card("TFORM1", card)]
+            hdu = @test_logs (:warn, "TFORM1 set to $(repr(form)), the format of field 1 of the data, and not $(repr(card)).") HDU(Bintable, (a = data,), cards)
+            @test getfield(hdu, :cards)["TFORM1"] == form
+            read_ = fits(IOBuffer(bytesof([HDU(Primary), hdu])))[2].data.a
+            @test read_ == data
+        end
+        for (card, data) in (("1J", Int32[1]), ("6A3", ["abcdef"]), ("1PI(100)", [Int16[1, 2], Int16[3, 4]]), ("1QI(3)", [Int16[1, 2], Int16[3, 4]]), ("3I", Int16[1 2 3;]))
+            hdu = @test_logs HDU(Bintable, (a = data,), Card{<:Any}[Card("TFORM1", card)])
+            @test getfield(hdu, :cards)["TFORM1"] == card
+        end
+        @test getfield(HDU(Bintable, (a = [Int16[1, 2], Int16[3, 4]],), Card{<:Any}[Card("TFORM1", "1PI(100)")]), :cards)["TFORM1"] == "1PI(100)"
+        hdu = @test_logs (:warn, "TFIELDS set to 2, the number of fields of the data.") HDU(Bintable, (a = [1], b = [2]), Card{<:Any}[Card("TFIELDS", 1)])
+        @test getfield(hdu, :cards)["TFIELDS"] == 2 && keys(fits(IOBuffer(bytesof([HDU(Primary), hdu])))[2].data) == (:a, :b)
+        hdu = @test_logs (:warn, "NAXIS2 set to 2") HDU(Bintable, (a = [1, 2],), Card{<:Any}[Card("NAXIS2", 5)])
+        @test getfield(hdu, :cards)["NAXIS2"] == 2 && reread((a = [1, 2],), Card{<:Any}[Card("NAXIS1", 3)]).data.a == [1, 2]
+        #  the keyword variable has priority over the card, which is set without a warning
+        @test_logs getfield(HDU(Bintable, (v = [Int16[1, 2], Int16[3, 4]],), Card{<:Any}[Card("TFORM1", "1PI(3)")]; variable = (v = 'Q',)), :cards)["TFORM1"] == "1QI(2)"
+        #  a card of a field of data that have no rows is the format of the field
+        @test getfield(HDU(Bintable, (a = Int16[],), Card{<:Any}[Card("TFORM1", "1I")]), :cards)["TFORM1"] == "1I"
+
+        #  the rows of a table can have no bytes (NAXIS1 is 0), e.g., the strings of no characters, and the arrays of no bits, which are the data of
+        #  the rows, and not missing (Sect. 7.3.1)
+        for data in ((s = ["", ""],), (b = [BitVector(), BitVector()],), (s = ["", ""], b = [BitVector(), BitVector()]))
+            hdu = reread(data)
+            @test getfield(hdu, :cards)["NAXIS1"] == 0 && getfield(hdu, :cards)["NAXIS2"] == 2 && size(hdu) == (0, 2)
+            @test hdu.data == data && length(bytesof([HDU(Primary), HDU(Bintable, data)])) == 5760
+        end
+        @test reread((s = ["", ""],); record = true).data == [(s = nothing,), (s = nothing,)]
+        path = joinpath(mktempdir(), "empty.fits")
+        write(path, [HDU(Primary), HDU(Bintable, (s = ["", "", ""],))])
+        @test fits(path)[2].data.s == ["", "", ""] && fits(path; access = :mapped)[2].data.s == ["", "", ""]
+        @test bytesof(fits(path)) == read(path) && bytesof(fits(path; access = :memory)) == read(path)
+        #  and a table that has no fields has no data, and a table that has fields and no rows has the empty columns
+        @test ismissing(fits(IOBuffer(bytesof([HDU(Primary), HDU(Bintable)])))[2].data)
+        @test fits(IOBuffer(bytesof([HDU(Primary), HDU(Bintable, (a = Int16[], b = String[]))])))[2].data == (a = Int16[], b = String[])
+    end
+
 end
