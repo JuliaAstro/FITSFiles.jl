@@ -91,6 +91,11 @@ A complex value of a binary table that has a NaN as its real or its imaginary pa
 parts, so the data that are read (`access = :memory`) are written with the bytes of that NaN, which may not be those of the file, e.g., `NaN + 0im`,
 but the data that are not read, which is the default, are written as they are in the file.
 
+A string of a binary table ends at the first NUL, and does not have the spaces at its end, which fill its field (Sect. 7.3.3.1). The bytes of a
+string that are not ASCII text characters, i.e., that are not 32 to 126, are read as they are, with a warning for the field, but the data that are
+read (`access = :memory`) are not written with them, since the standard has only those characters, unless `check = false` is given to `write`.
+A string cannot be `missing`.
+
 The data of the HDUs of a file are not read until they are accessed (`hdu.data`), so that a file is scanned quickly, e.g., to
 [`info`](@ref) its HDUs, and `size(hdu)` is the size of the data from the header. They are read from the file each time they are accessed,
 so the file must not have been modified since it was read, which is an `ArgumentError`, and an HDU that is written is written with the data

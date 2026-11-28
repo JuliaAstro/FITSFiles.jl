@@ -198,7 +198,7 @@ function writearray(io::IO, heap::IOBuffer, field::BinaryField, cell; check::Boo
         n = type <: AbstractString ? ncodeunits(cell) : length(cell)
         write(io, hton(field.pntr(n)), hton(field.pntr(n == 0 ? 0 : position(heap))))
         n == 0 && return
-        type <: AbstractString ? write(heap, codeunits(checkascii(cell))) : write(heap, BitVector, cell)
+        type <: AbstractString ? write(heap, codeunits(checkascii(cell; check))) : write(heap, BitVector, cell)
         return
     end
     values = cell isa AbstractArray ? reshape(cell, :) : [cell]
@@ -457,6 +457,8 @@ end
 function DataFormat(::Type{Bintable}, data::U, mankeys::Dict{S, V}) where
     {U <: Union{Tuple, NamedTuple}, S <: AbstractString, V <: ValueType}
 
+    #  Data that have no fields have no rows, as a table that has no fields has no data (Sect. 7.3.1)
+    isempty(data) && return DataFormat(Bintable, missing, mankeys)
     checkrows(data)
     heapformat(data, size(data[1], 1), mankeys)
 end
@@ -534,7 +536,9 @@ function columndescriptor(values, pntr::Union{Type, Nothing} = nothing)
     if values isa AbstractArray && ndims(values) >= 2
         #  The strings of an array of strings have the number of bytes of the longest as their first dimension (Sect. 7.3.2)
         if nonmissingtype(eltype(values)) <: AbstractString
-            width = maximum(ncodeunits, values; init = 0)
+            any(ismissing, values) && throw(ArgumentError(missingstring("The array of strings has")))
+            #  The strings of an array of strings have a character at least, whose number is the first dimension of TDIMn (Sect. 7.3.2)
+            width = max(maximum(ncodeunits, values; init = 0), 1)
             shape = size(values)[2:end]
             return (String, width*prod(shape), width*prod(shape), nothing, "", 0, (width, shape...))
         end
@@ -548,7 +552,7 @@ function columndescriptor(values, pntr::Union{Type, Nothing} = nothing)
         cells = [cell for cell in values if !ismissing(cell)]
         all(cell -> size(cell) == size(value), cells) || throw(ArgumentError("The arrays of strings of a field have " *
             "different sizes, but the arrays of strings of a binary table have the same size (Sect. 7.3.2)."))
-        width = maximum(ncodeunits(string) for cell in cells for string in cell; init = 0)
+        width = max(maximum(ncodeunits(string) for cell in cells for string in cell; init = 0), 1)
         return (String, width*length(value), width*length(value), nothing, "", 0, (width, size(value)...))
     end
     if value isa AbstractArray && !(value isa BitVector)
@@ -703,10 +707,8 @@ function fieldvalue(values)
     size(x) = x isa AbstractString ? ncodeunits(x) : length(x)
     for other in values
         ismissing(other) && continue
-        other isa AbstractString && checkascii(other)
         size(other) > size(value) && (value = other)
     end
-    value isa AbstractString && checkascii(value)
     value
 end
 
@@ -750,6 +752,13 @@ function createcards!(::Type{Bintable}, format::DataFormat,
             "$(field.leng)$(POINTERTYPE[field.pntr])$(BINARYTYPE[field.type])($(field.supp))")
         named && push!(required, "TTYPE$j" => field.name)
     end
+    #  The name of a field is the string of its TTYPEn, which has at most 68 characters, and they are ASCII text characters (Sects. 4.2.1.1 and 7.3.2)
+    for (j, field) in enumerate(fields)
+        named && !isascii(field.name) && throw(ArgumentError("The name of field $j, $(repr(field.name)), has characters that are not ASCII " *
+            "text characters, but the value of a TTYPEn keyword is a string of them (Sect. 4.2.1.1)."))
+        named && ncodeunits(field.name) > 68 && throw(ArgumentError("The name of field $j, $(repr(first(field.name, 20)))..., has " *
+            "$(ncodeunits(field.name)) characters, but the value of a TTYPEn keyword has at most 68 (Sect. 4.2.1.1)."))
+    end
     #  The dimensions of an array of a field that has more than one dimension are its TDIMn (Sect. 7.3.2)
     for (j, field) in enumerate(fields)
         !isnothing(field.dims) && length(field.dims) > 1 && push!(required, "TDIM$j" => "(" * join(field.dims, ",") * ")")
@@ -787,7 +796,9 @@ end
 
 #  Name the data that are given as tuples, which are the columns or the records, by the names of the fields (see `FieldFormat`), so that they are
 #  matched to the fields by name as named tuples are
-namedata(::Type{Bintable}, data::Tuple, fields, format::DataFormat) = NamedTuple{Tuple(Symbol(field.name) for field in fields)}(data)
+namedata(::Type{Bintable}, data::Tuple, fields, format::DataFormat) =
+    isempty(data) ? missing : NamedTuple{Tuple(Symbol(field.name) for field in fields)}(data)
+namedata(::Type{Bintable}, data::NamedTuple{()}, fields, format::DataFormat) = missing
 namedata(::Type{Bintable}, data::AbstractArray{<:Tuple}, fields, format::DataFormat) =
     [NamedTuple{Tuple(Symbol(field.name) for field in fields)}(record) for record in data]
 
@@ -894,7 +905,16 @@ function Base.read(io::IO, field::BinaryField, format::DataFormat,
         column = nullcomplex(setmissing(column, field.null))
         column = scale ? physical(column, type, field.scale, field.zero) : column
     end
+    type <: AbstractString && warnnonascii(field, column)
     scalefloats(applydims(column, field), field, scale)
+end
+
+#  The characters of a field of strings are the restricted set of ASCII-text characters, the bytes 32 to 126 (Sect. 7.3.3.1), so the strings that have
+#  others, which are read as the bytes are, are warned of once for the field. The strings of the arrays of a variable-length field are those of its rows.
+function warnnonascii(field::BinaryField, strings)
+    bad = count(cell -> cell isa AbstractString && !all(c -> ' ' <= c <= '~', cell), strings)
+    bad > 0 && @warn "Field $(field.name) has $bad strings with characters that are not ASCII text characters, which are the bytes 32 to 126 " *
+        "(Sect. 7.3.3.1). They are read as they are."
 end
 
 #  Are the physical values of a field the same type as its stored values, which are floating-point or complex? They are if the field is
@@ -1227,6 +1247,11 @@ hasmissing(value) = value isa Missing || (value isa AbstractArray && any(ismissi
 
 #  The integer TNULLn of a field, which stands for an undefined value, is a value of the type of the field (Sect. 7.3.2), so that the undefined
 #  values can be written
+function missingstring(subject::AbstractString)
+    "$subject a missing string, but the strings of a binary table have no undefined value: a null string, which begins with a NUL, is " *
+        "read as the empty string (Sect. 7.3.3.1). Use the empty string."
+end
+
 function checknull(field::BinaryField)
     type, null = field.type, field.null
     (isnothing(null) || (type <: Union{UInt8, Int16, Int32, Int64} && typemin(type) <= null <= typemax(type))) && return
@@ -1252,6 +1277,8 @@ function Base.write(io::IO, field::BinaryField, value::U; check::Bool = true, ph
     n = value isa AbstractArray ? length(value) : 1
     type <: AbstractString || n <= leng || throw(ArgumentError("The array of field $(field.name) has $n elements, " *
         "but the field has $leng (Sect. 7.3.1)."))
+    #  The strings have no undefined value: a null string, whose first character is a NUL, is read as the empty string (Sect. 7.3.3.1)
+    type <: AbstractString && hasmissing(value) && throw(ArgumentError(missingstring("Field $(field.name) has")))
     #  A logical value is written as T or F, and an undefined value as a 0 byte (Sect. 7.3.3.1)
     type <: Bool && return leng == 0 ? 0 : write(io, padelements(encodelogical.(value), leng, 0x00))
     #  The stored values of the physical values, and the undefined values, which are written as TNULLn (Sect. 7.3.2), or NaN for
@@ -1265,12 +1292,14 @@ function Base.write(io::IO, field::BinaryField, value::U; check::Bool = true, ph
         #  dimension of TDIMn (Sect. 7.3.2)
         dims = stringdims(field)
         isnothing(dims) && throw(ArgumentError("The array of strings of field $(field.name) needs the dimensions of TDIM, " *
-            "whose first dimension is the number of characters of a string (Sect. 7.3.2)."))
-        bytes = reduce(vcat, [padstring(string, dims[1]) for string in value]; init = UInt8[])
+            "whose first dimension is the number of characters of a string (Sect. 7.3.2), but " *
+            (isnothing(field.dims) ? "the field has none." : "$(join(field.dims, " × ")) cannot be used: it has no characters in a string, " *
+            "or more than the field has, or one dimension.")))
+        bytes = reduce(vcat, [padstring(string, dims[1]; check) for string in value]; init = UInt8[])
         length(bytes) > leng && throw(ArgumentError("The strings of field $(field.name) have $(length(bytes)) bytes, but the field has $leng."))
         write(io, vcat(bytes, fill(UInt8(' '), leng - length(bytes))))
     elseif type <: AbstractString
-        write(io, padstring(value, field.leng))
+        write(io, padstring(value, field.leng; check))
     elseif type <: BitVector
         write(io, type, BitVector(padelements(value, leng, false)))
     elseif leng == 0
@@ -1298,14 +1327,16 @@ function decodestring(bytes::AbstractVector{UInt8})
     String(rstrip(String(bytes[1:(isnothing(nul) ? length(bytes) : nul - 1)])))
 end
 
-#  The characters of a field are the restricted set of ASCII text characters (Sect. 7.3.3.1)
-checkascii(value::AbstractString) = isascii(value) ? value : throw(ArgumentError("The string $(repr(value)) has characters that " *
-    "are not ASCII, but the characters of a field of a binary table are the ASCII text characters (Sect. 7.3.3.1)."))
+#  The characters of a field are the restricted set of ASCII text characters (Sect. 7.3.3.1), which is an error when the strings are written, unless the
+#  check is turned off (`check = false`), where the bytes of the string are written as they are
+checkascii(value::AbstractString; check::Bool = true) = !check || isascii(value) ? value : throw(ArgumentError("The string $(repr(value)) has " *
+    "characters that are not ASCII, but the characters of a field of a binary table are the ASCII text characters (Sect. 7.3.3.1). " *
+    "Use check = false to write the bytes of the string."))
 
 #  The bytes of a string in a field of `width` bytes, which are filled with spaces. A string that is longer than the field is an error,
 #  since its bytes would be those of the fields after it.
-function padstring(value::AbstractString, width::Integer)
-    checkascii(value)
+function padstring(value::AbstractString, width::Integer; check::Bool = true)
+    checkascii(value; check)
     bytes = codeunits(value)
     length(bytes) > width && throw(ArgumentError("The string $(repr(value)) has $(length(bytes)) bytes, but the field has " *
         "$width (Sect. 7.3.3.1)."))

@@ -1604,14 +1604,21 @@
         end
         @test HDU(Bintable, (u = ["ab"], b = [BitVector([1, 0])])).cards["TFORM1"] == "2A"
 
-        #  the characters of a field are ASCII text, so a string that has other characters is an error
+        #  the characters of a field are ASCII text, so a string that has other characters is an error when the data are written, unless the check is turned
+        #  off, where the bytes of the strings are written, and are read as they are
         for data in (["é"], ["abc", "naïve"], ["日本"])
-            err = try HDU(Bintable, (s = data,)) catch e e end
-            @test err isa ArgumentError && occursin("are not ASCII", err.msg) && occursin("Sect. 7.3.3.1", err.msg)
-            @test_throws ArgumentError HDU(Bintable, [(s = x,) for x in data])
+            hdu = HDU(Bintable, (s = data,))
+            err = try write(IOBuffer(), hdu) catch e e end
+            @test err isa ArgumentError && occursin("are not ASCII", err.msg) && occursin("Sect. 7.3.3.1", err.msg) && occursin("check = false", err.msg)
+            @test_throws ArgumentError write(IOBuffer(), HDU(Bintable, [(s = x,) for x in data]))
+            @test getfield(hdu, :cards)["TFORM1"] == "$(maximum(ncodeunits, data))A"
+            io = IOBuffer()
+            write(io, [HDU(Primary), hdu]; check = false)
+            @test @test_logs((:warn, r"not ASCII text characters"), fits(IOBuffer(take!(io)))[2].data.s) == data
         end
-        @test FITSFiles.checkascii("abc ~") == "abc ~"
+        @test FITSFiles.checkascii("abc ~") == "abc ~" && FITSFiles.checkascii("é"; check = false) == "é"
         @test_throws ArgumentError FITSFiles.padstring("é", 4)
+        @test FITSFiles.padstring("é", 4; check = false) == [0xc3, 0xa9, 0x20, 0x20]
     end
 
     ####    Test the undefined complex values (Sect. 7.3.3.1)    ####
@@ -2221,6 +2228,83 @@
         #  and a table that has no fields has no data, and a table that has fields and no rows has the empty columns
         @test ismissing(fits(IOBuffer(bytesof([HDU(Primary), HDU(Bintable)])))[2].data)
         @test fits(IOBuffer(bytesof([HDU(Primary), HDU(Bintable, (a = Int16[], b = String[]))])))[2].data == (a = Int16[], b = String[])
+    end
+
+    @testset "strings, no fields, and names" begin
+        bytesof(hdus; kwds...) = (io = IOBuffer(); write(io, hdus; kwds...); take!(io))
+        reread(data, cards = Card{<:Any}[]; kwds...) = fits(IOBuffer(bytesof([HDU(Primary), HDU(Bintable, data, cards)])); kwds...)[2]
+        #  the characters of a string are the bytes 32 to 126 (Sect. 7.3.3.1), so the strings that have others, which are before the NUL that ends a string, are
+        #  read as they are, with a warning for the field that counts them, and those after it, which are not defined, are not read
+        raw = bytesof([HDU(Primary), HDU(Bintable, (s = ["abc", "def", "ghi"], t = ["xyz", "uvw", "rst"]))])
+        function change(raw, old, offset, byte)
+            raw = copy(raw)
+            raw[first(findfirst(Vector{UInt8}(old), raw)) + offset] = byte
+            raw
+        end
+        bad = change(change(raw, "abc", 1, 0xff), "ghi", 0, 0x09)
+        read_ = @test_logs (:warn, "Field s has 2 strings with characters that are not ASCII text characters, which are the bytes 32 to 126 " *
+            "(Sect. 7.3.3.1). They are read as they are.") fits(IOBuffer(bad))[2].data
+        @test read_.s == ["a\xffc", "def", "\thi"] && read_.t == ["xyz", "uvw", "rst"] && !isvalid(read_.s[1])
+        after = copy(raw)
+        i = first(findfirst(Vector{UInt8}("abc"), after))
+        after[i + 1], after[i + 2] = 0x00, 0xff
+        @test_logs fits(IOBuffer(after))
+        @test fits(IOBuffer(after))[2].data.s == ["a", "def", "ghi"]
+        #  and the strings of the arrays of a variable-length field are those of its rows
+        variable = bytesof([HDU(Primary), HDU(Bintable, (s = ["abc", "de"],); variable = (s = 'P',))])
+        @test_logs (:warn, r"Field s has 1 strings with characters that are not ASCII") fits(IOBuffer(change(variable, "abc", 1, 0xff)))
+        #  the data that are read are not written, since the standard has only the characters 32 to 126, but a file that is not read is written as it is
+        @test_throws ArgumentError r"has characters that are not ASCII, but the characters of a field of a binary table" bytesof(
+            @test_logs((:warn, r"not ASCII text characters"), fits(IOBuffer(bad))))
+        path = joinpath(mktempdir(), "ascii.fits")
+        write(path, bad)
+        @test bytesof(fits(path)) == bad
+        #  unless the check is turned off, where the data that are read are written with the bytes that they were read with, the arrays of the strings
+        #  of a variable-length field and of an array of strings too
+        @test bytesof(@test_logs((:warn, r"not ASCII text characters"), fits(IOBuffer(bad); access = :memory)); check = false) == bad
+        for (data, kwds) in (((s = ["é", "abc"],), (;)), ((s = ["é", "abc"],), (; variable = (s = 'P',))), ((t = ["é" "b"; "c" "d"],), (;)))
+            written = bytesof([HDU(Primary), HDU(Bintable, data; kwds...)]; check = false)
+            read_ = @test_logs((:warn, r"not ASCII text characters"), fits(IOBuffer(written))[2].data)
+            @test read_ == data && bytesof(fits(IOBuffer(written)); check = false) == written
+        end
+
+        #  a string is not missing, since the strings have no undefined value, and its null string, which begins with a NUL, is the empty string
+        @test_throws ArgumentError("Field s has a missing string, but the strings of a binary table have no undefined value: a null string, " *
+            "which begins with a NUL, is read as the empty string (Sect. 7.3.3.1). Use the empty string.") bytesof([HDU(Primary), HDU(Bintable, (s = ["a", missing],))])
+        @test_throws ArgumentError r"The array of strings has a missing string, but the strings of a binary table have no undefined value" HDU(
+            Bintable, (s = ["a" missing; "b" "c"],))
+        @test reread((s = ["a", "b"],)).data.s == ["a", "b"]
+        nul = change(change(raw, "abc", 0, 0x00), "def", 1, 0x00)
+        @test fits(IOBuffer(nul))[2].data.s == ["", "d", "ghi"]
+        #  and the arrays of strings of no characters have a character of each string, since their first dimension is the characters of TDIMn (Sect. 7.3.2)
+        for data in ((t = ["" ""; "" ""],), (t = reshape(["", "", "", "", "", ""], 2, 3),))
+            hdu = HDU(Bintable, data)
+            @test getfield(hdu, :cards)["TDIM1"] == "(1," * join(size(data.t)[2:end], ",") * ")"
+            @test reread(data).data.t == data.t
+        end
+        hdu = HDU(Bintable, (t = ["ab" "cd"; "ef" "gh"],))
+        cards = copy(getfield(hdu, :cards))
+        cards["TDIM1"] = "(0,2)"
+        @test_throws ArgumentError r"needs the dimensions of TDIM, whose first dimension is the number of characters of a string \(Sect. 7.3.2\), but 0 × 2 cannot be used" bytesof(
+            [HDU(Primary), HDU{Bintable}(cards, hdu.data)])
+        cards = copy(getfield(hdu, :cards))
+        popat!(cards, "TDIM1")
+        @test_throws ArgumentError r"but the field has none" bytesof([HDU(Primary), HDU{Bintable}(cards, hdu.data)])
+
+        #  a table that has no fields has no rows and no data, whether it is made without data or from data that have no fields, and is read as the same
+        for hdu in (HDU(Bintable), HDU(Bintable, NamedTuple()), HDU(Bintable, ()))
+            @test getfield(hdu, :cards)["TFIELDS"] == 0 && getfield(hdu, :cards)["NAXIS1"] == 0 && getfield(hdu, :cards)["NAXIS2"] == 0
+            @test ismissing(getfield(hdu, :data)) && size(hdu) == (0, 0)
+            read_ = fits(IOBuffer(bytesof([HDU(Primary), hdu])))[2]
+            @test ismissing(read_.data) && getfield(read_, :cards)["TFIELDS"] == 0
+        end
+
+        #  the name of a field is a string of the ASCII text characters that has at most 68 characters, which is its TTYPEn (Sect. 4.2.1.1)
+        @test_throws ArgumentError("The name of field 2, \"ñ\", has characters that are not ASCII text characters, but the value of a TTYPEn keyword " *
+            "is a string of them (Sect. 4.2.1.1).") HDU(Bintable, NamedTuple{(:a, :ñ)}(([1], [2])))
+        @test_throws ArgumentError("The name of field 1, \"" * "a"^20 * "\"..., has 80 characters, but the value of a TTYPEn keyword has at most 68 " *
+            "(Sect. 4.2.1.1).") HDU(Bintable, NamedTuple{(Symbol("a"^80),)}(([1],)))
+        @test keys(reread(NamedTuple{(Symbol("a"^68), :b)}(([1], [2]))).data) == (Symbol("a"^68), :b)
     end
 
 end
