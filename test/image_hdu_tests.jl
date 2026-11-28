@@ -281,7 +281,8 @@
             rpad(join(rpad.(vcat(cards, ["END"]), 80)), 2880) * String(vcat(data, zeros(UInt8, nfill)))
         end
         reading(bytes; kwds...) = read(IOBuffer(bytes), HDU; scale = false, kwds...)
-        written(hdu) = (buffer = IOBuffer(); write(buffer, hdu); take!(buffer))
+        #  the files that are read are not all standard, so the HDUs are written with the check turned off, as they are read (see `problem`)
+        written(hdu; check = false) = (buffer = IOBuffer(); write(buffer, hdu; check); take!(buffer))
 
         xtension, bitpix, naxis, naxis1 = "XTENSION= 'IMAGE   '", kw("BITPIX", 16), kw("NAXIS", 1), kw("NAXIS1", 3)
         pcount, gcount = kw("PCOUNT", 0), kw("GCOUNT", 1)
@@ -412,7 +413,7 @@
         bytesof(values) = collect(reinterpret(UInt8, hton.(values)))
         #  an HDU that is read, which has the data scaled unless scale is false, and the bytes of an HDU that is written
         reading(bytes; kwds...) = read(IOBuffer(bytes), HDU; kwds...)
-        written(hdu; kwds...) = (buffer = IOBuffer(); write(buffer, hdu; kwds...); take!(buffer))
+        written(hdu; check = false, kwds...) = (buffer = IOBuffer(); write(buffer, hdu; check, kwds...); take!(buffer))
         #  the cards of the header of an IMAGE extension of an array of one axis, and the cards that follow them
         header(bitpix = 16, n = 3, extra...) = ["XTENSION= 'IMAGE   '", kw("BITPIX", bitpix), kw("NAXIS", 1), kw("NAXIS1", n),
             kw("PCOUNT", 0), kw("GCOUNT", 1), extra...]
@@ -567,7 +568,7 @@
         @test reading(written(hdu); scale = false).data == Int16[0, 1, -8]
         hdu.data .= Float32[11.2, 11.3, -10.0]
         @test_throws ArgumentError("The value 11.2 cannot be stored as Int16 data with BSCALE 2.5 and BZERO 10.0: the " *
-            "nearest stored value, 0, is the value 10.0. Use check = false to write the stored value.") written(hdu)
+            "nearest stored value, 0, is the value 10.0. Use check = false to write the stored value.") written(hdu; check = true)
         @test reading(written(hdu; check = false); scale = false).data == Int16[0, 1, -8]
         #  NaN is undefined if the data have a BLANK, a value is in the range of the type, and BSCALE is not 0
         hdu = reading(filebytes(header(16, 3, kw("BSCALE", 2.5), kw("BLANK", -32768)), bytesof(Int16[-5, -32768, 300])))

@@ -48,7 +48,7 @@ function verify!(::Type{Conform}, cards::Cards, mankeys::AbstractDict, reskeys::
     verifyarray(Conform, mankeys, reskeys)
     #  A Conform HDU with SIMPLE is the primary HDU of a file that does not conform to the Standard
     if haskey(mankeys, "SIMPLE")
-        mankeys["SIMPLE"] === false && @warn "SIMPLE is F, so the file does not conform to the " *
+        mankeys["SIMPLE"] === false && @problem "SIMPLE is F, so the file does not conform to the " *
             "Standard (Sect. 4.4.1.1). The primary HDU is read as a Conform HDU, and its data are not scaled."
         cards = verifyconform(cards, mankeys)
     end
@@ -120,7 +120,7 @@ end
 #  The BLANK keyword of an array is an integer, and is for integer data only (Sect. 4.4.2.5).
 function verifyblank(::Type{Conform}, mankeys::AbstractDict, reskeys::AbstractDict)
     verifyinteger(reskeys, r"^BLANK$")
-    haskey(reskeys, "BLANK") && get(mankeys, "BITPIX", 8) < 0 && @warn "BLANK is for integer data " *
+    haskey(reskeys, "BLANK") && get(mankeys, "BITPIX", 8) < 0 && @problem "BLANK is for integer data " *
         "(a positive BITPIX) only (Sect. 4.4.2.5), so it is not used."
 end
 

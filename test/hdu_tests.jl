@@ -346,7 +346,7 @@
         hdu = @test_logs (:warn, r"XTENSION value 'IMAGE' is not padded") read(buffer, HDU)
         @test hdu.cards[1].value == "IMAGE"
         io = IOBuffer()
-        write(io, hdu)
+        write(io, hdu; check = false)
         @test String(take!(io))[1:80] == rpad("XTENSION= 'IMAGE'", 80)
     end
 
@@ -658,4 +658,35 @@
         @test HDU(Bintable, [(1, "a"), (2, "b")]).data == [(column1 = 1, column2 = "a"), (column1 = 2, column2 = "b")]
         @test FITSFiles.namedata(Primary, columns, nothing, nothing) === columns
     end
+    ####    Test the problems that are warnings when a file is read, and errors when it is written    ####
+
+    @testset "problem" begin
+        #  a problem is a warning, with its consequence, when it is not written
+        @test_logs (:warn, "A problem.") FITSFiles.problem("A problem.")
+        @test_logs (:warn, "A problem. It is read as it is.") FITSFiles.problem("A problem."; consequence = "It is read as it is.")
+        #  and an error when it is written, which says how to write it as it is, or what that writes if the data are written from memory
+        for mode in (:eager, :raw, :file)
+            task_local_storage(FITSFiles.STRICTWRITE, mode) do
+                @test_throws ArgumentError("A problem. Use check = false to write it as it is.") FITSFiles.problem("A problem.")
+                @test_throws ArgumentError("A problem. Use check = false to write it as it is.") FITSFiles.problem("A problem."; consequence = "It is read as it is.")
+                lost = mode == :eager ? ", where the bytes are zeros" : " as it is"
+                @test_throws ArgumentError("A problem. Use check = false to write it$lost.") FITSFiles.problem("A problem."; lost = "the bytes are zeros")
+            end
+        end
+        #  unless the check is turned off, and the flag is only set for the time of the write
+        task_local_storage(FITSFiles.STRICTWRITE, nothing) do
+            @test_logs (:warn, "A problem.") FITSFiles.problem("A problem.")
+        end
+        @test_logs (:warn, "A problem.") FITSFiles.problem("A problem.")
+        #  a write is strict unless check is false, whatever the type of the HDU and the data, and only for the time that it is written
+        hdu = HDU(Primary, Int16[1 2; 3 4])
+        cards = getfield(hdu, :cards)
+        swapped = [cards[1], cards[3], cards[2], cards[4:end]...]
+        bad = HDU{Primary}(Card{<:Any}[swapped...], getfield(hdu, :data))
+        @test_throws ArgumentError r"Keyword 2 of the header is NAXIS, but the Standard requires BITPIX .*Use check = false to write it as it is\.$" write(IOBuffer(), bad)
+        io = IOBuffer()
+        @test_logs (:warn, r"Keyword 2 of the header is NAXIS") write(io, bad; check = false)
+        @test length(take!(io)) == 2880 * 2
+    end
+
 end

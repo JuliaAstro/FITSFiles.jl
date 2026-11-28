@@ -531,7 +531,7 @@
              Card("TFORM5", "3A"),
              Card("TTYPE5", "par5")]
     seek(io, 0)
-    write(io, HDU(data, cards))
+    write(io, HDU(data, cards); check = false)
     seek(io, 0)
     hdu = read(io, HDU; record=false, scale=true)
 
@@ -600,7 +600,7 @@
              Card("TFORM5", "3A"),
              Card("TTYPE5", "par5")]
     seek(io, 0)
-    write(io, HDU(data, cards))
+    write(io, HDU(data, cards); check = false)
     seek(io, 0)
     hdu = read(io, HDU; record=true, scale=true)
 
@@ -680,7 +680,7 @@
              Card("TSCAL5", 0.5)]
 
     seek(io, 0)
-    write(io, HDU(data, cards))
+    write(io, HDU(data, cards); check = false)
     seek(io, 0)
     hdu = read(io, HDU; record=false, scale=true)
 
@@ -781,7 +781,7 @@
              Card("TSCAL5", 0.1)]
 
     seek(io, 0)
-    write(io, HDU(data, cards))
+    write(io, HDU(data, cards); check = false)
     seek(io, 0)
     hdu = read(io, HDU; record=false, scale=false)
 
@@ -1312,7 +1312,8 @@
     ####    Test the verification of the header (Sects. 4.4.1.2, 7.3.1, and 7.3.2)    ####
 
     @testset "header verification" begin
-        written(hdu) = (io = IOBuffer(); write(io, hdu); take!(io))
+        #  the headers that are read are not standard, so they are written with the check turned off, as they are read (see `problem`)
+        written(hdu; check = false) = (io = IOBuffer(); write(io, hdu; check); take!(io))
         card(s) = rpad(s, 80)
         kw(key, value) = key * repeat(" ", 8 - length(key)) * "= " * lpad(value isa AbstractString ? "'" * rpad(value, 8) * "'" : string(value),
             value isa AbstractString ? 10 : 20)
@@ -1826,7 +1827,7 @@
     ####    Test the TNULLn of the fields (Sect. 7.3.2)    ####
 
     @testset "TNULLn range" begin
-        written(hdu) = (io = IOBuffer(); write(io, hdu); take!(io))
+        written(hdu; check = false) = (io = IOBuffer(); write(io, hdu; check); take!(io))
         card(s) = rpad(s, 80)
         function tablebytes(cards, naxis1, data)
             header = vcat(["XTENSION= 'BINTABLE'", "BITPIX  =                    8", "NAXIS   =                    2",
@@ -1892,10 +1893,13 @@
         @test @test_logs(written(hdu)) == bytes
         hdu.data.column1[2] = Int16[7, 8, 9]
         @test length(@test_logs(written(hdu))) == length(bytes) && read(IOBuffer(@test_logs(written(hdu))), HDU).data.column1[2] == Int16[7, 8, 9]
-        #  an array that is longer is written, with a warning, since the header is written before the data
+        #  an array that is longer has the emax of the header that is written set to its length, with a warning, and the header of the HDU is not changed
         hdu.data.column1[2] = Int16[1, 2, 3, 4]
-        w = @test_logs (:warn, r"The longest array of field column1 has 4 elements, more than the largest number of elements, 3, that its TFORM says") written(hdu)
-        @test read(IOBuffer(w), HDU).cards["TFORM1"] == "1PI(3)" && read(IOBuffer(w), HDU).data.column1[2] == Int16[1, 2, 3, 4]
+        w = @test_logs (:warn, "TFORM1 set to \"1PI(4)\", since the longest array of field column1 has 4 elements, more than the largest number of " *
+            "elements, 3, that its TFORM says (Sect. 7.3.5).") written(hdu)
+        @test read(IOBuffer(w), HDU).cards["TFORM1"] == "1PI(4)" && read(IOBuffer(w), HDU).data.column1[2] == Int16[1, 2, 3, 4]
+        @test hdu.cards["TFORM1"] == "1PI(3)"
+        @test_logs((:warn, r"TFORM1 set to"), written(hdu)) == w
         #  the emax of a table that is created is the length of the longest array, and strings and bits have their own
         created = HDU(Bintable, (v = [Int16[1, 2], Int16[3, 4, 5]],))
         @test created.cards["TFORM1"] == "1PI(3)" && length(@test_logs(written(created))) == 5760
@@ -2156,14 +2160,13 @@
         #  are written (Sect. 7.3.5), and the field is written with a 64-bit descriptor (Q) if the header says Q
         small = HDU(Bintable, (v = [1:2, 1:3],); variable = (v = 'P',))
         huge = HDU{Bintable}(getfield(small, :cards), (v = [1:2^31, 1:2],))
-        @test_logs (:warn, r"The longest array of field v") match_mode = :any @test_throws ArgumentError(
+        @test_throws ArgumentError(
             "The array of row 1 of field v is at the offset 0 in the heap and has 2147483648 elements, which a 32-bit array descriptor (P) cannot " *
             "address (Sect. 7.3.5). Use the 64-bit descriptor, Q, with the keyword variable or in TFORM1.") write(IOBuffer(), huge)
         @test_throws ArgumentError r"The array of row 3 of field v is at the offset 2147483648 in the heap" write(IOBuffer(), HDU{Bintable}(
             getfield(HDU(Bintable, (v = [1:2, 1:3, 1:4, 1:5],); variable = (v = 'P',)), :cards), (v = [1:2^27, 1:2^27, 1:2^27, 1:2],)))
         quad = HDU(Bintable, (v = [1:2, 1:3],); variable = (v = 'Q',))
-        @test_logs (:warn, r"The longest array of field v") match_mode = :any @test_throws ArgumentError r"PCOUNT" write(IOBuffer(), HDU{Bintable}(
-            getfield(quad, :cards), (v = [1:2^31, 1:2],)))
+        @test_throws ArgumentError r"PCOUNT" write(IOBuffer(), HDU{Bintable}(getfield(quad, :cards), (v = [1:2^31, 1:2],)))
     end
 
     @testset "data and cards" begin
@@ -2305,6 +2308,51 @@
         @test_throws ArgumentError("The name of field 1, \"" * "a"^20 * "\"..., has 80 characters, but the value of a TTYPEn keyword has at most 68 " *
             "(Sect. 4.2.1.1).") HDU(Bintable, NamedTuple{(Symbol("a"^80),)}(([1],)))
         @test keys(reread(NamedTuple{(Symbol("a"^68), :b)}(([1], [2]))).data) == (Symbol("a"^68), :b)
+    end
+
+    @testset "strict writes" begin
+        bytesof(hdus; kwds...) = (io = IOBuffer(); write(io, hdus; kwds...); take!(io))
+        #  a field of bits has no scale and zero (Sect. 7.3.2), which is an error when the table is written, unless the check is turned off
+        cards = Card{<:Any}[Card("TSCAL1", 2.0)]
+        hdu = HDU(Bintable, (b = [BitVector([1, 0, 1])],), cards)
+        @test_throws ArgumentError r"TSCAL1 and TZERO1 must not be used for a field of type X \(Sect. 7.3.2\)\. They are not used\. Use check = false to write it as it is\.$" bytesof(
+            [HDU(Primary), hdu])
+        written = @test_logs (:warn, r"TSCAL1 and TZERO1 must not be used") match_mode = :any bytesof([HDU(Primary), hdu]; check = false)
+        @test @test_logs((:warn, r"TSCAL1 and TZERO1 must not be used"), match_mode = :any, fits(IOBuffer(written)))[2].data.b == [BitVector([1, 0, 1])]
+        #  the bytes of a row that no field has are not read, so the data that are written from memory have zeros in their place, which an error says, and
+        #  the data that are not read are copied with them, if the check is turned off
+        raw = bytesof([HDU(Primary), HDU(Bintable, (a = Int16[1, 2],))])
+        i = findfirst(b"NAXIS1  =                    2", raw)
+        longer = copy(raw)
+        longer[first(i) + 29] = UInt8('4')
+        longer = vcat(longer[1:5760], UInt8[0x00, 0x01, 0xaa, 0xbb, 0x00, 0x02, 0xcc, 0xdd], zeros(UInt8, 2880 - 8))
+        message = "NAXIS1 is 4, but the fields of TFORMn have 2 bytes in a row, which is the value that NAXIS1 must have (Eq. 8, Sect. 7.3.1)."
+        eager = @test_logs (:warn, r"NAXIS1 is 4") (:warn, r"NAXIS1 is 4") match_mode = :any fits(IOBuffer(longer); access = :memory)
+        @test_throws ArgumentError(message * " Use check = false to write it, where the 2 bytes after the fields of a row, which are not read, are " *
+            "written as zeros.") bytesof(eager)
+        out = @test_logs (:warn, r"The 2 bytes after the fields of a row are not read, and are written as zeros") match_mode = :any bytesof(eager; check = false)
+        @test out[5761:5768] == UInt8[0x00, 0x01, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00]
+        path = joinpath(mktempdir(), "longer.fits")
+        write(path, longer)
+        lazy = @test_logs (:warn, r"NAXIS1 is 4") (:warn, r"NAXIS1 is 4") match_mode = :any fits(path)
+        @test_throws ArgumentError(message * " Use check = false to write it as it is.") bytesof(lazy)
+        @test @test_logs((:warn, r"NAXIS1 is 4"), (:warn, r"NAXIS1 is 4"), match_mode = :any, bytesof(lazy; check = false)) == longer
+        small = bytesof([HDU(Primary), HDU(Bintable, (v = [Int16[1, 2, 3], Int16[4]],))])
+        #  the repeat count of an array descriptor is 0 or 1 (Sect. 7.3.3.1), which is read as 1, with a warning, and is an error when it is written
+        repeat2 = copy(small)
+        j = findfirst(b"1PI(3)", repeat2)
+        repeat2[first(j)] = UInt8('2')
+        wide = @test_logs (:warn, r"TFORM1 has the repeat count 2, but the only permitted repeat counts of an array descriptor are 0 and 1") match_mode = :any fits(IOBuffer(repeat2); access = :memory)
+        @test wide[2].data.v == [Int16[1, 2, 3], Int16[4]]
+        @test_throws ArgumentError r"TFORM1 has the repeat count 2.*Use check = false to write it as it is\.$" bytesof(wide)
+        #  an emax of a variable-length field that is less than its arrays is corrected in the header that is written, and the bytes of the file that is
+        #  not read are copied as they are
+        i = findfirst(b"1PI(3)", small)
+        less = copy(small)
+        less[first(i) + 4] = UInt8('2')
+        @test @test_logs((:warn, r"TFORM1 set to \"1PI\(3\)\", since the longest array of field v has 3 elements"), bytesof(fits(IOBuffer(less); access = :memory))) == small
+        write(path, less)
+        @test bytesof(fits(path)) == less
     end
 
 end

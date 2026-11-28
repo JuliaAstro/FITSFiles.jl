@@ -721,7 +721,8 @@
             filter(c -> !(strip(c[1:8]) in drop), cards)
         end
         reading(bytes; kwds...) = read(IOBuffer(bytes), HDU; kwds...)
-        written(hdu; kwds...) = (io = IOBuffer(); write(io, hdu; kwds...); take!(io))
+        #  the files that are read are not all standard, so the HDUs are written with the check turned off, as they are read (see `problem`)
+        written(hdu; check = false, kwds...) = (io = IOBuffer(); write(io, hdu; check, kwds...); take!(io))
         #  two groups of two parameters and an array of three values: (1, 2, 10, 11, 12) and (3, 4, 20, 21, 22)
         stored = Int16[1, 2, 10, 11, 12, 3, 4, 20, 21, 22]
         groups = filebytes(grouphdr(), bytesof(stored))
@@ -758,12 +759,12 @@
         scaledhdu.data.param2[2] = 1.3
         @test_throws ArgumentError("The parameter param2 of group 2: The value 1.3 cannot be stored as Int16 data with " *
             "PSCAL2 0.5 and PZERO2 0.0: the nearest stored value, 3, is the value 1.5. Use check = false to write the " *
-            "stored value.") written(scaledhdu)
+            "stored value.") written(scaledhdu; check = true)
         @test reading(written(scaledhdu; check = false); scale = false).data.param2 == Int16[2, 3]
         scaledhdu.data.param2[2] = 2
         scaledhdu.data.data[1, 1] = 5.3
-        @test_throws ArgumentError written(scaledhdu)
-        @test occursin("array data of group 1", sprint(showerror, try written(scaledhdu) catch e e end))
+        @test_throws ArgumentError written(scaledhdu; check = true)
+        @test occursin("array data of group 1", sprint(showerror, try written(scaledhdu; check = true) catch e e end))
         #  a value that is not in the range of the type, and NaN, which has no BLANK in random groups, are errors
         scaledhdu.data.data[1, 1] = 6
         scaledhdu.data.param1[2] = 1e9

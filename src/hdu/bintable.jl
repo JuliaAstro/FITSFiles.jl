@@ -95,12 +95,12 @@ function parsedims(value::Union{AbstractString, Nothing}, j::Integer)
     isempty(strip(value)) && return nothing
     m = match(r"^\s*\(\s*(\d+(?:\s*,\s*\d+)*)\s*\)\s*$", value)
     if isnothing(m)
-        @warn "TDIM$j is not of the form (l,m,n...), so it is ignored: $(repr(value))"
+        @problem "TDIM$j is not of the form (l,m,n...), so it is ignored: $(repr(value))"
         return nothing
     end
     Tuple(parse.(Int, split(m[1], ",")))
 end
-parsedims(value, j::Integer) = (@warn "TDIM$j is not a string, so it is ignored: $(repr(value))"; nothing)
+parsedims(value, j::Integer) = (@problem "TDIM$j is not a string, so it is ignored: $(repr(value))"; nothing)
 
 function Base.read(io::IO, ::Type{Bintable}, format::DataFormat,
     fields::Vector{BinaryField}; record::Bool = false, kwds...)
@@ -229,12 +229,6 @@ function verifydata(::Type{Bintable}, data::Union{NamedTuple, AbstractVector{<:N
         field.leng == 0 && any(j -> heapbytes(field, getcell(Bintable, data, field, j)) > 0, 1:N) && throw(ArgumentError(
             "Field $(field.name) has the repeat count 0 in its TFORMn, which is an empty field of zero bytes, but its data have " *
             "elements (Sect. 7.3.3.1)."))
-        emax = tryparse(Int, field.supp)
-        isnothing(emax) && continue
-        longest = maximum((ismissing(cell) ? 0 : field.type <: AbstractString ? ncodeunits(cell) : length(cell)
-            for j = 1:N for cell in (getcell(Bintable, data, field, j),)); init = 0)
-        longest > emax && @warn "The longest array of field $(field.name) has $longest elements, more than the largest number of " *
-            "elements, $emax, that its TFORM says (Sect. 7.3.5). The TFORM is written as it is."
     end
     #  A 32-bit descriptor (P) has the number of elements and the offset of an array in the heap that are 32-bit integers, which the arrays are written in
     #  the order of the rows and then the fields, so their offsets are the bytes before them (Sect. 7.3.5)
@@ -251,6 +245,30 @@ function verifydata(::Type{Bintable}, data::Union{NamedTuple, AbstractVector{<:N
     available = format.param - max(format.heap - M*N, 0)
     needed > available && throw(ArgumentError("The variable-length arrays of the data have $needed bytes, but PCOUNT " *
         "$(format.param) and THEAP $(format.heap) leave $available bytes for the heap (Sect. 7.3.5)."))
+end
+
+#  The largest number of elements of the arrays of a variable-length field in the rows of the data
+longestarray(field::BinaryField, data, N::Integer) = maximum((ismissing(cell) ? 0 : field.type <: AbstractString ? ncodeunits(cell) : length(cell)
+    for j = 1:N for cell in (getcell(Bintable, data, field, j),)); init = 0)
+
+#  The largest number of elements of an array of a variable-length field that its TFORMn says (emax) is at least that of the arrays (Sect. 7.3.5), so the
+#  header that is written has the TFORMn of the arrays that are written, whose emax is the largest of them if the one of the header is less, with a warning,
+#  as the header is made from the data when it is made (see `keywordcards!`)
+function correctcards!(::Type{Bintable}, cards::Cards, data, format::DataFormat, fields::Vector{BinaryField})
+    copied = false
+    for (j, field) in enumerate(fields)
+        isnothing(field.pntr) && continue
+        emax = tryparse(Int, field.supp)
+        isnothing(emax) && continue
+        longest = longestarray(field, data, format.shape[2])
+        longest > emax || continue
+        copied || (cards = copy(cards); copied = true)
+        form = replace(cards["TFORM$j"], r"\(.*?\)" => "($longest)")
+        @warn "TFORM$j set to $(repr(form)), since the longest array of field $(field.name) has $longest elements, more than the largest number " *
+            "of elements, $emax, that its TFORM says (Sect. 7.3.5)."
+        cards["TFORM$j"] = form
+    end
+    cards
 end
 
 function verify!(::Type{Bintable}, cards::Cards, mankeys::AbstractDict, reskeys::AbstractDict)
@@ -282,7 +300,7 @@ end
 function verifykeys(::Type{Bintable}, cards::Cards, mankeys::AbstractDict, reskeys::AbstractDict)
     #  PCOUNT and GCOUNT have the values 0 and 1 if they are missing, so the data can be read without them
     for (key, value) in ("PCOUNT" => 0, "GCOUNT" => 1)
-        haskey(mankeys, key) || @warn "$key is missing, but it is a mandatory keyword of a BINTABLE extension " *
+        haskey(mankeys, key) || @problem "$key is missing, but it is a mandatory keyword of a BINTABLE extension " *
             "(Sect. 7.3.1), and has the value $value. It is read as $value."
     end
     #  The mandatory keywords are the first keywords, in order and in fixed format
@@ -291,16 +309,16 @@ function verifykeys(::Type{Bintable}, cards::Cards, mankeys::AbstractDict, reske
         names = "XTENSION, BITPIX, NAXIS, NAXIS1, NAXIS2, PCOUNT, GCOUNT, and TFIELDS")
     verifyfixed(cards, required)
     #  The keywords of the primary header, and of the physical blocks, are not in an extension (Sects. 4.4.1.1, 4.4.2.1, and 7.3.2)
-    haskey(mankeys, "SIMPLE") && @warn "SIMPLE must not appear in an extension header (Sect. 4.4.1.1). It is read as it is."
+    haskey(mankeys, "SIMPLE") && @problem "SIMPLE must not appear in an extension header (Sect. 4.4.1.1). It is read as it is."
     for key in ("EXTEND", "BLOCKED")
-        haskey(reskeys, key) && @warn "$key must not appear in a BINTABLE extension header (Sects. 4.4.2.1 and 7.3.2). " *
+        haskey(reskeys, key) && @problem "$key must not appear in a BINTABLE extension header (Sects. 4.4.2.1 and 7.3.2). " *
             "It is read as it is."
     end
     #  INHERIT is a logical that is immediately after the mandatory keywords (Sect. 4.4.2.6 and Appendix K)
     verifylogical(reskeys, r"^INHERIT$")
     j = Base.findfirst("INHERIT", cards)
     if !ismissing(j) && j != length(required) + 1
-        @warn "INHERIT must be the keyword immediately after the mandatory keywords, keyword $(length(required) + 1) " *
+        @problem "INHERIT must be the keyword immediately after the mandatory keywords, keyword $(length(required) + 1) " *
             "of this header (Sect. 4.4.2.6 and Appendix K), but it is keyword $j. It is read as it is."
     end
     verifyfieldkeys(Bintable, mankeys, reskeys)
@@ -360,8 +378,9 @@ function FieldFormat(::Type{Bintable}, mankeys::DataFormat, reskeys::Dict{S, V},
         leng  = !isempty(form[:r]) ? Base.parse(Int64, form[:r]) : 1
         if !isnothing(pntr)
             if !(leng in [0, 1])
+                @problem "TFORM$j has the repeat count $leng, but the only permitted repeat counts of an array descriptor are 0 and 1 " *
+                    "(Sect. 7.3.3.1). It is read as 1."
                 leng = 1
-                @warn "TFORM$j repeat value set to 1."
             end
             byts = leng*2*sizeof(pntr)
         elseif type <: BitVector
@@ -1385,14 +1404,14 @@ function verifyheap!(cards::Cards, mankeys::AbstractDict)
 	heap = mankeys["THEAP"]
 	#  THEAP is not used if PCOUNT is 0, since there is no heap (Sect. 7.3.2)
 	if get(mankeys, "PCOUNT", 0) == 0
-		@warn "THEAP must not be used if PCOUNT is 0 (Sect. 7.3.2), since there is no heap. It is not used."
+		@problem "THEAP must not be used if PCOUNT is 0 (Sect. 7.3.2), since there is no heap. It is not used."
 		return cards
 	end
 	table = get(mankeys, "NAXIS1", 0) * get(mankeys, "NAXIS2", 0)
 	if heap < table
-		@warn "THEAP $heap is less than NAXIS1*NAXIS2, $table, and the heap overlaps the table."
+		@problem "THEAP $heap is less than NAXIS1*NAXIS2, $table, and the heap overlaps the table."
 	elseif heap > table + get(mankeys, "PCOUNT", 0)
-		@warn "THEAP $heap is more than NAXIS1*NAXIS2 + PCOUNT, $(table + get(mankeys, "PCOUNT", 0)), and the heap is past the data."
+		@problem "THEAP $heap is more than NAXIS1*NAXIS2 + PCOUNT, $(table + get(mankeys, "PCOUNT", 0)), and the heap is past the data."
 	end
 	cards
 end
@@ -1426,14 +1445,14 @@ function verifyfields!(::Type{Bintable}, cards::Cards, mankeys::AbstractDict)
 	N = get(mankeys, "TFIELDS", nothing)
 	isnothing(N) && return cards
 	N < 0 && throw(ArgumentError("TFIELDS must be non-negative, but its value is $N."))
-	N > MAXBINTABLEFIELDS && @warn "TFIELDS $N is more than the maximum of $MAXBINTABLEFIELDS."
+	N > MAXBINTABLEFIELDS && @problem "TFIELDS $N is more than the maximum of $MAXBINTABLEFIELDS."
 	for j = 1:N
 		haskey(mankeys, "TFORM$j") || throw(ArgumentError("TFORM$j is missing, but TFIELDS is $N."))
 	end
 	for key in sort!(collect(keys(mankeys)))
 		m = match(r"^TFORM(\d+)$", key)
 		!isnothing(m) && Base.parse(Int, m[1]) > N &&
-			@warn "$key is beyond TFIELDS $N, and is not used."
+			@problem "$key is beyond TFIELDS $N, and is not used."
 	end
 	cards
 end
@@ -1475,8 +1494,9 @@ function verifyrowbytes(mankeys::AbstractDict, reskeys::AbstractDict)
     row = get(mankeys, "NAXIS1", nbytes)
     row < nbytes && throw(ArgumentError("NAXIS1 is $row, but the fields of TFORMn have $nbytes bytes in a row, " *
         "which is the value that NAXIS1 must have (Eq. 8, Sect. 7.3.1)."))
-    row > nbytes && @warn "NAXIS1 is $row, but the fields of TFORMn have $nbytes bytes in a row, which is the value that NAXIS1 " *
-        "must have (Eq. 8, Sect. 7.3.1). The $(row - nbytes) bytes after the fields of a row are not read, and are written as zeros."
+    row > nbytes && problem("NAXIS1 is $row, but the fields of TFORMn have $nbytes bytes in a row, which is the value that NAXIS1 " *
+        "must have (Eq. 8, Sect. 7.3.1)."; consequence = "The $(row - nbytes) bytes after the fields of a row are not read, and are written as zeros.",
+        lost = "the $(row - nbytes) bytes after the fields of a row, which are not read, are written as zeros")
     nothing
 end
 
@@ -1497,22 +1517,22 @@ function verifyfieldkeys(::Type{Bintable}, mankeys::AbstractDict, reskeys::Abstr
         isnothing(form) && continue
         type = match(TFORMFORM, rstrip(form))[3]
         (haskey(reskeys, "TSCAL$j") || haskey(reskeys, "TZERO$j")) && type in ("A", "L", "X") &&
-            @warn "TSCAL$j and TZERO$j must not be used for a field of type $type (Sect. 7.3.2). They are not used."
-        haskey(reskeys, "TNULL$j") && !(type in ("B", "I", "J", "K")) && @warn "TNULL$j must not be used for a field of type " *
+            @problem "TSCAL$j and TZERO$j must not be used for a field of type $type (Sect. 7.3.2). They are not used."
+        haskey(reskeys, "TNULL$j") && !(type in ("B", "I", "J", "K")) && @problem "TNULL$j must not be used for a field of type " *
             "$type (Sect. 7.3.2), which is not an integer. It is not used."
         nulltype = get(NULLTYPES, type, nothing)
         null = get(reskeys, "TNULL$j", nothing)
-        !isnothing(nulltype) && null isa Integer && !(typemin(nulltype) <= null <= typemax(nulltype)) && @warn "TNULL$j, $null, " *
+        !isnothing(nulltype) && null isa Integer && !(typemin(nulltype) <= null <= typemax(nulltype)) && @problem "TNULL$j, $null, " *
             "is not a value of the $nulltype of its field, from $(typemin(nulltype)) to $(typemax(nulltype)) (Sect. 7.3.2), so no " *
             "value is undefined. The undefined values cannot be written."
         verifyextremes(reskeys, j, type)
         disp = get(reskeys, "TDISP$j", nothing)
         if disp isa AbstractString && !occursin(TDISPFORM, strip(disp))
-            @warn "TDISP$j must be a display format of Table 20 (Sect. 7.3.2), but its value is $(repr(disp)). It is read as it is."
+            @problem "TDISP$j must be a display format of Table 20 (Sect. 7.3.2), but its value is $(repr(disp)). It is read as it is."
         elseif disp isa AbstractString
             #  The display format is one that Sect. 7.3.4 gives for the type of the field
             code = match(r"^[A-Z]+", strip(disp)).match
-            code in DISPCODES[type] || @warn "TDISP$j, $(repr(strip(disp))), is not a display format for a field of type $type " *
+            code in DISPCODES[type] || @problem "TDISP$j, $(repr(strip(disp))), is not a display format for a field of type $type " *
                 "(Sect. 7.3.4), which has the formats $(join(DISPCODES[type], ", ")). It is read as it is."
         end
         name = get(reskeys, "TTYPE$j", nothing)
@@ -1542,10 +1562,10 @@ function verifyextremes(reskeys::AbstractDict, j::Integer, type::AbstractString)
         value = get(reskeys, key, nothing)
         (value isa Real && !(value isa Bool)) || continue
         if integers && !(value isa Integer)
-            @warn "$key must be an integer, since the values of field $j are integers (Sect. 7.3.2), but its value is $(repr(value)). " *
+            @problem "$key must be an integer, since the values of field $j are integers (Sect. 7.3.2), but its value is $(repr(value)). " *
                 "It is read as it is."
         elseif !integers && value isa Integer
-            @warn "$key must be a floating-point number, since the values of field $j are floating-point numbers (Sect. 7.3.2), " *
+            @problem "$key must be a floating-point number, since the values of field $j are floating-point numbers (Sect. 7.3.2), " *
                 "but its value is $(repr(value)). It is read as it is."
         end
     end

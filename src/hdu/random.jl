@@ -137,10 +137,10 @@ function verifyparamkeys(reskeys::AbstractDict, P::Integer)
         isnothing(m) && continue
         n = Base.parse(Int, m[2])
         if n > P
-            @warn "$key is beyond PCOUNT $P, and is not used."
+            @problem "$key is beyond PCOUNT $P, and is not used."
             continue
         elseif n < 1
-            @warn "$key is not the keyword of a parameter, which is numbered from 1, and is not used."
+            @problem "$key is not the keyword of a parameter, which is numbered from 1, and is not used."
             continue
         end
         value = reskeys[key]
@@ -392,7 +392,7 @@ function verifyaxes(::Type{Random}, mankeys::AbstractDict)
     end
     for key in sort!(collect(keys(mankeys)))
         m = match(r"^NAXIS(\d+)$", key)
-        !isnothing(m) && Base.parse(Int, m[1]) > max(N, 0) && @warn "$key is beyond NAXIS $N, and is not used."
+        !isnothing(m) && Base.parse(Int, m[1]) > max(N, 0) && @problem "$key is beyond NAXIS $N, and is not used."
     end
     nothing
 end
@@ -416,7 +416,7 @@ end
 function verify!(::Type{Random}, cards::Cards, format::DataFormat,
     mankeys::AbstractDict)
 
-    get(mankeys, "SIMPLE", true) === false && @warn "Random HDU is nonconformant, since SIMPLE is F."
+    get(mankeys, "SIMPLE", true) === false && @problem "Random HDU is nonconformant, since SIMPLE is F."
     verifyshape!(Random, cards, mankeys, format)
     if get(mankeys, "GROUPS", true) !== true
         setindex!(cards, true, "GROUPS")
@@ -763,7 +763,7 @@ end
 #  EXTEND and BLOCKED are logicals, and INHERIT must not appear.
 function verifyrandomkeys(reskeys::AbstractDict)
     verifylogical(reskeys, r"^(EXTEND|BLOCKED)$")
-    haskey(reskeys, "INHERIT") && @warn "INHERIT must not appear in the primary header (Appendix K). It is read as it is."
+    haskey(reskeys, "INHERIT") && @problem "INHERIT must not appear in the primary header (Appendix K). It is read as it is."
 end
 
 #  The keywords that describe the array of a group (Sect. 4.4.2.5): BLANK, BSCALE, BZERO, DATAMIN, DATAMAX, and BUNIT.
@@ -778,7 +778,7 @@ end
 #  The BLANK keyword of the array of a group is an integer, and is for integer data only (Sect. 4.4.2.5).
 function verifyblank(::Type{Random}, mankeys::AbstractDict, reskeys::AbstractDict)
     verifyinteger(reskeys, r"^BLANK$")
-    haskey(reskeys, "BLANK") && get(mankeys, "BITPIX", 8) < 0 && @warn "BLANK is for integer data " *
+    haskey(reskeys, "BLANK") && get(mankeys, "BITPIX", 8) < 0 && @problem "BLANK is for integer data " *
         "(a positive BITPIX) only (Sect. 4.4.2.5), so it is not used."
 end
 

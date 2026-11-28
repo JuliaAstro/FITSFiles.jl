@@ -18,7 +18,8 @@
     @testset "file structure" begin
         primary, image = HDU(Primary, Int16[1 2 3; 4 5 6]), HDU(Image, Float32[1.5 2.5; -1 7])
         table, empty = HDU(Bintable, (a = Int32[1, 2, 3], b = [1.5, 2.5, 3.5])), HDU(Primary)
-        written(hdus) = (buffer = IOBuffer(); write(buffer, hdus); take!(buffer))
+        #  the files that are read are not all standard, so the HDUs are written with the check turned off, as they are read (see `problem`)
+        written(hdus; check = false) = (buffer = IOBuffer(); write(buffer, hdus; check); take!(buffer))
         first_ = r"The first HDU of a FITS file must be the primary HDU, which has SIMPLE \(Sect. 3.1\)"
         later(j) = Regex("HDU $j of a FITS file has SIMPLE, but only the first HDU is a primary HDU")
 
@@ -51,7 +52,7 @@
         file = @test_logs (:warn, first_) fits(IOBuffer(bytes))
         @test typeof.(file) == [typeof(image), typeof(table)]
         mktemp() do path, io
-            @test_logs (:warn, later(2)) write(io, [primary, primary])
+            @test_logs (:warn, later(2)) write(io, [primary, primary]; check = false)
             close(io)
             @test_logs (:warn, later(2)) fits(path)
         end
@@ -78,7 +79,7 @@
             @test_logs write(path, [empty, image]; checksum = true)
             @test_logs fits(path; checksum = true)
             #  and the file is verified like a vector
-            @test_logs (:warn, first_) write(path, [image, table])
+            @test_logs (:warn, first_) write(path, [image, table]; check = false)
             @test length(@test_logs((:warn, first_), fits(path))) == 2
         end
     end
@@ -89,7 +90,8 @@
         data = Int16[1 2]
         extension(cards...) = HDU(Image, data, Card{<:Any}[cards...])
         sci, sci2 = extension(Card("EXTNAME", "SCI")), extension(Card("EXTNAME", "SCI"), Card("EXTVER", 2))
-        written(hdus) = (buffer = IOBuffer(); write(buffer, hdus); take!(buffer))
+        #  the files that are read are not all standard, so the HDUs are written with the check turned off, as they are read (see `problem`)
+        written(hdus; check = false) = (buffer = IOBuffer(); write(buffer, hdus; check); take!(buffer))
         captured(f) = mktemp() do path, io
             redirect_stdout(f, io)
             close(io)
@@ -150,7 +152,8 @@
     ####    Test the special records after the last HDU (Sect. 3.5)    ####
 
     @testset "Special records" begin
-        written(hdus) = (io = IOBuffer(); write(io, hdus); take!(io))
+        #  the files that are read are not all standard, so the HDUs are written with the check turned off, as they are read (see `problem`)
+        written(hdus; check = false) = (io = IOBuffer(); write(io, hdus; check); take!(io))
         primary, image = HDU(Primary, Int16[1 2 3; 4 5 6]), HDU(Image, Float32[1.5 2.5; -1 7])
         bytes = written(HDU[primary, image])
         #  the HDUs of a file that ends with the last of them are read without a warning
@@ -336,6 +339,35 @@
         sample = joinpath(@__DIR__, "data", "int32_large.fits")
         @test bytesof(fits(sample)) == bytesof(fits(IOBuffer(read(sample))))
         @test bytesof(fits(sample)) == read(sample)
+    end
+
+    @testset "strict writes of a file" begin
+        primary, image = HDU(Primary, Int16[1 2 3; 4 5 6]), HDU(Image, Float32[1.5 2.5; -1 7])
+        #  the order of the HDUs is an error when they are written, before anything is written, unless the check is turned off
+        for hdus in ([image, primary], [primary, primary])
+            io = IOBuffer()
+            @test_throws ArgumentError r"of a FITS file .*Use check = false to write it as it is\.$" write(io, hdus)
+            @test isempty(take!(io))
+            @test_logs (:warn, r"of a FITS file") (:warn, r"of a FITS file") match_mode = :any write(io, hdus; check = false)
+            @test length(take!(io)) == 4 * 2880
+        end
+        #  and a file is not changed, or left empty, or with some of the HDUs, by a write that fails, and there is no other file left
+        mktempdir() do dir
+            path = joinpath(dir, "file.fits")
+            write(path, [primary, image])
+            before = read(path)
+            @test_throws ArgumentError r"The first HDU of a FITS file must be the primary HDU" write(path, [image, primary])
+            @test read(path) == before && readdir(dir) == ["file.fits"]
+            @test_throws ArgumentError r"The first HDU of a FITS file must be the primary HDU" write(joinpath(dir, "new.fits"), [image])
+            @test readdir(dir) == ["file.fits"]
+            @test_logs (:warn, r"The first HDU of a FITS file must be the primary HDU") write(joinpath(dir, "new.fits"), [image]; check = false)
+            @test readdir(dir) == ["file.fits", "new.fits"] && length(@test_logs((:warn, r"The first HDU"), fits(joinpath(dir, "new.fits")))) == 1
+            write(path, [primary, image, image])
+            @test length(read(path)) > length(before) && readdir(dir) == ["file.fits", "new.fits"]
+        end
+        #  the names of the HDUs that are the same are a recommendation, which is a warning
+        named = HDU(Image, Float32[1 2], Card{<:Any}[Card("EXTNAME", "SCI")])
+        @test_logs (:warn, r"HDU 3 of a FITS file has the same type IMAGE, EXTNAME \"SCI\"") write(IOBuffer(), [primary, named, named])
     end
 
 end

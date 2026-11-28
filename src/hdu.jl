@@ -458,7 +458,11 @@ since the HDU was read, which is an `ArgumentError` too. Read the data (`hdu.dat
 
 # Keywords
 
-- `check::Bool=true`: check that the stored value of each value of the data gives the value again when BSCALE and BZERO
+- `check::Bool=true`: the HDU is written strictly: a header that does not satisfy the standard, e.g., keywords that are not in order, a value that is not
+  in fixed format, a value of a reserved keyword that is not of its type, a TNULLn that is not a value of its field, a NAXIS1 that is more than the bytes of
+  the fields (whose bytes after them are zeros in the data that are written from memory), is an error, and so is an HDU in a vector that is not in the order of
+  the standard, since a file is read leniently, with a warning, so that it is always read. If false, they
+  are warnings, and the HDU is written as it is. The check also says that the stored value of each value of the data gives the value again when BSCALE and BZERO
   are applied to it, and raise an error if it does not, e.g., a value of 11.2 for integer data with a BSCALE of 2.5 and a
   BZERO of 10, whose nearest stored value is 0 and gives 10.0; if false, the nearest stored value is written. The characters of the strings
   of a binary table and the characters of an ASCII table are the ASCII text characters (Sects. 7.2.5 and 7.3.3.1), and a string that has others,
@@ -493,7 +497,41 @@ function writedata(io::IO, type::Type{<:AbstractHDU}, data, format::DataFormat, 
 	isnothing(source) ? write(io, type, data, format, fields; kwds...) : rawcopy(io, type, source, format)
 end
 
+#  A problem of the header, or of the file, that does not satisfy the standard is a warning when it is read, so that a file is always read, and an error when
+#  it is written, so that the files that are written satisfy the standard, unless the check is turned off (`check = false`), where it is a warning and the
+#  HDU is written as it is. A write sets `STRICTWRITE` for the time of the write: `:eager` if the data are written from memory, `:raw` if they are copied as
+#  they are from their file, and `:file` for the HDUs of a file. A problem that writes less than the header says, e.g., the bytes of a row that no field has,
+#  which are zeros in the data that are written from memory, says what is lost (`lost`), unless the data are copied.
+const STRICTWRITE = :fitsfiles_strictwrite
+
+function problem(message::AbstractString; consequence::AbstractString = "", lost::Union{AbstractString, Nothing} = nothing)
+	mode = get(task_local_storage(), STRICTWRITE, nothing)
+	if isnothing(mode)
+		@warn isempty(consequence) ? message : message * " " * consequence
+	else
+		how = mode == :eager && !isnothing(lost) ? ", where $lost" : " as it is"
+		throw(ArgumentError("$message Use check = false to write it$how."))
+	end
+	nothing
+end
+
+macro problem(message)
+	:(problem($(esc(message))))
+end
+
+#  The cards that are written, which a type of HDU whose header has a keyword that the data in memory make wrong corrects, with a warning (see
+#  `verifydata`)
+correctcards!(::Type{<:AbstractHDU}, cards::Cards, data, format::DataFormat, fields) = cards
+
 function Base.write(io::IO, hdu::HDU{<:AbstractHDU}; checksum::Bool = false, kwds...)
+	check = get(kwds, :check, true)
+	mode = check ? (isnothing(lazysource(getfield(hdu, :data))) ? :eager : :raw) : nothing
+	task_local_storage(STRICTWRITE, mode) do
+		writehdu(io, hdu; checksum, kwds...)
+	end
+end
+
+function writehdu(io::IO, hdu::HDU{<:AbstractHDU}; checksum::Bool = false, kwds...)
 
 	cards = getfield(hdu, :cards)
 	mankeys, reskeys = getreservedkeys(cards)
@@ -503,7 +541,10 @@ function Base.write(io::IO, hdu::HDU{<:AbstractHDU}; checksum::Bool = false, kwd
 	format = DataFormat(type, missing, mankeys)
 	cards  = verify!(type, cards, format, mankeys)
 	fields = FieldFormat(type, format, reskeys, missing)
-	isnothing(lazysource(getfield(hdu, :data))) && verifydata(type, getfield(hdu, :data), format, fields)
+	if isnothing(lazysource(getfield(hdu, :data)))
+		verifydata(type, getfield(hdu, :data), format, fields)
+		cards = correctcards!(type, cards, getfield(hdu, :data), format, fields)
+	end
 	if checksum
 		#  The sums are of the bytes of the data, and then of the header, which has the sums
 		data = IOBuffer()
