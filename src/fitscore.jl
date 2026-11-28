@@ -93,7 +93,8 @@ but the data that are not read, which is the default, are written as they are in
 
 A string of a binary table ends at the first NUL, and does not have the spaces at its end, which fill its field (Sect. 7.3.3.1). The bytes of a
 string that are not ASCII text characters, i.e., that are not 32 to 126, are read as they are, with a warning for the field, but the data that are
-read (`access = :memory`) are not written with them, since the standard has only those characters, unless `check = false` is given to `write`.
+read (`access = :memory`) are not written with them, since the standard has only those characters, unless `check = false` is given to `write`, which is so for the characters of
+an ASCII table too.
 A string cannot be `missing`.
 
 The data of the HDUs of a file are not read until they are accessed (`hdu.data`), so that a file is scanned quickly, e.g., to
