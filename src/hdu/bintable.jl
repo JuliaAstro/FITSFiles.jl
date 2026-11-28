@@ -125,12 +125,9 @@ function Base.read(io::IO, ::Type{Bintable}, format::DataFormat,
         data = (; [Symbol(field.name) =>
             read(io, field, format, begpos; kwds...) for field in fields]... )
     end
-    #  Seek to the beginning of the heap
-    seek(io, begpos + (P > 0 ? format.heap : M*N))
-    #  Read the heap
-    ntoh.(read(io, P))
-    #  Seek to the end of block
-    # seek(io, begpos + BLOCKLEN*div(M*N + P, BLOCKLEN, RoundUp))
+    #  The heap is not read, since the arrays of the fields are read from it, so the stream is at the end of the table and the heap, which
+    #  have the bytes that the header says (Sect. 7.3.5)
+    seek(io, begpos + M*N + P)
 
     ####    Get WCS keywords
     data
@@ -168,7 +165,7 @@ function Base.write(io::IO, ::Type{Bintable}, data::Union{AbstractArray, NamedTu
                 cell = getcell(Bintable, data, field, j)
                 if isnothing(field.pntr)
                     write(io, field, flatten(cell); physical = physicalscale(data, field), kwds...)
-                else
+                elseif field.leng > 0
                     writearray(io, heap, field, cell; check = get(kwds, :check, true))
                 end
             end
@@ -226,6 +223,10 @@ function verifydata(::Type{Bintable}, data::Union{NamedTuple, AbstractVector{<:N
     #  The largest number of elements of the arrays of a field is at most the emax of its TFORMn, which is guaranteed to be the
     #  largest (Sect. 7.3.5)
     for field in variable
+        #  The repeat count 0 is an empty field of zero bytes, which has no descriptor and no array (Sect. 7.3.3.1)
+        field.leng == 0 && any(j -> heapbytes(field, getcell(Bintable, data, field, j)) > 0, 1:N) && throw(ArgumentError(
+            "Field $(field.name) has the repeat count 0 in its TFORMn, which is an empty field of zero bytes, but its data have " *
+            "elements (Sect. 7.3.3.1)."))
         emax = tryparse(Int, field.supp)
         isnothing(emax) && continue
         longest = maximum((field.type <: AbstractString ? ncodeunits(cell) : length(cell)
@@ -397,7 +398,7 @@ nullkey(reskeys::AbstractDict, key::AbstractString, type::Type) =
 function DataFormat(::Type{Bintable}, data::AbstractArray,
     mankeys::Dict{S, V}) where {S <: AbstractString, V <: ValueType}
 
-    heapformat(data, length(data))
+    heapformat(data, length(data), mankeys)
 end
 
 function FieldFormat(::Type{Bintable}, mankey::DataFormat, reskeys::Dict{S, V},
@@ -409,7 +410,7 @@ function FieldFormat(::Type{Bintable}, mankey::DataFormat, reskeys::Dict{S, V},
     for j = 1:N
         name = typeof(data[1]) <: NamedTuple ? rstrip(String(keys(data[1])[j])) :
             stringkey(reskeys, "TTYPE$j", "field$j")
-        type, leng, byts, pntr, supp, _, shape = columndescriptor(record[j] for record in data)
+        type, leng, byts, pntr, supp, _, shape = columndescriptor((record[j] for record in data), forcedpointer(reskeys, j))
         type, offset = rawtype(type), offsetof(type)
         # unit_ = unit(data[1][j]) != NoUnits ? unit(data[1][j]) :
         #     get(reskeys, "TUNIT$j", "")
@@ -435,7 +436,7 @@ end
 function DataFormat(::Type{Bintable}, data::U, mankeys::Dict{S, V}) where
     {U <: Union{Tuple, NamedTuple}, S <: AbstractString, V <: ValueType}
 
-    heapformat(data, size(data[1], 1))
+    heapformat(data, size(data[1], 1), mankeys)
 end
 
 function FieldFormat(::Type{Bintable}, mankey::DataFormat, reskeys::Dict{S, V},
@@ -448,7 +449,7 @@ function FieldFormat(::Type{Bintable}, mankey::DataFormat, reskeys::Dict{S, V},
     for j = 1:N
         name  = typeof(data) <: NamedTuple ? rstrip(String(keys(data)[j])) :
             uniquename(stringkey(reskeys, "TTYPE$j", "column$j"), "column$j", names)
-        type, leng, byts, pntr, supp, _, shape = columndescriptor(data[j])
+        type, leng, byts, pntr, supp, _, shape = columndescriptor(data[j], forcedpointer(reskeys, j))
         type, offset = rawtype(type), offsetof(type)
         # unit_ = unit(data[j]) != NoUnits ? unit(data[j]) :
         #     get(reskeys, "TUNIT$j", "")
@@ -493,7 +494,9 @@ heapbytes(field::BinaryField, cell) = field.type <: AbstractString ? ncodeunits(
 #  different lengths are a variable-length array, whose descriptor is two 32-bit integers (P) or two 64-bit integers (Q) if the heap
 #  is too large for them (Sect. 7.3.5), and the other cells are an array, a string, or a number, of the size of the first value that
 #  is not missing.
-function columndescriptor(values)
+function columndescriptor(values, pntr::Union{Type, Nothing} = nothing)
+    #  A field that is variable-length, whose descriptor `pntr` is a 32-bit (P) or 64-bit (Q) integer, whatever the lengths of its arrays are
+    isnothing(pntr) || return variabledescriptor(values, pntr)
     #  A column of two or more dimensions has the values of a row in its second and later dimensions, which are the dimensions TDIMn
     #  of an array of the field that has more than one (Sect. 7.3.2)
     if values isa AbstractArray && ndims(values) >= 2
@@ -529,13 +532,80 @@ function columndescriptor(values)
     (type, leng, byts, nothing, "", 0, value isa AbstractArray && ndims(value) > 1 ? size(value) : nothing)
 end
 
+#  The type of the array descriptor of a field, which is a P (32-bit) or Q (64-bit) in its TFORMn, or nothing if it is not variable-length. The
+#  keyword `variable` and the cards give it, which the data would not (see `columndescriptor`), since the arrays of the rows can have the same length
+#  (Sect. 7.3.5).
+function forcedpointer(keys::AbstractDict, j::Integer)
+    form = get(keys, "TFORM$j", nothing)
+    form isa AbstractString || return nothing
+    m = match(r"^\s*\d*([PQ])", form)
+    isnothing(m) ? nothing : POINTERTYPE[m[1]]
+end
+
+#  The type, the number of elements, the bytes in a row, the type of the array descriptor, the largest number of elements of an array, and
+#  the bytes of the heap of a field from the cells `values` of its column, which is variable-length whatever the lengths of its arrays are: the
+#  cells are arrays, strings, or bit arrays, a number is an array of one element, and the rows of a column of two or more dimensions are the
+#  cells. The descriptor `pntr` is 32-bit or 64-bit, and the bytes of the heap must be a value of its type (Sect. 7.3.5).
+function variabledescriptor(values, pntr::Type)
+    if values isa AbstractArray && ndims(values) >= 2
+        nonmissingtype(eltype(values)) <: AbstractString && throw(ArgumentError("An array of strings cannot be a variable-length " *
+            "field, whose arrays are the elements of one type (Sect. 7.3.5)."))
+        cells = [selectdim(values, 1, j) for j = 1:size(values, 1)]
+    else
+        cells = collect(values)
+    end
+    defined = [cell for cell in cells if !ismissing(cell)]
+    #  The type is that of the first array, or of the column if there are none
+    first_ = isempty(defined) ? nothing : first(defined)
+    type = if first_ isa AbstractString
+        String
+    elseif first_ isa BitVector
+        BitVector
+    elseif first_ isa AbstractArray
+        nonmissingtype(eltype(first_))
+    elseif isnothing(first_)
+        element = nonmissingtype(eltype(cells))
+        element <: AbstractArray ? nonmissingtype(eltype(element)) : element
+    else
+        typeof(first_)
+    end
+    type <: Union{AbstractString, BitVector} || checkfieldtype(type)
+    sizes = [cell isa AbstractString ? ncodeunits(cell) : cell isa AbstractArray ? length(cell) : 1 for cell in defined]
+    bytes = type <: BitVector ? sum(sizeofbitvector, sizes; init = 0) : sum(sizes; init = 0) * heapelementsize(type)
+    code = POINTERTYPE[pntr]
+    bytes > typemax(pntr) && throw(ArgumentError("The variable-length arrays of the field have $bytes bytes, which a $(sizeof(pntr)*8)-bit " *
+        "array descriptor ($code) cannot address (Sect. 7.3.5). Use the 64-bit descriptor, Q."))
+    (type, 1, 2sizeof(pntr), pntr, string(maximum(sizes; init = 0)), bytes, nothing)
+end
+
+#  The keyword `variable` of an HDU that is made from data gives the type of the array descriptor, `'P'` (32-bit) or `'Q'` (64-bit), of the
+#  fields that it names, which are the names of the data, or their numbers, in a named tuple or a dictionary. It sets the TFORMn of the field,
+#  which it replaces if the cards have it, so the keyword has priority over the TFORMn card, which has priority over the lengths of the arrays.
+function keywordcards!(::Type{Bintable}, cards::Cards, data; variable = nothing, kwds...)
+    isnothing(variable) && return cards
+    columns = columnsof(data)
+    names = data isa AbstractArray ? keys(data[1]) : keys(data)
+    for (key, code) in pairs(variable)
+        j = key isa Integer ? Int(key) : findfirst(==(Symbol(key)), collect(names))
+        (isnothing(j) || !(1 <= j <= length(columns))) && throw(ArgumentError("The keyword variable names the field $(repr(key)), " *
+            "but the data have the fields $(join(repr.(collect(names)), ", "))."))
+        letter = string(code)
+        letter in ("P", "Q") || throw(ArgumentError("The descriptor of a variable-length field is 'P' or 'Q', but the keyword variable " *
+            "has $(repr(code)) for the field $(repr(key))."))
+        type, _, _, pntr, supp = columndescriptor(columns[j], POINTERTYPE[letter])
+        popat!(cards, "TFORM$j")
+        push!(cards, Card("TFORM$j", "1$letter$(BINARYTYPE[rawtype(type)])($supp)"))
+    end
+    cards
+end
+
 #  The data format of data of `nrows` rows: the bytes of a row and the rows, which are followed by the heap of the variable-length
 #  arrays, whose bytes are PCOUNT, so that the heap begins after the table
-function heapformat(data, nrows::Integer)
+function heapformat(data, nrows::Integer, keys::AbstractDict = Dict{String, Any}())
     cells = columnsof(data)
     length(cells) > MAXBINTABLEFIELDS && throw(ArgumentError("The data have $(length(cells)) fields, but a binary table has at most " *
         "$MAXBINTABLEFIELDS (Sect. 7.3.1)."))
-    columns = [columndescriptor(values) for values in cells]
+    columns = [columndescriptor(values, forcedpointer(keys, j)) for (j, values) in enumerate(cells)]
     shape = (sum(column[3] for column in columns; init = 0), nrows)
     param = sum(column[6] for column in columns; init = 0)
     DataFormat(BITS2TYPE[8], prod(shape) + param, shape, param, 1, prod(shape))
@@ -708,10 +778,15 @@ function Base.read(io::IO, field::BinaryField, format::DataFormat,
         heaplen = format.param - max(format.heap - L*N, 0)
         column = Array{Any}(undef, N)
         for j = 1:N
-            seek(io, begpos + L*(j-1) + M)
-            K   = Int(ntoh(read(io, field.pntr)))
-            beg = Int(ntoh(read(io, field.pntr)))
-            col = readarray(io, field, begpos + format.heap, K, beg, heaplen, j)
+            if leng == 0
+                #  The repeat count 0 is an empty field of zero bytes, which has no descriptor, so the arrays are empty (Sect. 7.3.3.1)
+                col = emptyarray(type)
+            else
+                seek(io, begpos + L*(j-1) + M)
+                K   = Int(ntoh(read(io, field.pntr)))
+                beg = Int(ntoh(read(io, field.pntr)))
+                col = readarray(io, field, begpos + format.heap, K, beg, heaplen, j)
+            end
             column[j] = scale ? physical(col, type, field.scale, field.zero) : col
         end
         column = map(identity, column)
@@ -1014,12 +1089,15 @@ function arraydims(field::BinaryField)
     dims
 end
 
+#  The array of no elements of a field of the type `type`, which is the value of an array that has no storage
+emptyarray(type::Type) = type <: Bool ? Bool[] : type <: AbstractString ? "" : type <: BitVector ? falses(0) : type[]
+
 #  The elements of the variable-length array of the descriptor (`K`, `beg`) of row `j`, which are read from the heap that begins at the
 #  position `heap` and has `heaplen` bytes. The storage of an array must lie entirely in the heap, and a negative length or offset is
 #  not defined (Sect. 7.3.5), so the array is read as empty, with a warning. An array of no elements has no storage.
 function readarray(io::IO, field::BinaryField, heap::Integer, K::Integer, beg::Integer, heaplen::Integer, j::Integer)
     type = field.type
-    empty = type <: Bool ? Bool[] : type <: AbstractString ? "" : type <: BitVector ? falses(0) : type[]
+    empty = emptyarray(type)
     K == 0 && return empty
     nbytes = type <: BitVector ? sizeofbitvector(K) : K*heapelementsize(type)
     if K < 0 || beg < 0 || beg + nbytes > heaplen
@@ -1037,7 +1115,9 @@ function readarray(io::IO, field::BinaryField, heap::Integer, K::Integer, beg::I
     else
         values = Vector{type}(undef, K)
         read!(io, values)
-        nullcomplex(setmissing(ntoh.(values), field.null))
+        #  The values are changed to the byte order of the machine where they are, so they are not copied
+        map!(ntoh, values, values)
+        nullcomplex(setmissing(values, field.null))
     end
 end
 
