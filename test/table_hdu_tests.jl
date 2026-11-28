@@ -810,6 +810,33 @@
         @test_logs (:warn, r"The characters of field column1 are not all ASCII text characters, from 32 to 126 \(Sect. 7.2.5\)") @test reread(bytes).data.column1 == ["ab\tc", "efgh"]
         @test_throws ArgumentError r"The string \"ab\\tc\" of field column1 has characters that are not ASCII text characters" written(bytes)
         @test_logs reread(tablebytes(fieldcards(["A4"], [1]), ["abcd", "e g "]))
+        #  unless the check is turned off, where the bytes of the characters are written, so the data that are read are written with the bytes that they were
+        #  read with, and the width of a field, and of a row, is its bytes
+        function lenient(bytes)
+            io = IOBuffer(bytes)
+            primary, table = read(io, HDU), read(io, HDU)
+            out = IOBuffer()
+            write(out, primary)
+            write(out, table; check = false)
+            String(take!(out))
+        end
+        #  (the string of the bytes has a space more than the three blocks, since `rpad` gives a tab no width)
+        @test_logs (:warn, r"The characters of field column1 are not all ASCII text characters") @test lenient(bytes) == first(bytes, 3 * 2880)
+        @test_throws ArgumentError r"Use check = false to write the bytes of the string" written(bytes)
+        hdu = HDU(Table, (a = ["é", "abc"], n = [1, 2]))
+        @test getfield(hdu, :cards)["TFORM1"] == "A3" && getfield(hdu, :cards)["NAXIS1"] == 5
+        @test_throws ArgumentError r"The string \"é\" of field a has characters that are not ASCII text characters" write(IOBuffer(), hdu)
+        io = IOBuffer()
+        write(io, [HDU(Primary), hdu]; check = false)
+        out = take!(io)
+        @test out[end-2879:end-2879+4] == [0xc3, 0xa9, 0x20, 0x20, 0x31] && out[end-2879+5:end-2879+9] == [0x61, 0x62, 0x63, 0x20, 0x32]
+        @test @test_logs((:warn, r"not all ASCII text characters"), fits(IOBuffer(out))[2].data) == (a = ["é", "abc"], n = [1, 2])
+        rows = HDU(Table, ["é 1", "abc"])
+        @test getfield(rows, :cards)["NAXIS1"] == 4
+        io = IOBuffer()
+        write(io, rows; check = false)
+        @test length(take!(io)) == 2880 + 2880
+        @test_throws ArgumentError r"has 3 characters, but the format A2 has 2" write(IOBuffer(), HDU(Table, (a = ["é1"],), Card{<:Any}[Card("TFORM1", "A2")]); check = false)
         #  the characters of a row that are not in a field are not read, and are written as spaces, which a warning says if they are not spaces
         bytes = tablebytes(fieldcards(["I4"], [1]), ["   1xyz", "   2   "])
         @test_logs (:warn, r"The character 'x' of row 1, column 5, is not in a field and is not a space, but the characters of a row that are not in a field are not read, and are written as spaces \(Sect. 7.2.4\)") @test reread(

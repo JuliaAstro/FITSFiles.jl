@@ -561,7 +561,7 @@ function DataFormat(::Type{Table}, data::Union{AbstractArray, Tuple, NamedTuple}
     forms, starts = tablelayout(columns, mankeys)
     ends = [start + tableformat(form)[2] - 1 for (form, start) in zip(forms, starts)]
     rows = data isa AbstractArray ? length(data) : isempty(columns) ? 0 : length(first(columns))
-    rowlen = data isa AbstractArray{<:AbstractString} ? maximum(length, data; init = 0) : 0
+    rowlen = data isa AbstractArray{<:AbstractString} ? maximum(ncodeunits, data; init = 0) : 0
     M = max(maximum(ends; init = 0), rowlen, get(mankeys, "NAXIS1", 0))
     DataFormat(BITS2TYPE[8], M*rows, (M, rows), 0, 1, 0)
 end
@@ -843,10 +843,11 @@ tablecell(data::AbstractArray, k::Integer, field, j::Integer) = data[j] isa Name
 tablecell(data::NamedTuple, k::Integer, field, j::Integer) = data[Symbol(field.name)][j]
 tablecell(data::Tuple, k::Integer, field, j::Integer) = data[k][j]
 
-#  The characters of a field are the restricted set of ASCII text characters, from 32 to 126 (Sect. 7.2.5)
-function checktext(text::AbstractString, name::AbstractString)
-    all(c -> ' ' <= c <= '~', text) || throw(ArgumentError("The string $(repr(text)) of $name has characters that are not " *
-        "ASCII text characters, from 32 to 126 (Sect. 7.2.5)."))
+#  The characters of a field are the restricted set of ASCII text characters, from 32 to 126 (Sect. 7.2.5), which is an error when the strings are
+#  written, unless the check is turned off (`check = false`), where the bytes of the string are written as they are
+function checktext(text::AbstractString, name::AbstractString; check::Bool = true)
+    !check || all(c -> ' ' <= c <= '~', text) || throw(ArgumentError("The string $(repr(text)) of $name has characters that are not " *
+        "ASCII text characters, from 32 to 126 (Sect. 7.2.5). Use check = false to write the bytes of the string."))
     text
 end
 
@@ -893,7 +894,7 @@ function fieldtext(field::TableField, value, format; check::Bool = true, physica
     if code == "A"
         value isa AbstractString || throw(ArgumentError("The value $(repr(value)) of field $(field.name) is not a string, but the " *
             "field has the format $(field.form) of characters (Sect. 7.2.5)."))
-        text = checktext(String(value), "field $(field.name)")
+        text = checktext(String(value), "field $(field.name)"; check)
     else
         value isa Real && !(value isa Bool) || throw(ArgumentError("The value $(repr(value)) of field $(field.name) is not a number, " *
             "but the field has the format $(field.form) (Sect. 7.2.5)."))
@@ -906,9 +907,10 @@ function fieldtext(field::TableField, value, format; check::Bool = true, physica
             text = realtext(Float64(stored), code, width, decimals, format)
         end
     end
-    length(text) > width && throw(ArgumentError("The value $(repr(value)) of field $(field.name) has $(length(text)) characters, but " *
+    ncodeunits(text) > width && throw(ArgumentError("The value $(repr(value)) of field $(field.name) has $(ncodeunits(text)) characters, but " *
         "the format $(field.form) has $width, and a longer value would shift the fields after it (Sect. 7.2.5)."))
-    code == "A" ? rpad(text, width) : lpad(text, width)
+    #  The characters of the field are its bytes, which the characters that are not ASCII, written with check = false, are not one of
+    code == "A" ? text * " "^(width - ncodeunits(text)) : lpad(text, width)
 end
 
 #  The text of a real number in a field of the format code F, E, or D, of `width` characters, and d `decimals`: the digits of the format, and the
@@ -946,11 +948,11 @@ function Base.write(io::IO, ::Type{Table}, data::Union{AbstractArray, Tuple, Nam
     for j = 1:N
         fill!(row, 0x20)
         if data isa AbstractArray{<:AbstractString}
-            copyto!(row, 1, codeunits(checktext(data[j], "row $j")), 1, length(data[j]))
+            copyto!(row, 1, codeunits(checktext(data[j], "row $j"; check)), 1, ncodeunits(data[j]))
         else
             for (k, field) in enumerate(fields)
                 text = fieldtext(field, tablecell(data, k, field, j), formats[k]; check, physical = tablescale(data, k, field))
-                copyto!(row, first(field.slice), codeunits(text), 1, length(text))
+                copyto!(row, first(field.slice), codeunits(text), 1, ncodeunits(text))
             end
         end
         write(io, row)
