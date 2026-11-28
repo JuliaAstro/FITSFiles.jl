@@ -190,6 +190,8 @@ Base.write(io::IO, ::Type{Bintable}, data::Missing, format::DataFormat, fields::
 #  elements has no storage, and its offset is 0 (Sect. 7.3.5).
 function writearray(io::IO, heap::IOBuffer, field::BinaryField, cell; check::Bool = true)
     type = field.type
+    #  An array that is missing has no elements, since the standard has no undefined array, and is read as an array of no elements
+    ismissing(cell) && (cell = emptyarray(type))
     #  The characters of a string are the bytes of the array, and the bits of a bit array are the bits of its bytes, whose number is the
     #  length of the array, and the bits after the end of the array are zeros
     if type <: Union{AbstractString, BitVector}
@@ -229,12 +231,23 @@ function verifydata(::Type{Bintable}, data::Union{NamedTuple, AbstractVector{<:N
             "elements (Sect. 7.3.3.1)."))
         emax = tryparse(Int, field.supp)
         isnothing(emax) && continue
-        longest = maximum((field.type <: AbstractString ? ncodeunits(cell) : length(cell)
+        longest = maximum((ismissing(cell) ? 0 : field.type <: AbstractString ? ncodeunits(cell) : length(cell)
             for j = 1:N for cell in (getcell(Bintable, data, field, j),)); init = 0)
         longest > emax && @warn "The longest array of field $(field.name) has $longest elements, more than the largest number of " *
             "elements, $emax, that its TFORM says (Sect. 7.3.5). The TFORM is written as it is."
     end
-    needed = sum(heapbytes(field, getcell(Bintable, data, field, j)) for j = 1:N for field in variable; init = 0)
+    #  A 32-bit descriptor (P) has the number of elements and the offset of an array in the heap that are 32-bit integers, which the arrays are written in
+    #  the order of the rows and then the fields, so their offsets are the bytes before them (Sect. 7.3.5)
+    offset = 0
+    for j = 1:N, field in variable
+        cell = getcell(Bintable, data, field, j)
+        n = ismissing(cell) ? 0 : field.type <: AbstractString ? ncodeunits(cell) : length(cell)
+        field.pntr == Int32 && (offset > typemax(Int32) || n > typemax(Int32)) && throw(ArgumentError("The array of row $j of field " *
+            "$(field.name) is at the offset $offset in the heap and has $n elements, which a 32-bit array descriptor (P) cannot address " *
+            "(Sect. 7.3.5). Use the 64-bit descriptor, Q, with the keyword variable or in TFORM$(findfirst(==(field), fields))."))
+        offset += heapbytes(field, cell)
+    end
+    needed = offset
     available = format.param - max(format.heap - M*N, 0)
     needed > available && throw(ArgumentError("The variable-length arrays of the data have $needed bytes, but PCOUNT " *
         "$(format.param) and THEAP $(format.heap) leave $available bytes for the heap (Sect. 7.3.5)."))
@@ -488,6 +501,8 @@ heapelementsize(type::Type) = type <: Union{Bool, AbstractString} ? 1 : sizeof(t
 #  in whole bytes, or the elements of an array
 heapbytes(field::BinaryField, cell) = field.type <: AbstractString ? ncodeunits(cell) :
     field.type <: BitVector ? sizeofbitvector(length(cell)) : length(cell) * heapelementsize(field.type)
+#  An array that is missing is an array of no elements, which has no storage (Sect. 7.3.5)
+heapbytes(field::BinaryField, ::Missing) = 0
 
 #  The type, the number of elements, the bytes in a row, the type of the array descriptor, the largest number of elements of a
 #  variable-length array, and the bytes of the heap of a field from the cells `values` of its column. The cells that are arrays of
@@ -889,6 +904,7 @@ function mappedcolumn(bytes::Vector{UInt8}, field::BinaryField, format::DataForm
         #  The bits of a row are a vector, or an array of the dimensions TDIMn if there are two or more and they have no more elements
         dims = field.dims
         n = isnothing(dims) || length(dims) < 2 ? nothing : prod(dims)
+        !isnothing(n) && leng > 0 && warnshortarrays(field, dims, n > leng ? N : 0)
         cell(bits) = isnothing(n) || n > length(bits) ? bits : reshape(bits[1:n], dims)
         column = MappedColumn(bytes, format.shape[1], offset, (N,), leng, sizeofbitvector(leng), raw -> map(cell, raw), cell,
             [falses(leng)], source)
@@ -1069,11 +1085,20 @@ function applydims(column, field::BinaryField)
     (isnothing(dims) || length(dims) < 2 || field.type <: AbstractString) && return column
     n = prod(dims)
     if column isa AbstractVector
-        #  The cells of a variable-length array, or of a bit array, are the elements of the arrays that are the rows
+        #  The cells of a variable-length array, or of a bit array, are the elements of the arrays that are the rows. An array has at least the
+        #  elements that the dimensions have (Sect. 7.3.2), and is not reshaped if it has fewer, which is a warning, but not for an array of no
+        #  elements, which TDIMn is not applicable to.
+        isnothing(field.pntr) && !(field.type <: BitVector) || warnshortarrays(field, dims, count(cell -> 0 < length(cell) < n, column))
         return map(cell -> n <= length(cell) ? reshape(cell[1:n], dims) : cell, column)
     end
     isnothing(arraydims(field)) && return column
     reshape(column[:, 1:n], (size(column, 1), dims...))
+end
+
+#  The warning that `short` arrays of a field have fewer elements than the dimensions TDIMn, which they are not reshaped by
+function warnshortarrays(field::BinaryField, dims, short::Integer)
+    short > 0 && @warn "TDIM of field $(field.name), $(join(dims, " × ")), has $(prod(dims)) elements, but $short of its arrays $(short == 1 ? "has" : "have") " *
+        "fewer (Sect. 7.3.2), so $(short == 1 ? "it is" : "they are") not reshaped."
 end
 
 #  The dimensions TDIMn of the array of each row of a field of numbers, if they are used: there are two or more, and they have no more elements than

@@ -87,6 +87,10 @@ The special records after the last HDU (Sect. 3.5) are not read, with a warning.
 
 The default data structure for Random and Bintable HDUs is a named tuple of arrays.
 
+A complex value of a binary table that has a NaN as its real or its imaginary part is undefined, and is `missing`. It is written as a NaN in both
+parts, so the data that are read (`access = :memory`) are written with the bytes of that NaN, which may not be those of the file, e.g., `NaN + 0im`,
+but the data that are not read, which is the default, are written as they are in the file.
+
 The data of the HDUs of a file are not read until they are accessed (`hdu.data`), so that a file is scanned quickly, e.g., to
 [`info`](@ref) its HDUs, and `size(hdu)` is the size of the data from the header. They are read from the file each time they are accessed,
 so the file must not have been modified since it was read, which is an `ArgumentError`, and an HDU that is written is written with the data
