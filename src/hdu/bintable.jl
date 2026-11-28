@@ -311,6 +311,14 @@ function verify!(::Type{Bintable}, cards::Cards, format::DataFormat,
     mankeys::AbstractDict)
 
     verifyshape!(cards, mankeys, format)
+    #  A NAXIS1 or a NAXIS2 that the cards give without the other is the length of a row and the number of rows of the data too
+    for j = 1:2
+        key = "NAXIS$j"
+        if haskey(cards, key) && cards[key] != format.shape[j]
+            @warn "$key set to $(format.shape[j])"
+            cards[key] = format.shape[j]
+        end
+    end
     verifycounts!(cards, mankeys, format)
 end
 
@@ -419,10 +427,10 @@ function FieldFormat(::Type{Bintable}, mankey::DataFormat, reskeys::Dict{S, V},
 
     #   Add support TTYPEn and TUNITn in data arrays
     N = length(data[1])
-    k, fields = 0, Vector{BinaryField}(undef, N)
+    k, fields, names = 0, Vector{BinaryField}(undef, N), Set{String}()
     for j = 1:N
         name = typeof(data[1]) <: NamedTuple ? rstrip(String(keys(data[1])[j])) :
-            stringkey(reskeys, "TTYPE$j", "field$j")
+            uniquename(stringkey(reskeys, "TTYPE$j", "column$j"), "column$j", names)
         type, leng, byts, pntr, supp, _, shape = columndescriptor((record[j] for record in data), forcedpointer(reskeys, j))
         type, offset = rawtype(type), offsetof(type)
         # unit_ = unit(data[1][j]) != NoUnits ? unit(data[1][j]) :
@@ -449,7 +457,16 @@ end
 function DataFormat(::Type{Bintable}, data::U, mankeys::Dict{S, V}) where
     {U <: Union{Tuple, NamedTuple}, S <: AbstractString, V <: ValueType}
 
+    checkrows(data)
     heapformat(data, size(data[1], 1), mankeys)
+end
+
+#  The columns of data have the same number of rows, which is NAXIS2, since every field has an entry in every row (Sects. 7.3.1 and 7.3.3.1)
+function checkrows(data::Union{Tuple, NamedTuple})
+    rows = [size(column, 1) for column in columnsof(data)]
+    all(==(first(rows)), rows) || throw(ArgumentError("The columns of the data have different numbers of rows, but every field of a binary " *
+        "table has an entry in each of the NAXIS2 rows (Sects. 7.3.1 and 7.3.3.1): " *
+        join(["$name has $n" for (name, n) in zip(datanames(data), rows)], ", ") * "."))
 end
 
 function FieldFormat(::Type{Bintable}, mankey::DataFormat, reskeys::Dict{S, V},
@@ -593,23 +610,59 @@ function variabledescriptor(values, pntr::Type)
     (type, 1, 2sizeof(pntr), pntr, string(maximum(sizes; init = 0)), bytes, nothing)
 end
 
-#  The keyword `variable` of an HDU that is made from data gives the type of the array descriptor, `'P'` (32-bit) or `'Q'` (64-bit), of the
-#  fields that it names, which are the names of the data, or their numbers, in a named tuple or a dictionary. It sets the TFORMn of the field,
-#  which it replaces if the cards have it, so the keyword has priority over the TFORMn card, which has priority over the lengths of the arrays.
+#  The names of the fields of data that are a named tuple, or the default names of the fields of data that are a tuple, in records or columns
+datanames(data::NamedTuple) = collect(keys(data))
+datanames(data::Tuple) = [Symbol("column$j") for j = 1:length(data)]
+datanames(data::AbstractArray) = datanames(first(data))
+
+#  The repeat count, the type of the descriptor, and the data type of the value of a TFORMn, which say whether two TFORMn are the format of the same
+#  field, whatever follows the data type: the largest number of elements of an array, which is not more than the arrays have, or the characters
+#  of the legacy form rAw (Sect. 7.3.2)
+function formcode(form)
+    m = form isa AbstractString ? match(r"^\s*(\d*)([PQ]?)([A-Z])", form) : nothing
+    isnothing(m) ? nothing : (isempty(m[1]) ? 1 : Base.parse(Int, m[1]), m[2], m[3])
+end
+
+#  The cards of the fields of an HDU that is made from data: the data are the fields, so a TFORMn or a TFIELDS that the cards give that is not the
+#  format or the number of the fields of the data is set to it, with a warning (as it is for a table, see `correctfieldcards!`), but a P or a Q that
+#  the card gives is the type of the array descriptor of the field, whose arrays may have the same length. The keyword `variable` gives the type of the
+#  array descriptor, `'P'` (32-bit) or `'Q'` (64-bit), of the fields that it names, which are the names of the data, or their numbers, in a named tuple
+#  or a dictionary, and has priority over the TFORMn card, which has priority over the lengths of the arrays (Sect. 7.3.5).
 function keywordcards!(::Type{Bintable}, cards::Cards, data; variable = nothing, kwds...)
-    isnothing(variable) && return cards
+    data isa AbstractArray && isempty(data) && return cards
     columns = columnsof(data)
-    names = data isa AbstractArray ? keys(data[1]) : keys(data)
-    for (key, code) in pairs(variable)
-        j = key isa Integer ? Int(key) : findfirst(==(Symbol(key)), collect(names))
+    names = datanames(data)
+    #  The type of the array descriptor of each field that the keyword names
+    descriptors = Dict{Int, Type}()
+    requested = isnothing(variable) ? Pair{Any, Any}[] : collect(pairs(variable))
+    for (key, code) in requested
+        j = key isa Integer ? Int(key) : findfirst(==(Symbol(key)), names)
         (isnothing(j) || !(1 <= j <= length(columns))) && throw(ArgumentError("The keyword variable names the field $(repr(key)), " *
-            "but the data have the fields $(join(repr.(collect(names)), ", "))."))
+            "but the data have the fields $(join(repr.(names), ", "))."))
         letter = string(code)
         letter in ("P", "Q") || throw(ArgumentError("The descriptor of a variable-length field is 'P' or 'Q', but the keyword variable " *
             "has $(repr(code)) for the field $(repr(key))."))
-        type, _, _, pntr, supp = columndescriptor(columns[j], POINTERTYPE[letter])
-        popat!(cards, "TFORM$j")
-        push!(cards, Card("TFORM$j", "1$letter$(BINARYTYPE[rawtype(type)])($supp)"))
+        descriptors[j] = POINTERTYPE[letter]
+    end
+    if haskey(cards, "TFIELDS") && cards["TFIELDS"] != length(columns)
+        @warn "TFIELDS set to $(length(columns)), the number of fields of the data."
+        cards["TFIELDS"] = length(columns)
+    end
+    for j = 1:length(columns)
+        key = "TFORM$j"
+        given = haskey(cards, key)
+        (given || haskey(descriptors, j)) || continue
+        form = given ? cards[key] : nothing
+        pntr = get(descriptors, j, nothing)
+        isnothing(pntr) && form isa AbstractString && (m = match(r"^\s*\d*([PQ])", form); isnothing(m) || (pntr = POINTERTYPE[m[1]]))
+        type, leng, _, pntr, supp = columndescriptor(columns[j], pntr)
+        new = isnothing(pntr) ? "$leng$(BINARYTYPE[rawtype(type)])" : "$leng$(POINTERTYPE[pntr])$(BINARYTYPE[rawtype(type)])($supp)"
+        #  The card of the field is kept, with the largest number of elements that it gives, if it is the format of the field
+        formcode(form) == formcode(new) && !haskey(descriptors, j) && continue
+        given && !haskey(descriptors, j) && @warn "$key set to $(repr(new)), the format of field $j of the data, and not " *
+            "$(repr(form isa AbstractString ? rstrip(form) : form))."
+        popat!(cards, key)
+        push!(cards, Card(key, new))
     end
     cards
 end
@@ -725,11 +778,18 @@ function createdata(::Type{Bintable}, format::DataFormat,
     end
 end
 
-#  The data of a table that has no rows have no data blocks, and are the empty columns of the fields, or the empty vector of records. A table that
-#  has no fields has no data.
+#  The data of a table that has no data blocks are the empty columns of the fields, or the empty vector of records, whether the table has no rows or its
+#  rows have no bytes, e.g., a field of strings of no characters, which are the empty values of the rows (Sect. 7.3.1). A table that has no fields has no
+#  data.
 function emptydata(::Type{Bintable}, format::DataFormat, fields::Vector{BinaryField}; kwds...)
-    isempty(fields) || format.shape[2] > 0 ? missing : read(IOBuffer(UInt8[]), Bintable, format, fields; kwds...)
+    isempty(fields) ? missing : read(IOBuffer(UInt8[]), Bintable, format, fields; kwds...)
 end
+
+#  Name the data that are given as tuples, which are the columns or the records, by the names of the fields (see `FieldFormat`), so that they are
+#  matched to the fields by name as named tuples are
+namedata(::Type{Bintable}, data::Tuple, fields, format::DataFormat) = NamedTuple{Tuple(Symbol(field.name) for field in fields)}(data)
+namedata(::Type{Bintable}, data::AbstractArray{<:Tuple}, fields, format::DataFormat) =
+    [NamedTuple{Tuple(Symbol(field.name) for field in fields)}(record) for record in data]
 
 function bintabzeros(f)
     if f.type <: AbstractString
@@ -1052,7 +1112,7 @@ physicalscale(data, field::BinaryField) = nothing
 
 #  The TSCALn and TZEROn cards of the fields that are the physical values of floating-point stored values, which have the scale and the zero of
 #  the data
-function scalecards!(::Type{Bintable}, cards::Cards, data::NamedTuple)
+function scalecards!(::Type{Bintable}, cards::Cards, data::Union{NamedTuple, Tuple})
     for (j, column) in enumerate(data)
         column isa ScaledArray || continue
         setscalecard!(cards, "TSCAL$j", column.scale, 1)
