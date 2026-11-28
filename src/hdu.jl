@@ -42,6 +42,12 @@ HDU types are: Primary, Random, Image, Table, Bintable, and Conform.
 - `record::Bool=false`: structure the data as a list of records
 - `scale::Bool=true`: apply the scale and zero keywords to the data; floating-point data that have a scale and a zero that are not 1
   and 0 are a `FITSFiles.ScaledArray`, which has them, and is written as the stored values
+- `variable=nothing`: the fields of a binary table that are variable-length arrays, which are stored in the heap, and the type of their array
+  descriptor, `'P'` (32-bit) or `'Q'` (64-bit), as a `NamedTuple` or a `Dict` of the name of the field, or its number, e.g.,
+  `variable = (events = 'P', spectra = 'Q')`. The keyword has priority over the TFORMn card of the field, which has priority over the data, whose
+  arrays are variable-length if their lengths differ, so that arrays of the same length are variable-length with the keyword or a TFORMn that
+  has a `P` or a `Q` (Sect. 7.3.5). The arrays of the field are arrays, strings, or bit arrays, a number is an array of one element, and
+  the rows of a matrix are its arrays.
 
 The following keywords format the cards that are created, and are those of [`Card`](@ref), which
 describes them.
@@ -118,13 +124,13 @@ scalecards!(::Type, cards::Cards, data) = cards
 
 function HDU(data::D = missing, cards::C = missing; record::B = false,
 	scale::B = true, append::B = false, fixed::B = true, slash::I = 32, lpad::I = 1,
-	rpad::I = 1, upad::I = 1, truncate::B = true) where
+	rpad::I = 1, upad::I = 1, truncate::B = true, variable = nothing) where
 	{C <: Union{Missing, Card, Cards, Vector{Card{T}}} where T <: AbstractCardType,
 	D <: Union{Missing, AbstractArray, Tuple, NamedTuple}, B <: Bool, I <: Integer}
 
 	kwds = (;
 		#  data formatting options
-		record, scale,
+		record, scale, variable,
 		#  card formatting options
 		append, fixed, slash, lpad, rpad, upad, truncate)
 

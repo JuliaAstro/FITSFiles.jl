@@ -2028,4 +2028,91 @@
         @test read_.a == large.a && read_.b == large.b && read_.c == large.c && read_.d == large.d
     end
 
+    @testset "variable-length fields" begin
+        bytesof(hdus; kwds...) = (io = IOBuffer(); write(io, hdus; kwds...); take!(io))
+        #  a field of the repeat count 0 is an empty field of zero bytes, which has no descriptor, so the other fields are read and written where they are
+        #  in the row (Sect. 7.3.3.1): the table of a field of arrays, whose rows are the 2 bytes, 8 bytes, and 4 bytes of the fields, is changed to a row
+        #  of 6 bytes that has no descriptor
+        raw = bytesof([HDU(Primary), HDU(Bintable, (a = Int16[1, 2, 3], v = [Int16[1], Int16[2, 3], Int16[]], c = Int32[10, 20, 30]))])
+        function replacebytes!(raw, old, new)
+            i = findfirst(Vector{UInt8}(old), raw)
+            raw[first(i):last(i)] = Vector{UInt8}(new)
+        end
+        replacebytes!(raw, "NAXIS1  =                   14", "NAXIS1  =                    6")
+        replacebytes!(raw, "PCOUNT  =                    6", "PCOUNT  =                    0")
+        replacebytes!(raw, "'1PI(2)'", "'0PI(2)'")
+        be16(x) = reverse(reinterpret(UInt8, [Int16(x)]))
+        be32(x) = reverse(reinterpret(UInt8, [Int32(x)]))
+        rows = reduce(vcat, [vcat(be16(a), be32(c)) for (a, c) in ((1, 10), (2, 20), (3, 30))])
+        zero = vcat(raw[1:5760], rows, zeros(UInt8, 2880 - length(rows)))
+        hdus = @test_logs fits(IOBuffer(zero))
+        data = hdus[2].data
+        @test data.a == [1, 2, 3] && data.c == [10, 20, 30] && data.v == [Int16[], Int16[], Int16[]] && eltype(data.v) == Vector{Int16}
+        @test bytesof(hdus) == zero
+        records = @test_logs fits(IOBuffer(zero); record = true)[2].data
+        @test records[2].a == 2 && records[2].c == 20 && records[2].v == Int16[]
+        path = joinpath(mktempdir(), "zero.fits")
+        write(path, zero)
+        mapped = fits(path; access = :mapped)[2].data
+        @test mapped.v == data.v && collect(mapped.a) == data.a && collect(mapped.c) == data.c
+        #  and its arrays have no elements, so data that have elements are an error
+        wrong = HDU{Bintable}(getfield(hdus[2], :cards), (a = Int16[1, 2, 3], v = [Int16[1], Int16[], Int16[]], c = Int32[10, 20, 30]))
+        @test_throws ArgumentError r"Field v has the repeat count 0" write(IOBuffer(), wrong)
+
+        #  the heap is not read: the stream is at the end of the data, and the arrays are the memory that the data have, and not the heap and
+        #  copies of it
+        cells = [rand(Int16, 100_000 + 10i) for i = 1:8]
+        big = bytesof([HDU(Primary), HDU(Bintable, (a = Int32.(1:8), v = cells))])
+        @test fits(IOBuffer(big))[2].data.v == cells
+        io = IOBuffer(big)
+        read(io, HDU); read(io, HDU)
+        @test eof(io)
+        fits(IOBuffer(big))
+        @test (@allocated fits(IOBuffer(big))) < 2 * sizeof(Int16) * sum(length, cells)
+
+        #  the keyword variable makes a field variable-length, with a P or a Q descriptor, though its arrays have the same length (Sect. 7.3.5)
+        equal = (v = [Int16[1, 2, 3], Int16[4, 5, 6]], a = Int32[1, 2])
+        @test getfield(HDU(Bintable, equal), :cards)["TFORM1"] == "3I"
+        for (code, form) in (('P', "1PI(3)"), ('Q', "1QI(3)"), ("P", "1PI(3)"), (:Q, "1QI(3)"))
+            hdu = HDU(Bintable, equal; variable = (v = code,))
+            @test getfield(hdu, :cards)["TFORM1"] == form && getfield(hdu, :cards)["TFORM2"] == "1J"
+            read_ = fits(IOBuffer(bytesof([HDU(Primary), hdu])))[2]
+            @test getfield(read_, :cards)["TFORM1"] == form && read_.data.v == equal.v && read_.data.a == equal.a
+            @test getfield(read_, :cards)["NAXIS1"] == (code in ('P', "P") ? 12 : 20)
+        end
+        #  the fields are named by a symbol, a string, or their number, in a named tuple or a dictionary, and the generic HDU makes it too
+        for variable in (Dict(:v => 'Q'), Dict("v" => 'Q'), Dict(1 => 'Q'), (v = 'Q',))
+            @test getfield(HDU(Bintable, equal; variable), :cards)["TFORM1"] == "1QI(3)"
+        end
+        @test getfield(HDU(equal; variable = (v = 'P',)), :cards)["TFORM1"] == "1PI(3)"
+        #  the TFORMn card of the field has the descriptor when the keyword does not, which the keyword has priority over, and the data have the
+        #  fields that the keyword does not name
+        cards = Card{<:Any}[Card("TFORM1", "1PI(3)")]
+        @test getfield(HDU(Bintable, equal, cards), :cards)["TFORM1"] == "1PI(3)"
+        @test getfield(HDU(Bintable, equal, cards; variable = (v = 'Q',)), :cards)["TFORM1"] == "1QI(3)"
+        @test getfield(HDU(Bintable, equal, Card{<:Any}[Card("TFORM1", "1QI(3)")]; variable = (v = 'P',)), :cards)["TFORM1"] == "1PI(3)"
+        @test getfield(HDU(Bintable, equal; variable = (a = 'P',)), :cards)["TFORM1"] == "3I"
+        @test getfield(HDU(Bintable, equal; variable = (a = 'P',)), :cards)["TFORM2"] == "1PJ(1)"
+        @test fits(IOBuffer(bytesof([HDU(Primary), HDU(Bintable, equal, cards)])))[2].data.v == equal.v
+        #  the arrays are arrays, strings, bit arrays, numbers, which are arrays of one element, and the rows of a matrix, in records too
+        text = (s = ["ab", "cde"], b = [BitVector([1, 0, 1]), BitVector([0, 1, 1])], x = Int32[1, 2], m = Int16[1 2 3; 4 5 6])
+        hdu = HDU(Bintable, text; variable = (s = 'P', b = 'Q', x = 'P', m = 'P'))
+        @test [getfield(hdu, :cards)["TFORM$j"] for j = 1:4] == ["1PA(3)", "1QX(3)", "1PJ(1)", "1PI(3)"]
+        read_ = fits(IOBuffer(bytesof([HDU(Primary), hdu])))[2].data
+        @test read_.s == text.s && read_.b == text.b && read_.x == [Int32[1], Int32[2]] && read_.m == [Int16[1, 2, 3], Int16[4, 5, 6]]
+        records = [(v = Int16[1, 2],), (v = Int16[3, 4],)]
+        @test fits(IOBuffer(bytesof([HDU(Primary), HDU(Bintable, records; variable = (v = 'P',))])))[2].data.v == [Int16[1, 2], Int16[3, 4]]
+        #  the names and the descriptors are checked, and a table of strings has no variable-length arrays of arrays of strings
+        @test_throws ArgumentError("The keyword variable names the field :w, but the data have the fields :v, :a.") HDU(Bintable, equal; variable = (w = 'P',))
+        @test_throws ArgumentError r"names the field 3, but the data have the fields" HDU(Bintable, equal; variable = Dict(3 => 'P'))
+        @test_throws ArgumentError r"The descriptor of a variable-length field is 'P' or 'Q', but the keyword variable has 'X'" HDU(Bintable, equal; variable = (v = 'X',))
+        @test_throws ArgumentError r"An array of strings cannot be a variable-length field" HDU(Bintable, (t = ["a" "b"; "c" "d"],); variable = (t = 'P',))
+        #  a P descriptor is 32-bit, so the arrays have at most the bytes of a 32-bit integer, and a Q descriptor is 64-bit
+        @test_throws ArgumentError r"Use the 64-bit descriptor, Q" FITSFiles.variabledescriptor((1:2^31,), Int32)
+        @test FITSFiles.variabledescriptor((1:2^31,), Int64)[[2, 3, 4, 5, 6]] == (1, 16, Int64, "2147483648", 2^34)
+        #  the type of a column that has no array is that of its elements, and the cells that are missing have no storage
+        @test FITSFiles.variabledescriptor(Vector{Int16}[], Int32)[1] == Int16 && FITSFiles.variabledescriptor(Int16[], Int32)[1] == Int16
+        @test FITSFiles.variabledescriptor([Int16[1, 2], missing], Int32)[[1, 5, 6]] == (Int16, "2", 4)
+    end
+
 end
